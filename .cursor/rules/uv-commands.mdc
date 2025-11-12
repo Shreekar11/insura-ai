@@ -1,0 +1,78 @@
+# UV Package Manager Quick Reference
+
+## Daily Commands
+
+### Running Your Application
+```bash
+# Run FastAPI app
+uv run uvicorn app.main:app --reload
+
+# Run any Python script
+uv run python script.py
+```
+
+### Testing & Quality
+```bash
+# Run tests
+uv run pytest
+
+# Run tests with coverage
+uv run pytest --cov=app
+
+# Format code
+uv run black .
+
+# Lint code
+uv run ruff check .
+
+# Type check
+uv run mypy app
+```
+
+### Dependency Management
+```bash
+# Add production dependency
+uv add fastapi
+
+# Add dev dependency
+uv add --dev pytest
+
+# Remove dependency
+uv remove package-name
+
+# Update all dependencies
+uv sync --upgrade
+
+# Install all dependencies (after git clone)
+uv sync --all-extras
+```
+
+### Virtual Environment
+```bash
+# Activate (traditional way)
+source .venv/bin/activate
+
+# Deactivate
+deactivate
+
+# Or just use 'uv run' without activating
+uv run <command>
+```
+
+## Pro Tips
+
+1. **Always use `uv run`** - No need to activate venv
+2. **Fast installs** - UV is 10-100x faster than pip
+3. **Lock file** - `uv.lock` ensures reproducible builds
+4. **Python versions** - UV can manage Python versions too: `uv python install 3.11`
+
+## Migration from Poetry
+
+| Poetry Command | UV Command |
+|---------------|------------|
+| `poetry install` | `uv sync --all-extras` |
+| `poetry add pkg` | `uv add pkg` |
+| `poetry add -D pkg` | `uv add --dev pkg` |
+| `poetry run cmd` | `uv run cmd` |
+| `poetry update` | `uv sync --upgrade` |
+| `poetry shell` | `source .venv/bin/activate` or use `uv run` |
