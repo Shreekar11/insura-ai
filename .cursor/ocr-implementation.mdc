@@ -1,0 +1,73 @@
+# Implementation Context — OCR Step
+
+## Purpose
+The OCR (Optical Character Recognition) step is the **first stage** in the unstructured-to-structured document processing workflow.  
+Its goal is to convert scanned or digital insurance documents (e.g., policies, loss runs, claims, contracts) into **machine-readable text and layout structures**.
+
+OCR serves as the foundation for:
+- Document classification (detecting document type)
+- Information extraction (structured JSON output)
+- Downstream vector embedding and semantic search
+
+---
+
+## Input Format
+- **Source**: Uploaded PDFs, images (JPEG, PNG, TIFF), or scanned documents.
+- **Metadata**:
+  - `document_id` (UUID): Unique reference for tracking
+  - `file_url`: Cloud/S3 location of uploaded file
+  - `file_type`: MIME type (application/pdf, image/png, etc.)
+  - `received_at`: Timestamp when ingestion occurred
+
+---
+
+## Output Format
+The OCR module outputs:
+- **Raw Text** (`raw_text`): Extracted full text from the document
+- **Structured Layout (optional)**:
+  - Bounding boxes, line coordinates, page segmentation
+  - Optional Markdown/JSON output with text + layout metadata
+- **Confidence Scores** per block or field
+- **Status** (`Completed`, `Failed`)
+- **Error Metadata** (if applicable)
+
+---
+
+## Example Output
+```json
+{
+  "document_id": "b12f8f20-9921-4c3b-a1a4-13e32db0dc0d",
+  "text": "Policy Number: 12345ABC\nCoverage: Property Damage\nEffective Date: 2023-07-10",
+  "layout": [
+    {"page": 1, "x": 40, "y": 100, "width": 320, "height": 15, "content": "Policy Number: 12345ABC"}
+  ],
+  "confidence": 0.97,
+  "status": "Completed"
+}
+```
+
+# Dependencies / Libraries
+
+## Recommended OCR Frameworks
+
+### **Mistral OCR API (preferred)**
+
+- **Multimodal OCR** for text, tables, and layout  
+- **Structured output:** Markdown / JSON  
+- **Supports:** self-hosting and multilingual data  
+- **Input:** PDF / Image  
+- **Output:** Structured JSON  
+
+---
+
+### **Tesseract OCR (fallback / open-source)**
+
+- **Basic text extraction** for printed and scanned documents  
+- **Integrates easily with Python** via `pytesseract`  
+
+---
+
+### **OCR.Space API (free tier alternative)**
+
+- **Best for:** quick prototyping and small workloads  
+- **Returns:** JSON text + confidence levels  
