@@ -5,7 +5,7 @@ from typing import AsyncGenerator
 
 from fastapi import FastAPI
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import JSONResponse
+from pydantic import BaseModel, Field
 
 from app.api.v1.endpoints import ocr
 from app.api.v1.models.ocr import HealthCheckResponse
@@ -13,6 +13,15 @@ from app.config import settings
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__, level=settings.log_level)
+
+
+class RootResponse(BaseModel):
+    """Root endpoint response payload."""
+
+    message: str = Field(..., description="Service status message")
+    version: str = Field(..., description="Running application version")
+    docs: str = Field(..., description="Path to the interactive API docs")
+    health: str = Field(..., description="Path to the health check endpoint")
 
 
 @asynccontextmanager
@@ -71,6 +80,7 @@ app.add_middleware(
     tags=["Health"],
     summary="Health check endpoint",
     description="Check if the service is running and healthy",
+    operation_id="get_service_health_status",
 )
 async def health_check() -> HealthCheckResponse:
     """Health check endpoint.
@@ -88,23 +98,23 @@ async def health_check() -> HealthCheckResponse:
 # Root endpoint
 @app.get(
     "/",
+    response_model=RootResponse,
     tags=["Root"],
     summary="Root endpoint",
     description="Get basic information about the API",
+    operation_id="get_public_root_metadata",
 )
-async def root() -> JSONResponse:
+async def root() -> RootResponse:
     """Root endpoint.
 
     Returns:
-        JSONResponse: Basic API information
+        RootResponse: Basic API information
     """
-    return JSONResponse(
-        content={
-            "message": "Server is running",
-            "version": settings.app_version,
-            "docs": "/docs",
-            "health": "/health",
-        }
+    return RootResponse(
+        message="Server is running",
+        version=settings.app_version,
+        docs="/docs",
+        health="/health",
     )
 
 

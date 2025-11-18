@@ -1,9 +1,12 @@
 """Tests for API endpoints."""
 
+from unittest.mock import AsyncMock
+
 import pytest
-from unittest.mock import patch, AsyncMock
 from fastapi.testclient import TestClient
 
+from app.api.v1.endpoints.ocr import get_ocr_service
+from app.main import app
 from app.services.ocr_base import OCRResult
 from app.utils.exceptions import (
     OCRExtractionError,
@@ -29,25 +32,24 @@ class TestOCREndpoints:
             sample_pdf_url: Sample PDF URL fixture
             sample_ocr_result: Sample OCR result fixture
         """
-        with patch("app.api.v1.endpoints.ocr._get_ocr_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.extract_text_from_url.return_value = sample_ocr_result
-            mock_get_service.return_value = mock_service
+        mock_service = AsyncMock()
+        mock_service.extract_text_from_url.return_value = sample_ocr_result
+        app.dependency_overrides[get_ocr_service] = lambda: mock_service
 
-            # Execute
-            response = test_client.post(
-                "/api/v1/ocr/extract",
-                json={"pdf_url": sample_pdf_url},
-            )
+        # Execute
+        response = test_client.post(
+            "/api/v1/ocr/extract",
+            json={"pdf_url": sample_pdf_url},
+        )
 
-            # Assert
-            assert response.status_code == 200
-            data = response.json()
-            assert "document_id" in data
-            assert data["text"] == sample_ocr_result.text
-            assert data["confidence"] == sample_ocr_result.confidence
-            assert data["status"] == "Completed"
-            assert "metadata" in data
+        # Assert
+        assert response.status_code == 200
+        data = response.json()
+        assert "document_id" in data
+        assert data["text"] == sample_ocr_result.text
+        assert data["confidence"] == sample_ocr_result.confidence
+        assert data["status"] == "Completed"
+        assert "metadata" in data
 
     def test_extract_ocr_invalid_url(self, test_client: TestClient) -> None:
         """Test OCR extraction with invalid URL.
@@ -86,24 +88,23 @@ class TestOCREndpoints:
             test_client: FastAPI test client fixture
             sample_pdf_url: Sample PDF URL fixture
         """
-        with patch("app.api.v1.endpoints.ocr._get_ocr_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.extract_text_from_url.side_effect = InvalidDocumentError(
-                "Document not found"
-            )
-            mock_get_service.return_value = mock_service
+        mock_service = AsyncMock()
+        mock_service.extract_text_from_url.side_effect = InvalidDocumentError(
+            "Document not found"
+        )
+        app.dependency_overrides[get_ocr_service] = lambda: mock_service
 
-            # Execute
-            response = test_client.post(
-                "/api/v1/ocr/extract",
-                json={"pdf_url": sample_pdf_url},
-            )
+        # Execute
+        response = test_client.post(
+            "/api/v1/ocr/extract",
+            json={"pdf_url": sample_pdf_url},
+        )
 
-            # Assert
-            assert response.status_code == 400
-            data = response.json()
-            assert "detail" in data
-            assert data["detail"]["error"] == "InvalidDocumentError"
+        # Assert
+        assert response.status_code == 400
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["error"] == "InvalidDocumentError"
 
     def test_extract_ocr_timeout_error(
         self, test_client: TestClient, sample_pdf_url: str
@@ -114,24 +115,23 @@ class TestOCREndpoints:
             test_client: FastAPI test client fixture
             sample_pdf_url: Sample PDF URL fixture
         """
-        with patch("app.api.v1.endpoints.ocr._get_ocr_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.extract_text_from_url.side_effect = OCRTimeoutError(
-                "Processing timed out"
-            )
-            mock_get_service.return_value = mock_service
+        mock_service = AsyncMock()
+        mock_service.extract_text_from_url.side_effect = OCRTimeoutError(
+            "Processing timed out"
+        )
+        app.dependency_overrides[get_ocr_service] = lambda: mock_service
 
-            # Execute
-            response = test_client.post(
-                "/api/v1/ocr/extract",
-                json={"pdf_url": sample_pdf_url},
-            )
+        # Execute
+        response = test_client.post(
+            "/api/v1/ocr/extract",
+            json={"pdf_url": sample_pdf_url},
+        )
 
-            # Assert
-            assert response.status_code == 408
-            data = response.json()
-            assert "detail" in data
-            assert data["detail"]["error"] == "OCRTimeoutError"
+        # Assert
+        assert response.status_code == 408
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["error"] == "OCRTimeoutError"
 
     def test_extract_ocr_extraction_error(
         self, test_client: TestClient, sample_pdf_url: str
@@ -142,24 +142,23 @@ class TestOCREndpoints:
             test_client: FastAPI test client fixture
             sample_pdf_url: Sample PDF URL fixture
         """
-        with patch("app.api.v1.endpoints.ocr._get_ocr_service") as mock_get_service:
-            mock_service = AsyncMock()
-            mock_service.extract_text_from_url.side_effect = OCRExtractionError(
-                "Extraction failed"
-            )
-            mock_get_service.return_value = mock_service
+        mock_service = AsyncMock()
+        mock_service.extract_text_from_url.side_effect = OCRExtractionError(
+            "Extraction failed"
+        )
+        app.dependency_overrides[get_ocr_service] = lambda: mock_service
 
-            # Execute
-            response = test_client.post(
-                "/api/v1/ocr/extract",
-                json={"pdf_url": sample_pdf_url},
-            )
+        # Execute
+        response = test_client.post(
+            "/api/v1/ocr/extract",
+            json={"pdf_url": sample_pdf_url},
+        )
 
-            # Assert
-            assert response.status_code == 500
-            data = response.json()
-            assert "detail" in data
-            assert data["detail"]["error"] == "OCRExtractionError"
+        # Assert
+        assert response.status_code == 500
+        data = response.json()
+        assert "detail" in data
+        assert data["detail"]["error"] == "OCRExtractionError"
 
 
 class TestHealthEndpoint:

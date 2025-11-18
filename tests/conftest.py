@@ -19,6 +19,14 @@ def test_client() -> TestClient:
     return TestClient(app)
 
 
+@pytest.fixture(autouse=True)
+def clear_dependency_overrides():
+    """Ensure FastAPI dependency overrides are reset between tests."""
+    app.dependency_overrides = {}
+    yield
+    app.dependency_overrides = {}
+
+
 @pytest.fixture
 def mock_ocr_service() -> Mock:
     """Create mock OCR service.
