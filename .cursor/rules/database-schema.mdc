@@ -7,109 +7,210 @@ It supports unstructured-to-structured workflows including ingestion, OCR extrac
 ---
 
 ```sql
--- ==============================
--- INSURED PARTIES TABLE
--- ==============================
-CREATE TABLE insured_parties (
-  insured_party_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  name VARCHAR(255) NOT NULL,
-  contact_info JSONB,
-  entity_type VARCHAR(50) CHECK (entity_type IN ('Individual', 'Company')),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- =====================================================================
+-- USERS TABLE (Clerk-auth integrated)
+-- =====================================================================
+CREATE TABLE users (
+    id UUID PRIMARY KEY,
+    clerk_user_id TEXT UNIQUE NOT NULL,
+    email TEXT NOT NULL,
+    full_name TEXT,
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- POLICIES TABLE
--- ==============================
-CREATE TABLE policies (
-  policy_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  insured_party_id UUID REFERENCES insured_parties(insured_party_id) ON DELETE SET NULL,
-  policy_type VARCHAR(100),
-  issue_date DATE,
-  expiration_date DATE,
-  premium_amount NUMERIC(12,2),
-  coverage_details JSONB,
-  status VARCHAR(50) CHECK (status IN ('Active', 'Expired', 'Underwriting', 'Cancelled')),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
-);
-
--- ==============================
--- DOCUMENTS TABLE
--- ==============================
+-- =====================================================================
+-- DOCUMENTS (raw uploaded files)
+-- =====================================================================
 CREATE TABLE documents (
-  document_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  policy_id UUID REFERENCES policies(policy_id) ON DELETE SET NULL,
-  insured_party_id UUID REFERENCES insured_parties(insured_party_id) ON DELETE SET NULL,
-  type VARCHAR(100) CHECK (type IN ('policy', 'claim', 'schedule', 'loss_run', 'contract')),
-  upload_date TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  file_url TEXT NOT NULL,
-  raw_text TEXT,
-  embeddings VECTOR(1536),  -- assuming OpenAI or similar embedding dimension
-  structured_data JSONB,
-  status VARCHAR(50) CHECK (status IN ('Pending', 'Extracted', 'Validated', 'Failed')),
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id UUID PRIMARY KEY,
+    user_id UUID REFERENCES users(id),
+    file_path TEXT NOT NULL,
+    mime_type TEXT,
+    page_count INT,
+    status TEXT NOT NULL DEFAULT 'uploaded',  -- uploaded | ocr_processing | ocr_processed | classified | extracted
+    uploaded_at TIMESTAMP NOT NULL DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- EXTRACTION RESULTS TABLE
--- ==============================
-CREATE TABLE extraction_results (
-  extraction_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_id UUID REFERENCES documents(document_id) ON DELETE CASCADE,
-  extractor_type VARCHAR(50) CHECK (extractor_type IN ('OCR', 'LLM', 'Hybrid')),
-  result_json JSONB,
-  validated_by VARCHAR(255),
-  validation_date DATE,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+-- =====================================================================
+-- DOCUMENT_PAGES (page-level metadata for PDFs/images)
+-- =====================================================================
+CREATE TABLE document_pages (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+    page_number INT NOT NULL,
+    image_path TEXT,               -- optional: per-page image used for OCR
+    width INT,
+    height INT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- CLAIMS TABLE
--- ==============================
+-- =====================================================================
+-- DOCUMENT_RAW_TEXT (OCR text per page)
+-- =====================================================================
+CREATE TABLE document_raw_text (
+    id UUID PRIMARY KEY,
+    document_page_id UUID REFERENCES document_pages(id) ON DELETE CASCADE,
+    text_content TEXT NOT NULL,
+    confidence NUMERIC,            -- average confidence (from OCR)
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- OCR_RESULTS (document-level full OCR)
+-- =====================================================================
+CREATE TABLE ocr_results (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+    ocr_provider TEXT NOT NULL,        -- mistral_ocr | tesseract | gcv
+    raw_text TEXT,                     -- concatenated text of all pages
+    confidence NUMERIC,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- OCR_TOKENS (optional, token-level OCR structure)
+-- Helps for advanced layout understanding & LLM post-processing
+-- =====================================================================
+CREATE TABLE ocr_tokens (
+    id UUID PRIMARY KEY,
+    document_page_id UUID REFERENCES document_pages(id) ON DELETE CASCADE,
+    token TEXT NOT NULL,
+    x_min INT,
+    y_min INT,
+    x_max INT,
+    y_max INT,
+    confidence NUMERIC,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- DOCUMENT_CLASSIFICATIONS
+-- (Mistral Classifier Factory / LLM fallback)
+-- =====================================================================
+CREATE TABLE document_classifications (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id) ON DELETE CASCADE,
+    classified_type TEXT NOT NULL,     -- policy | claim | quote | submission | SOV | proposal | audit | financials
+    confidence NUMERIC,
+    classifier_model TEXT,             -- mistral_classifier_factory | gpt | claude | rules_model
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- EXTRACTED_FIELDS (LLM / rules / hybrid)
+-- =====================================================================
+CREATE TABLE extracted_fields (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    field_name TEXT NOT NULL,
+    field_value TEXT,
+    confidence NUMERIC,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- WORKFLOWS (Temporal workflow instances)
+-- =====================================================================
+CREATE TABLE workflows (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    workflow_type TEXT NOT NULL,    -- claims_intake | policy_comparison | submission | proposal_generation
+    temporal_workflow_id TEXT UNIQUE,
+    status TEXT NOT NULL DEFAULT 'running',  -- running | completed | failed
+    created_at TIMESTAMP DEFAULT NOW(),
+    updated_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- WORKFLOW_RUN_EVENTS (audit trail)
+-- =====================================================================
+CREATE TABLE workflow_run_events (
+    id UUID PRIMARY KEY,
+    workflow_id UUID REFERENCES workflows(id) ON DELETE CASCADE,
+    event_type TEXT NOT NULL,
+    event_payload JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- SUBMISSIONS WORKFLOW TABLE (Property / Auto / Commercial etc)
+-- =====================================================================
+CREATE TABLE submissions (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    submission_type TEXT,             -- property | auto | commercial
+    agent_name TEXT,
+    insured_name TEXT,
+    effective_date DATE,
+    expiration_date DATE,
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- POLICY COMPARISON WORKFLOW OUTPUT
+-- =====================================================================
+CREATE TABLE policy_comparisons (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    comparison_json JSONB,            -- normalized coverage differences
+    created_at TIMESTAMP DEFAULT NOW()
+);
+
+-- =====================================================================
+-- CLAIMS INTAKE WORKFLOW OUTPUT
+-- =====================================================================
 CREATE TABLE claims (
-  claim_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  policy_id UUID REFERENCES policies(policy_id) ON DELETE SET NULL,
-  insured_party_id UUID REFERENCES insured_parties(insured_party_id) ON DELETE SET NULL,
-  filed_date DATE,
-  status VARCHAR(50) CHECK (status IN ('Open', 'Closed', 'Pending', 'Denied')),
-  claim_details JSONB,
-  created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    claim_number TEXT,
+    insured_name TEXT,
+    loss_date DATE,
+    loss_description TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- KNOWLEDGE GRAPH EDGES TABLE
--- ==============================
-CREATE TABLE knowledge_graph_edges (
-  edge_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  subject_id VARCHAR(255) NOT NULL,
-  predicate VARCHAR(255) NOT NULL,
-  object_id VARCHAR(255) NOT NULL,
-  metadata JSONB
+-- =====================================================================
+-- QUOTE COMPARISON WORKFLOW TABLE
+-- =====================================================================
+CREATE TABLE quotes (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    carrier_name TEXT,
+    premium NUMERIC,
+    details JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- AUDIT & WORKFLOW TABLE
--- ==============================
-CREATE TABLE audit_workflow (
-  workflow_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
-  document_id UUID REFERENCES documents(document_id) ON DELETE CASCADE,
-  event_type VARCHAR(100) CHECK (event_type IN ('OCR', 'Extraction', 'Classification', 'Review', 'API_Sync')),
-  timestamp TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-  status VARCHAR(50) CHECK (status IN ('Success', 'Error', 'Pending')),
-  details JSONB
+-- =====================================================================
+-- PROPOSAL GENERATION WORKFLOW TABLE
+-- =====================================================================
+CREATE TABLE proposals (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    proposal_json JSONB,
+    generated_at TIMESTAMP DEFAULT NOW()
 );
 
--- ==============================
--- INDEXES FOR PERFORMANCE
--- ==============================
-CREATE INDEX idx_documents_policy_id ON documents(policy_id);
-CREATE INDEX idx_documents_insured_party_id ON documents(insured_party_id);
-CREATE INDEX idx_extraction_results_document_id ON extraction_results(document_id);
-CREATE INDEX idx_claims_policy_id ON claims(policy_id);
-CREATE INDEX idx_audit_workflow_document_id ON audit_workflow(document_id);
+-- =====================================================================
+-- FINANCIAL ANALYSIS WORKFLOW TABLE
+-- (D&O financial statements processing)
+-- =====================================================================
+CREATE TABLE financial_analysis (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    extracted_metrics JSONB,
+    risk_assessment TEXT,
+    created_at TIMESTAMP DEFAULT NOW()
+);
 
--- Full-text search index for OCR text (optional)
-CREATE INDEX idx_documents_raw_text_gin ON documents USING gin(to_tsvector('english', raw_text));
-
--- Vector similarity search index (for embeddings)
-CREATE INDEX idx_documents_embeddings ON documents USING ivfflat (embeddings vector_l2_ops);
+-- =====================================================================
+-- SOV — Statement of Values
+-- =====================================================================
+CREATE TABLE property_sov (
+    id UUID PRIMARY KEY,
+    document_id UUID REFERENCES documents(id),
+    sov_json JSONB,
+    created_at TIMESTAMP DEFAULT NOW()
+);
