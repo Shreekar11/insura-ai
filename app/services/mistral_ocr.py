@@ -118,6 +118,15 @@ class MistralOCRService(BaseOCRService):
 
             return result
 
+        except InvalidDocumentError:
+            raise
+
+        except APIClientError:
+            raise
+
+        except OCRTimeoutError:
+            raise
+
         except httpx.TimeoutException as e:
             LOGGER.error(
                 "OCR extraction timed out",
@@ -300,6 +309,23 @@ class MistralOCRService(BaseOCRService):
                         )
                         raise APIClientError(
                             f"Mistral OCR API returned error: {e.response.status_code}"
+                        ) from e
+
+                except httpx.TimeoutException as e:
+                    if attempt < self.max_retries - 1:
+                        LOGGER.warning(
+                            f"Mistral OCR API call timed out, retrying (attempt {attempt + 1}/{self.max_retries})",
+                            extra={"document_url": document_url, "error": str(e)},
+                        )
+                        await self._wait_before_retry(attempt)
+                    else:
+                        LOGGER.error(
+                            "Mistral OCR API call timed out",
+                            exc_info=True,
+                            extra={"document_url": document_url},
+                        )
+                        raise OCRTimeoutError(
+                            f"OCR processing timed out after {self.timeout}s"
                         ) from e
 
                 except Exception as e:

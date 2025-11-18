@@ -1,7 +1,6 @@
 """Application configuration management."""
 
-import os
-from typing import Optional
+from pathlib import Path
 
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
@@ -22,7 +21,7 @@ class Settings(BaseSettings):
     port: int = 8000
 
     # OCR Service Settings
-    mistral_api_key: str = "test-key"  # Default for testing
+    mistral_api_key: str
     mistral_api_url: str = "https://api.mistral.ai/v1/ocr"
     mistral_model: str = "mistral-ocr-latest"
 
@@ -35,7 +34,7 @@ class Settings(BaseSettings):
     retry_delay: int = 2
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=str(Path(__file__).resolve().parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",

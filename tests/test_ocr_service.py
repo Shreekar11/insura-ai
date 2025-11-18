@@ -64,7 +64,7 @@ class TestMistralOCRService:
 
         mock_api_response = Mock()
         mock_api_response.json.return_value = {
-            "choices": [{"message": {"content": "Extracted text content from document"}}]
+            "pages": [{"markdown": "Extracted text content from document"}]
         }
         mock_api_response.raise_for_status = Mock()
 
@@ -181,7 +181,7 @@ class TestMistralOCRService:
             with pytest.raises(APIClientError) as exc_info:
                 await ocr_service.extract_text_from_url(sample_pdf_url)
 
-            assert "Mistral API" in str(exc_info.value)
+            assert "Mistral OCR API" in str(exc_info.value)
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_retry_logic(
@@ -201,7 +201,7 @@ class TestMistralOCRService:
 
         mock_api_response = Mock()
         mock_api_response.json.return_value = {
-            "choices": [{"message": {"content": "Success after retry"}}]
+            "pages": [{"markdown": "Success after retry"}]
         }
         mock_api_response.raise_for_status = Mock()
 
