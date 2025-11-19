@@ -1,3 +1,7 @@
+---
+alwaysApply: false
+---
+
 # Schema Context — PostgreSQL Implementation for OCR and Document Processing
 
 ## Overview
