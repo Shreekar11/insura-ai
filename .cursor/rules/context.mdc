@@ -1,0 +1,282 @@
+# Document Classification Workflow — OCR → Cleanup → Zero-Shot LLM → Rules
+# Context Module for Cursor
+
+## Overview
+This .mdc file defines the complete plan for implementing the post-OCR **Document Classification Pipeline** for insurance documents.
+
+This updated flow removes the dependency on model fine-tuning and instead uses:
+1. **OCR Cleanup Module**
+2. **Rule-Based Booster Classifier**
+3. **Zero-Shot LLM Classification (Claude / GPT-4o / Mistral Large)**
+4. **Database Storage into `document_classifications`**
+5. **Integration inside the Temporal Workflow**
+
+This approach is the **simplest, cheapest, and most reliable** way to implement classification without GPUs, fine-tuning knowledge, or ML infrastructure — ideal for your current stage.
+
+---
+
+# 1. OCR NORMALIZATION PIPELINE
+
+## 1.1 Purpose
+OCR output is messy and lowers classification accuracy.  
+Before classification, we must perform **text normalization**.
+
+## 1.2 Steps
+
+### **Step A — Basic Cleaning**
+Implement `normalize_ocr_text()`:
+- Remove extra whitespace  
+- Normalize hyphenation  
+- Remove headers/footers  
+- Collapse broken words  
+- Remove non-ASCII OCR artifacts  
+- Fix common OCR errors (PoIicy → Policy, C1aim → Claim)  
+
+### **Step B — Insurance-Specific Cleaning**
+Rules for:
+- Policy keywords  
+- Claim keywords  
+- SOV structures  
+- Financial document patterns  
+
+### **Step C — Page-Level Assembly**
+Using existing tables:
+- `document_pages`
+- `document_raw_text`
+- `ocr_results.raw_text`
+
+Process:
+- Clean text per page  
+- Store normalized text in `document_raw_text`
+- Concatenate into final cleaned document text → stored in `ocr_results.raw_text`
+
+### OUTPUT of This Step:
+A clean block of text ready for classification, extraction, and vector indexing.
+
+---
+
+# 2. DOCUMENT CLASSIFICATION APPROACH (SIMPLIFIED)
+
+## 2.1 Why This Approach
+We avoid:
+- Fine-tuning
+- GPUs
+- Mistral Classifier Factory training
+- Labeled datasets
+- Complex training workflows
+
+Instead, we use:
+### ✔ Rule-Based Detection (fast, high precision)
+### ✔ Zero-shot LLM Classification (handles complex edge cases)
+
+This hybrid approach yields:
+- Strong accuracy (85%–98%)
+- Simple implementation
+- Low cost
+- Fast development
+
+---
+
+# 3. RULE-BASED CLASSIFICATION (PRIMARY)
+
+Implement `rule_based_classify()`.
+
+### Rules (examples):
+- Contains “Declarations Page”, “Policy Number” → `policy`
+- Contains “Loss Date”, “Claim Number”, “Adjuster” → `claim`
+- Contains “Schedule of Values”, “TIV”, “Property List” → `SOV`
+- Contains “Balance Sheet”, “Income Statement” → `financials`
+- Contains “Quote”, “Premium”, “Carrier” → `quote`
+- Email-like body or attachments → `submission`
+
+### Rule Output:
+```
+{
+type: “policy”,
+confidence: 0.92
+}
+```
+If confidence > **0.85**, skip LLM.
+
+If confidence < **0.85**, call LLM.
+
+---
+
+# 4. ZERO-SHOT LLM CLASSIFIER (FALLBACK)
+
+Implement `llm_zero_shot_classify()` using:
+
+- Claude 3.5 Sonnet (best for reasoning)
+- GPT-4o / GPT-4o mini (fast + cheap)
+- Mistral Large 2 (lightweight option)
+
+### Prompt Template:
+```
+You are an expert insurance document classifier.  
+Based only on the content below, identify the document type.
+
+Possible types:
+- policy
+- claim
+- submission
+- quote
+- proposal
+- SOV
+- financials
+- loss_run
+- audit
+- endorsement
+- invoice
+- correspondence
+
+Based on the OCR text below, classify the document type.
+
+Return ONLY this JSON format:
+{
+“document_type”: “…”,
+“confidence”: 0.0 - 1.0
+}
+
+OCR TEXT:
+{{cleaned_ocr_text}}
+```
+
+### LLM Output:
+```
+{
+“document_type”: “policy”,
+“confidence”: 0.94
+}
+```
+
+NOTE: This system propmt could be improved for better accuracy
+
+---
+
+# 5. FINAL CLASSIFICATION DECISION LOGIC
+
+Implement `classify_document()`:
+
+1. Run rule-based classifier  
+2. If rule_confidence >= 0.85 → return rule result  
+3. Otherwise run zero-shot LLM  
+4. Compare both outputs  
+5. Choose highest confidence  
+
+### Final Output:
+```
+{
+type: “claim”,
+confidence: 0.97,
+source: “llm_zero_shot”
+}
+```
+
+---
+
+# 6. DATABASE INTEGRATION (ALREADY IN SCHEMA)
+
+Insert into:
+
+### `document_classifications`
+Columns:
+- `id`
+- `document_id`
+- `classified_type`
+- `confidence`
+- `classifier_model` ("rules" | "gpt_zero_shot" | "claude_zero_shot" | "mistral_zero_shot")
+- `created_at`
+
+Also update:
+- `documents.status = 'classified'`
+
+---
+
+# 7. TEMPORAL WORKFLOW INTEGRATION
+
+### Activity Sequence:
+
+OCR_EXTRACT
+↓
+OCR_NORMALIZE
+↓
+CLASSIFY_DOCUMENT
+↓
+UPDATE_DATABASE
+↓
+ROUTE_TO_WORKFLOW
+
+### Workflow Steps:
+
+1. `extractOcrActivity(document_id)`
+2. `normalizeOcrActivity(document_id)`
+3. `classifyDocumentActivity(document_id)`
+4. `insertClassificationActivity(document_id, type, confidence)`
+5. `routeWorkflowActivity(document_id, type)`
+
+Each step logs events into:
+
+### `workflow_run_events`
+
+For:
+- ocr_complete
+- normalized
+- classified
+- routing_started
+
+---
+
+# 8. VECTOR INDEXING AFTER CLASSIFICATION
+
+After classification:
+- Insert embeddings into `document_vectors`
+- Index into pgvector for retrieval
+- Use for AI Assistant + Workflow triggers
+
+This should NOT happen before classification.
+
+---
+
+# 9. BLOCKERS TO IMPLEMENTATION (CURRENT STATE)
+
+### Blocker 1 — OCR cleanup module required  
+Classification must use **clean text**, not raw OCR.
+
+### Blocker 2 — Rule-based system not yet defined  
+Need keyword dictionaries for:
+- policies  
+- claims  
+- SOV  
+- financials  
+- submissions  
+
+### Blocker 3 — LLM provider selection  
+Choose:
+- Claude (best)
+- GPT-4o mini (cheapest)
+- Mistral Large (lightweight)
+
+### Blocker 4 — Temporal activities not implemented  
+Define the 3 new activities:
+- normalizeOcrActivity
+- classifyDocumentActivity
+- insertClassificationActivity
+
+---
+
+# 10. SUMMARY
+
+This file replaces the earlier Classifier Factory-based plan with a much simpler and more practical solution:
+
+### ✔ OCR normalization  
+### ✔ Rule-based fast classifier  
+### ✔ LLM zero-shot fallback  
+### ✔ Confidence-based decision  
+### ✔ Insert classification into DB  
+### ✔ Route workflows via Temporal  
+### ✔ Later upgrade path to Mistral fine-tuning (optional)
+
+This approach is fully aligned with:
+- Your existing PostgreSQL schema
+- Your Temporal workflow plan
+- Your current infrastructure and constraints
