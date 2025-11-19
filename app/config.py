@@ -33,6 +33,18 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 2
 
+    # Database Settings
+    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/insura_ai"
+    database_pool_size: int = 10
+    database_max_overflow: int = 20
+    database_echo: bool = False  # SQL query logging
+
+    # Temporal Settings
+    temporal_host: str = "localhost"
+    temporal_port: int = 7233
+    temporal_namespace: str = "default"
+    temporal_task_queue: str = "insura-ai-queue"
+
     model_config = SettingsConfigDict(
         env_file=str(Path(__file__).resolve().parent.parent / ".env"),
         env_file_encoding="utf-8",
