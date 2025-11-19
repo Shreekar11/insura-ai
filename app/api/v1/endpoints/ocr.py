@@ -4,11 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.v1.models.ocr import (
-    OCRExtractionRequest,
-    OCRExtractionResponse,
-    ErrorResponse,
-)
+from app.api.v1.models.request.ocr import OCRExtractionRequest
+from app.api.v1.models.response.ocr import OCRExtractionResponse, ErrorResponse
 from app.config import settings
 from app.services.ocr_service import OCRService
 from app.utils.exceptions import (
