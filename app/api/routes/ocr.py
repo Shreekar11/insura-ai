@@ -7,7 +7,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from app.models.request.ocr import OCRExtractionRequest
 from app.models.response.ocr import OCRExtractionResponse, ErrorResponse
 from app.config import settings
-from app.services.ocr_service import OCRService
+from app.services.ocr.ocr_service import OCRService
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
