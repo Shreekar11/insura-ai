@@ -4,8 +4,8 @@ import pytest
 from unittest.mock import Mock, AsyncMock, patch
 import httpx
 
-from app.services.mistral_ocr import MistralOCRService
-from app.services.ocr_base import OCRResult
+from app.services.ocr.ocr_service import OCRService
+from app.services.ocr.ocr_base import OCRResult
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -14,21 +14,21 @@ from app.utils.exceptions import (
 )
 
 
-class TestMistralOCRService:
-    """Test suite for MistralOCRService.
+class TestOCRService:
+    """Test suite for OCRService.
 
     Tests the public interface of the Mistral OCR service implementation,
     focusing on business logic and behavior rather than implementation details.
     """
 
     @pytest.fixture
-    def ocr_service(self) -> MistralOCRService:
-        """Create MistralOCRService instance for testing.
+    def ocr_service(self) -> OCRService:
+        """Create OCRService instance for testing.
 
         Returns:
-            MistralOCRService: Configured service instance
+            OCRService: Configured service instance
         """
-        return MistralOCRService(
+        return OCRService(
             api_key="test-api-key",
             api_url="https://api.mistral.ai/v1/chat/completions",
             model="pixtral-12b-2409",
@@ -37,7 +37,7 @@ class TestMistralOCRService:
             retry_delay=1,
         )
 
-    def test_get_service_name(self, ocr_service: MistralOCRService) -> None:
+    def test_get_service_name(self, ocr_service: OCRService) -> None:
         """Test that service returns correct name.
 
         Args:
@@ -47,7 +47,7 @@ class TestMistralOCRService:
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_success(
-        self, ocr_service: MistralOCRService, sample_pdf_url: str, sample_pdf_content: bytes
+        self, ocr_service: OCRService, sample_pdf_url: str, sample_pdf_content: bytes
     ) -> None:
         """Test successful text extraction from URL.
 
@@ -90,7 +90,7 @@ class TestMistralOCRService:
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_download_fails(
-        self, ocr_service: MistralOCRService, sample_pdf_url: str
+        self, ocr_service: OCRService, sample_pdf_url: str
     ) -> None:
         """Test extraction fails when document download fails.
 
@@ -119,7 +119,7 @@ class TestMistralOCRService:
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_api_timeout(
-        self, ocr_service: MistralOCRService, sample_pdf_url: str, sample_pdf_content: bytes
+        self, ocr_service: OCRService, sample_pdf_url: str, sample_pdf_content: bytes
     ) -> None:
         """Test extraction fails when API times out.
 
@@ -149,7 +149,7 @@ class TestMistralOCRService:
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_api_error(
-        self, ocr_service: MistralOCRService, sample_pdf_url: str, sample_pdf_content: bytes
+        self, ocr_service: OCRService, sample_pdf_url: str, sample_pdf_content: bytes
     ) -> None:
         """Test extraction fails when API returns error.
 
@@ -185,7 +185,7 @@ class TestMistralOCRService:
 
     @pytest.mark.asyncio
     async def test_extract_text_from_url_retry_logic(
-        self, ocr_service: MistralOCRService, sample_pdf_url: str, sample_pdf_content: bytes
+        self, ocr_service: OCRService, sample_pdf_url: str, sample_pdf_content: bytes
     ) -> None:
         """Test that service retries on transient failures.
 

@@ -5,7 +5,7 @@ from unittest.mock import Mock, AsyncMock
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.mistral_ocr import MistralOCRService
+from app.services.ocr.ocr_service import OCRService
 from app.services.ocr_base import OCRResult
 
 
@@ -34,7 +34,7 @@ def mock_ocr_service() -> Mock:
     Returns:
         Mock: Mocked OCR service instance
     """
-    service = Mock(spec=MistralOCRService)
+    service = Mock(spec=OCRService)
     service.get_service_name.return_value = "Mistral OCR"
     return service
 

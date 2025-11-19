@@ -5,9 +5,9 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.v1.endpoints.ocr import get_ocr_service
+from app.api.routes.ocr import get_ocr_service
 from app.main import app
-from app.services.ocr_base import OCRResult
+from app.services.ocr.ocr_base import OCRResult
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
