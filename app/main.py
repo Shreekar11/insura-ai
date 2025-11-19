@@ -4,11 +4,11 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from fastapi import FastAPI
+from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-
-from app.api.v1.endpoints import ocr
-from app.api.v1.models.ocr import HealthCheckResponse
+from app.api.main import api_router
+from app.models.response.response import HealthCheckResponse
 from app.config import settings
 from app.utils.logging import get_logger
 
@@ -119,12 +119,7 @@ async def root() -> RootResponse:
 
 
 # Include routers
-app.include_router(
-    ocr.router,
-    prefix=f"{settings.api_v1_prefix}/ocr",
-    tags=["OCR"],
-)
-
+app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 if __name__ == "__main__":
     import uvicorn

@@ -4,8 +4,8 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.v1.models.request.ocr import OCRExtractionRequest
-from app.api.v1.models.response.ocr import OCRExtractionResponse, ErrorResponse
+from app.models.request.ocr import OCRExtractionRequest
+from app.models.response.ocr import OCRExtractionResponse, ErrorResponse
 from app.config import settings
 from app.services.ocr_service import OCRService
 from app.utils.exceptions import (
@@ -18,7 +18,7 @@ from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
-router = APIRouter(tags=["OCR"])
+router = APIRouter()
 
 
 def get_ocr_service() -> OCRService:
