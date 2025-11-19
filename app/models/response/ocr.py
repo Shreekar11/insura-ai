@@ -65,6 +65,106 @@ class OCRExtractionResponse(BaseModel):
         }
     }
 
+class OCRNormalizeResponse(BaseModel):
+    """Response model for text normalization.
+    
+    Attributes:
+        original_text: Original raw text
+        normalized_text: Cleaned and normalized text
+        original_length: Length of original text
+        normalized_length: Length of normalized text
+        reduction_percent: Percentage reduction in text length
+        success: Whether normalization was successful
+    """
+    
+    original_text: str = Field(
+        ...,
+        description="Original raw OCR text",
+    )
+    normalized_text: str = Field(
+        ...,
+        description="Normalized and cleaned text",
+    )
+    original_length: int = Field(
+        ...,
+        description="Character count of original text",
+        ge=0,
+    )
+    normalized_length: int = Field(
+        ...,
+        description="Character count of normalized text",
+        ge=0,
+    )
+    reduction_percent: float = Field(
+        ...,
+        description="Percentage reduction in text length after normalization",
+    )
+    success: bool = Field(
+        default=True,
+        description="Whether normalization was successful",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "original_text": "Raw OCR text",
+                    "normalized_text": "Cleaned and normalized text",
+                    "original_length": 100,
+                    "normalized_length": 80,
+                    "reduction_percent": 20.0,
+                    "success": True,
+                }
+            ]
+        }
+    }
+
+
+class DocumentSectionsResponse(BaseModel):
+    """Response model for document section detection.
+    
+    Attributes:
+        sections: Dictionary mapping section names to line numbers
+        section_count: Number of sections detected
+        success: Whether detection was successful
+    """
+    
+    sections: Dict[str, List[int]] = Field(
+        default_factory=dict,
+        description="Detected sections with line numbers where they appear",
+        examples=[{
+            "declarations": [1, 5],
+            "coverages": [10],
+            "endorsements": [20, 25]
+        }],
+    )
+    section_count: int = Field(
+        ...,
+        description="Total number of sections detected",
+        ge=0,
+    )
+    success: bool = Field(
+        default=True,
+        description="Whether section detection was successful",
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "sections": {
+                        "declarations": [1, 5],
+                        "coverages": [10],
+                        "endorsements": [20, 25]
+                    },
+                    "section_count": 3,
+                    "success": True,
+                }
+            ]
+        }
+    }
+
+
 
 class ErrorResponse(BaseModel):
     """Error response model.

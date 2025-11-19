@@ -25,6 +25,10 @@ class Settings(BaseSettings):
     mistral_api_url: str = "https://api.mistral.ai/v1/ocr"
     mistral_model: str = "mistral-ocr-latest"
 
+    openrouter_api_key: str
+    openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
+    openrouter_model: str = "nvidia/nemotron-nano-12b-v2-vl:free"
+
     # Timeout Settings (in seconds)
     ocr_timeout: int = 120
     http_timeout: int = 60

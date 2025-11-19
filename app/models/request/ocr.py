@@ -14,6 +14,10 @@ class OCRExtractionRequest(BaseModel):
         description="Public URL of the PDF document to extract text from",
         examples=["https://example.com/document.pdf"],
     )
+    normalize: bool = Field(
+        default=True,
+        description="Apply text normalization for insurance documents",
+    )
 
     @field_validator("pdf_url")
     @classmethod
@@ -39,7 +43,32 @@ class OCRExtractionRequest(BaseModel):
             "examples": [
                 {
                     "pdf_url": "https://example.com/insurance-policy.pdf",
+                    "normalize": True,
                 }
             ]
         }
     }
+
+class OCRNormalizeRequest(BaseModel):
+    """Request model for text normalization.
+    
+    Attributes:
+        text: Raw OCR text to normalize
+    """
+    
+    text: str = Field(
+        ...,
+        description="Raw OCR-extracted text to normalize",
+        min_length=1,
+    )
+
+    model_config = {
+        "json_schema_extra": {
+            "examples": [
+                {
+                    "text": "Raw OCR-extracted text to normalize",
+                }
+            ]
+        }
+    }
+
