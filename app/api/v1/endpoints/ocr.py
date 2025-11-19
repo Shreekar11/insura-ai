@@ -10,7 +10,7 @@ from app.api.v1.models.ocr import (
     ErrorResponse,
 )
 from app.config import settings
-from app.services.mistral_ocr import MistralOCRService
+from app.services.ocr_service import OCRService
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -24,13 +24,13 @@ LOGGER = get_logger(__name__)
 router = APIRouter(tags=["OCR"])
 
 
-def get_ocr_service() -> MistralOCRService:
+def get_ocr_service() -> OCRService:
     """Provide a configured OCR service instance.
 
     Returns:
-        MistralOCRService: Configured OCR service instance
+        OCRService: Configured OCR service instance
     """
-    return MistralOCRService(
+    return OCRService(
         api_key=settings.mistral_api_key,
         api_url=settings.mistral_api_url,
         model=settings.mistral_model,
@@ -68,7 +68,7 @@ def get_ocr_service() -> MistralOCRService:
 )
 async def extract_ocr(
     request: OCRExtractionRequest,
-    ocr_service: Annotated[MistralOCRService, Depends(get_ocr_service)],
+    ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
 ) -> OCRExtractionResponse:
     """Extract text from a PDF document using OCR.
 
@@ -77,6 +77,7 @@ async def extract_ocr(
 
     Args:
         request: OCR extraction request containing the PDF URL
+        ocr_service: Injected OCR service instance
 
     Returns:
         OCRExtractionResponse: Extracted text and metadata
@@ -89,7 +90,7 @@ async def extract_ocr(
     LOGGER.info("Received OCR extraction request", extra={"pdf_url": pdf_url})
 
     try:
-        # Extract text
+        # Extract text using service
         result = await ocr_service.extract_text_from_url(pdf_url)
 
         # Build response
