@@ -2,6 +2,7 @@
 
 from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
+from uuid import UUID
 
 
 class OCRResult:
@@ -12,27 +13,39 @@ class OCRResult:
         confidence: Confidence score (0.0 to 1.0)
         metadata: Additional metadata (page_count, processing_time, etc.)
         layout: Optional layout information with bounding boxes
+        document_id: Optional document ID from database
+        success: Whether extraction was successful
+        error: Optional error message
     """
 
     def __init__(
         self,
         text: str,
-        confidence: float,
         metadata: Optional[Dict[str, Any]] = None,
         layout: Optional[Dict[str, Any]] = None,
+        document_id: Optional[UUID] = None,
+        success: bool = True,
+        error: Optional[str] = None,
     ):
         """Initialize OCR result.
 
         Args:
             text: Extracted text content
-            confidence: Confidence score between 0.0 and 1.0
             metadata: Optional metadata dictionary
             layout: Optional layout information
+            document_id: Optional document ID from database
+            success: Whether extraction was successful
+            error: Optional error message
         """
         self.text = text
-        self.confidence = confidence
         self.metadata = metadata or {}
         self.layout = layout
+        self.document_id = document_id
+        self.success = success
+        self.error = error
+        
+        # Extract confidence from metadata if available
+        self.confidence = self.metadata.get("confidence", 0.95)
 
     def to_dict(self) -> Dict[str, Any]:
         """Convert OCR result to dictionary.
@@ -44,9 +57,14 @@ class OCRResult:
             "text": self.text,
             "confidence": self.confidence,
             "metadata": self.metadata,
+            "success": self.success,
         }
         if self.layout:
             result["layout"] = self.layout
+        if self.document_id:
+            result["document_id"] = str(self.document_id)
+        if self.error:
+            result["error"] = self.error
         return result
 
 

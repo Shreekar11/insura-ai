@@ -3,11 +3,14 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.request.ocr import OCRExtractionRequest
 from app.models.response.ocr import OCRExtractionResponse, ErrorResponse
 from app.config import settings
+from app.database import get_async_session
 from app.services.ocr.ocr_service import OCRService
+from app.dependencies import get_ocr_service
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -19,26 +22,6 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 router = APIRouter()
-
-
-def get_ocr_service() -> OCRService:
-    """Provide a configured OCR service instance.
-
-    Returns:
-        OCRService: Configured OCR service instance
-    """
-    return OCRService(
-        api_key=settings.mistral_api_key,
-        api_url=settings.mistral_api_url,
-        model=settings.mistral_model,
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_api_url=settings.openrouter_api_url,
-        openrouter_model=settings.openrouter_model,
-        timeout=settings.ocr_timeout,
-        max_retries=settings.max_retries,
-        retry_delay=settings.retry_delay,
-    )
-
 
 @router.post(
     "/extract",
@@ -69,6 +52,7 @@ def get_ocr_service() -> OCRService:
 async def extract_ocr(
     request: OCRExtractionRequest,
     ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> OCRExtractionResponse:
     """Extract text from a PDF document using OCR.
 
@@ -78,6 +62,7 @@ async def extract_ocr(
     Args:
         request: OCR extraction request containing the PDF URL
         ocr_service: Injected OCR service instance
+        db_session: Database session for committing changes
 
     Returns:
         OCRExtractionResponse: Extracted text and metadata
@@ -93,21 +78,27 @@ async def extract_ocr(
         # Extract text using service
         result = await ocr_service.extract_text_from_url(pdf_url)
 
-        # Build response
         response = OCRExtractionResponse(
-            text=result.text,
-            confidence=result.confidence,
-            status="Completed",
+            document_id=result.document_id,
+            status="Completed" if result.success else "Failed",
             metadata=result.metadata,
             layout=result.layout,
         )
-
+        
+        try:
+            await db_session.commit()
+            LOGGER.info("Database changes committed successfully")
+        except Exception as commit_error:
+            LOGGER.error(f"Failed to commit database changes: {commit_error}")
+            await db_session.rollback()
+        
         LOGGER.info(
             "OCR extraction completed successfully",
             extra={
                 "pdf_url": pdf_url,
-                "document_id": str(response.document_id),
+                "document_id": str(result.document_id) if result.document_id else None,
                 "text_length": len(result.text),
+                "classification": result.metadata.get("classification"),
             },
         )
 

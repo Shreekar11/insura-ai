@@ -1,7 +1,7 @@
 """Pydantic response models for OCR API endpoints."""
 
 from typing import Dict, Any, Optional
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from pydantic import BaseModel, Field
 
@@ -10,27 +10,15 @@ class OCRExtractionResponse(BaseModel):
 
     Attributes:
         document_id: Unique identifier for the processed document
-        text: Extracted text content from the document
-        confidence: Confidence score of the extraction (0.0 to 1.0)
         status: Processing status
-        metadata: Additional metadata about the extraction
+        metadata: Metadata about the extraction (pages, processing time, classification, etc.)
+        text: Optional extracted text content (excluded by default to reduce response size)
         layout: Optional layout information with bounding boxes
     """
 
-    document_id: UUID = Field(
-        default_factory=uuid4,
-        description="Unique identifier for the processed document",
-    )
-    text: str = Field(
-        ...,
-        description="Extracted text content from the document",
-        min_length=1,
-    )
-    confidence: float = Field(
-        ...,
-        description="Confidence score of the extraction",
-        ge=0.0,
-        le=1.0,
+    document_id: Optional[UUID] = Field(
+        default=None,
+        description="Unique identifier for the processed document in database",
     )
     status: str = Field(
         default="Completed",
@@ -39,7 +27,11 @@ class OCRExtractionResponse(BaseModel):
     )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
-        description="Additional metadata about the extraction process",
+        description="Metadata about extraction: pages, processing time, classification, etc.",
+    )
+    text: Optional[str] = Field(
+        default=None,
+        description="Extracted text content (optional, excluded by default)",
     )
     layout: Optional[Dict[str, Any]] = Field(
         default=None,
@@ -51,14 +43,22 @@ class OCRExtractionResponse(BaseModel):
             "examples": [
                 {
                     "document_id": "550e8400-e29b-41d4-a716-446655440000",
-                    "text": "Policy Number: 12345ABC\nCoverage: Property Damage\nEffective Date: 2023-07-10",
-                    "confidence": 0.97,
                     "status": "Completed",
                     "metadata": {
                         "service": "Mistral OCR",
-                        "model": "pixtral-12b-2409",
+                        "model": "mistral-ocr-latest",
                         "processing_time_seconds": 2.5,
-                        "page_count": 3,
+                        "pages_count": 3,
+                        "raw_text_length": 5420,
+                        "normalized_text_length": 4890,
+                        "normalization_applied": True,
+                        "classification": {
+                            "classified_type": "policy",
+                            "confidence": 0.89,
+                            "method": "aggregate",
+                            "fallback_used": False,
+                            "chunks_used": 12
+                        }
                     },
                 }
             ]

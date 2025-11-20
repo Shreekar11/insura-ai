@@ -1,11 +1,14 @@
 """OCR repository for handling external API interactions and HTTP operations."""
 
 import time
-from typing import Dict, Any, List
+import uuid
+from typing import Dict, Any, List, Optional, Tuple
+from sqlalchemy.ext.asyncio import AsyncSession
 
 import httpx
 
 from app.models.page_data import PageData
+from app.database.models import Document
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -31,6 +34,7 @@ class OCRRepository:
         self,
         api_key: str,
         api_url: str,
+        db_session: Optional[AsyncSession] = None,
         timeout: int = 120,
         max_retries: int = 3,
         retry_delay: int = 2,
@@ -40,12 +44,14 @@ class OCRRepository:
         Args:
             api_key: Mistral API key
             api_url: Mistral API endpoint URL
+            db_session: Database session for document persistence
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
         """
         self.api_key = api_key
         self.api_url = api_url
+        self.db_session = db_session
         self.timeout = timeout
         self.max_retries = max_retries
         self.retry_delay = retry_delay
@@ -118,7 +124,7 @@ class OCRRepository:
         self,
         document_url: str,
         model: str,
-    ) -> List[PageData]:
+    ) -> Tuple[List[PageData], Optional[uuid.UUID]]:
         """Call Mistral OCR API to extract text from document.
 
         Args:
@@ -126,7 +132,7 @@ class OCRRepository:
             model: Model name to use
 
         Returns:
-            List[PageData]: List of page-specific data with text and metadata
+            Tuple[List[PageData], Optional[UUID]]: Page data list and document_id (if DB session available)
 
         Raises:
             APIClientError: If API call fails
@@ -192,6 +198,17 @@ class OCRRepository:
                         )
                         page_data_list.append(page_data)
 
+                    document_id = None
+                    if self.db_session:
+                        document_id = await self._create_document_record(
+                            file_path=document_url,
+                            page_count=len(page_data_list),
+                        )
+                        LOGGER.info(
+                            "Document record created",
+                            extra={"document_id": str(document_id), "page_count": len(page_data_list)}
+                        )
+
                     LOGGER.debug(
                         "Mistral OCR API call successful",
                         extra={
@@ -199,10 +216,11 @@ class OCRRepository:
                             "attempt": attempt + 1,
                             "pages_processed": len(page_data_list),
                             "total_text_length": sum(len(p) for p in page_data_list),
+                            "document_id": str(document_id) if document_id else None,
                         },
                     )
 
-                    return page_data_list
+                    return page_data_list, document_id
 
                 except httpx.HTTPStatusError as e:
                     await self._handle_http_error(e, attempt, document_url)
@@ -336,7 +354,60 @@ class OCRRepository:
             attempt: Current attempt number (0-indexed)
         """
         import asyncio
-
-        wait_time = self.retry_delay * (2**attempt)
+        
+        # Exponential backoff: 2, 4, 8 seconds
+        wait_time = self.retry_delay * (2 ** attempt)
         LOGGER.debug("Waiting before retry", extra={"wait_seconds": wait_time})
         await asyncio.sleep(wait_time)
+    
+    async def _create_document_record(
+        self,
+        file_path: str,
+        page_count: int,
+    ) -> uuid.UUID:
+        """Create a document record in the database.
+        
+        Args:
+            file_path: Path/URL of the document
+            page_count: Number of pages in the document
+            
+        Returns:
+            UUID: The created document's ID
+            
+        Raises:
+            Exception: If database insertion fails
+        """
+        # Default test user UUID (you can replace this with actual user_id from auth)
+        DEFAULT_TEST_USER_ID = uuid.UUID("00000000-0000-0000-0000-000000000001")
+        
+        try:
+            # Create document record
+            document = Document(
+                user_id=DEFAULT_TEST_USER_ID,
+                file_path=file_path,
+                page_count=page_count,
+                status="ocr_processing",
+                mime_type="application/pdf",  # Default, can be enhanced
+            )
+            
+            self.db_session.add(document)
+            await self.db_session.flush()  # Flush to get the ID without committing
+            
+            LOGGER.debug(
+                "Document record created in database",
+                extra={
+                    "document_id": str(document.id),
+                    "file_path": file_path,
+                    "page_count": page_count,
+                }
+            )
+            
+            return document.id
+            
+        except Exception as e:
+            LOGGER.error(
+                "Failed to create document record",
+                exc_info=True,
+                extra={"file_path": file_path, "error": str(e)}
+            )
+            raise

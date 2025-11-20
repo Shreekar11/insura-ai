@@ -1,11 +1,16 @@
 """OCR service for document text extraction and processing."""
 
 import time
-from typing import Dict, Any, List
+from typing import Dict, Any, List, Optional
+from uuid import UUID
+from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.ocr_repository import OCRRepository
+from app.repositories.chunk_repository import ChunkRepository
 from app.services.ocr.ocr_base import BaseOCRService, OCRResult
 from app.services.normalization.normalization_service import NormalizationService
+from app.services.classification.classification_service import ClassificationService
+from app.services.classification.fallback_classifier import FallbackClassifier
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -35,6 +40,7 @@ class OCRService(BaseOCRService):
         self,
         api_key: str,
         openrouter_api_key: str,
+        db_session: Optional[AsyncSession] = None,
         api_url: str = "https://api.mistral.ai/v1/ocr",
         model: str = "mistral-ocr-latest",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/ocr",
@@ -43,12 +49,14 @@ class OCRService(BaseOCRService):
         max_retries: int = 3,
         retry_delay: int = 2,
         use_hybrid_normalization: bool = True,
+        enable_classification: bool = True,
     ):
         """Initialize OCR service.
 
         Args:
             api_key: Mistral API key
             openrouter_api_key: OpenRouter API key for LLM normalization
+            db_session: Database session for classification persistence
             api_url: Mistral API endpoint URL
             model: Model name to use
             openrouter_api_url: OpenRouter API endpoint URL
@@ -57,20 +65,42 @@ class OCRService(BaseOCRService):
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
             use_hybrid_normalization: Use hybrid LLM + code normalization (default: True)
+            enable_classification: Enable document classification (default: True)
         """
         self.model = model
+        self.enable_classification = enable_classification
+        
         self.repository = OCRRepository(
             api_key=api_key,
             api_url=api_url,
+            db_session=db_session,
             timeout=timeout,
             max_retries=max_retries,
             retry_delay=retry_delay,
         )
+        
+        # Initialize classification services if enabled
+        classification_service = None
+        fallback_classifier = None
+        chunk_repository = None
+        
+        if enable_classification and db_session:
+            classification_service = ClassificationService()
+            fallback_classifier = FallbackClassifier(
+                openrouter_api_key=openrouter_api_key,
+                openrouter_api_url=openrouter_api_url,
+                openrouter_model=openrouter_model,
+            )
+            chunk_repository = ChunkRepository(db_session)
+        
         self.normalization_service = NormalizationService(
             openrouter_api_key=openrouter_api_key,
             openrouter_api_url=openrouter_api_url,
             openrouter_model=openrouter_model,
             use_hybrid=use_hybrid_normalization,
+            classification_service=classification_service,
+            fallback_classifier=fallback_classifier,
+            chunk_repository=chunk_repository,
         )
 
         LOGGER.info(
@@ -85,23 +115,18 @@ class OCRService(BaseOCRService):
     async def extract_text_from_url(
         self,
         document_url: str,
-        normalize: bool = True
+        document_id: Optional[UUID] = None,
     ) -> OCRResult:
-        """Extract text from a document URL using OCR.
-
-        This method orchestrates the complete OCR extraction process:
-        1. Validates the document URL
-        2. Downloads the document (via repository)
-        3. Calls Mistral OCR API (via repository)
-        4. Normalizes the extracted text (optional)
-        5. Processes and returns the result
+        """Extract text from a document URL using Mistral OCR API.
+        
+        This method always uses hybrid normalization with chunking and classification.
 
         Args:
-            document_url: Public URL of the document to process
-            normalize: Whether to apply text normalization (default: True)
+            document_url: Public URL to the document (PDF or image)
+            document_id: Optional document ID for database tracking
 
         Returns:
-            OCRResult: Extracted text and metadata
+            OCRResult: Extraction result with normalized text and classification
 
         Raises:
             OCRExtractionError: If extraction fails
@@ -115,44 +140,50 @@ class OCRService(BaseOCRService):
             # Validate document URL
             self._validate_document_url(document_url)
 
-            # Download document (validation check)
+            # Download document (validation check whether the document is a PDF or an image)
             await self.repository.download_document(document_url)
 
-            # Extract text using Mistral API - returns List[PageData]
-            pages = await self.repository.call_mistral_ocr_api(
+            # Extract text using Mistral API - returns (List[PageData], document_id)
+            pages, repo_document_id = await self.repository.call_mistral_ocr_api(
                 document_url=document_url,
                 model=self.model,
             )
+            
+            # Use document_id from repository if not provided
+            if document_id is None and repo_document_id is not None:
+                document_id = repo_document_id
+                LOGGER.info(
+                    "Using document_id from repository",
+                    extra={"document_id": str(document_id)}
+                )
 
             # Validate extraction result
             self._validate_extraction_result(pages, document_url)
 
-            # Normalize text if requested
-            normalized_text = ""
-            normalization_applied = False
-            
-            if normalize:
-                LOGGER.info("Applying page-specific text normalization")
-                normalized_text = await self.normalization_service.normalize_pages(
-                    pages=pages
-                )
-                normalization_applied = True
-                
+            # Use document_id from repository if not provided
+            if document_id is None and repo_document_id is not None:
+                document_id = repo_document_id
                 LOGGER.info(
-                    "Page-specific normalization completed",
-                    extra={
-                        "pages_count": len(pages),
-                        "normalized_length": len(normalized_text),
-                    }
+                    "Using document_id from repository",
+                    extra={"document_id": str(document_id)}
                 )
-            else:
-                # Combine pages without normalization
-                page_parts = []
-                for page in pages:
-                    page_text = page.get_content(prefer_markdown=True)
-                    if page_text.strip():
-                        page_parts.append(f"=== PAGE {page.page_number} ===\n{page_text}")
-                normalized_text = "\n\n".join(page_parts)
+
+            # Always normalize with classification and chunking (hybrid method)
+            LOGGER.info("Applying hybrid normalization with classification and chunking")
+            normalized_text, classification_result = await self.normalization_service.normalize_and_classify_pages(
+                pages=pages,
+                document_id=document_id,
+            )
+            
+            LOGGER.info(
+                "Normalization and classification completed",
+                extra={
+                    "pages_count": len(pages),
+                    "normalized_length": len(normalized_text),
+                    "classified_type": classification_result.get("classified_type") if classification_result else None,
+                    "confidence": classification_result.get("confidence") if classification_result else None,
+                }
+            )
 
             # Calculate processing time
             processing_time = time.time() - start_time
@@ -163,7 +194,9 @@ class OCRService(BaseOCRService):
                 normalized_text=normalized_text,
                 document_url=document_url,
                 processing_time=processing_time,
-                normalization_applied=normalization_applied,
+                normalization_applied=True,
+                classification_result=classification_result,
+                document_id=document_id,
             )
 
             LOGGER.info(
@@ -252,51 +285,54 @@ class OCRService(BaseOCRService):
         document_url: str,
         processing_time: float,
         normalization_applied: bool,
+        classification_result: Optional[Dict[str, Any]] = None,
+        document_id: Optional[UUID] = None,
     ) -> OCRResult:
-        """Create OCR result object with metadata.
+        """Create OCR result object from extraction data.
 
         Args:
-            pages: List of PageData objects from extraction
-            normalized_text: Normalized text content
-            document_url: Source document URL
-            processing_time: Time taken for processing in seconds
+            pages: List of PageData objects
+            normalized_text: Normalized text
+            document_url: Document URL
+            processing_time: Processing time in seconds
             normalization_applied: Whether normalization was applied
+            classification_result: Classification result (optional)
+            document_id: Document ID from database (optional)
 
         Returns:
-            OCRResult: Complete OCR result with metadata
+            OCRResult: Complete OCR result
         """
-        # Calculate raw text length from all pages
-        raw_text_length = sum(len(page) for page in pages)
+        # Calculate total text length from pages
+        raw_text_length = sum(len(page.get_content()) for page in pages)
         
-        # Use normalized text if applied, otherwise combine pages
-        if normalization_applied:
-            final_text = normalized_text
-        else:
-            page_parts = []
-            for page in pages:
-                page_text = page.get_content(prefer_markdown=True)
-                if page_text.strip():
-                    page_parts.append(f"=== PAGE {page.page_number} ===\n{page_text}")
-            final_text = "\n\n".join(page_parts)
+        # Build metadata
+        metadata = {
+            "service": self.get_service_name(),
+            "model": self.model,
+            "processing_time_seconds": round(processing_time, 2),
+            "document_url": document_url,
+            "pages_count": len(pages),
+            "raw_text_length": raw_text_length,
+            "normalized_text_length": len(normalized_text),
+            "normalization_applied": normalization_applied,
+        }
         
+        # Add classification metadata if available
+        if classification_result:
+            metadata["classification"] = {
+                "classified_type": classification_result.get("classified_type"),
+                "confidence": classification_result.get("confidence"),
+                "method": classification_result.get("method"),
+                "fallback_used": classification_result.get("fallback_used", False),
+                "chunks_used": classification_result.get("chunks_used", 0),
+            }
+
         return OCRResult(
-            text=final_text,
-            confidence=0.95,  # Mistral typically has high confidence
-            metadata={
-                "service": self.get_service_name(),
-                "model": self.model,
-                "processing_time_seconds": round(processing_time, 2),
-                "document_url": document_url,
-                "pages_count": len(pages),
-                "raw_text_length": raw_text_length,
-                "normalized_text_length": len(normalized_text) if normalization_applied else len(final_text),
-                "text_length": len(final_text),
-                "word_count": len(final_text.split()),
-                "normalization_applied": normalization_applied,
-                "text_reduction_percent": round(
-                    (1 - len(normalized_text) / raw_text_length) * 100, 2
-                ) if normalization_applied and raw_text_length > 0 else 0.0,
-            },
+            text=normalized_text,
+            metadata=metadata,
+            document_id=document_id,
+            success=True,
+            error=None,
         )
 
     def get_service_name(self) -> str:

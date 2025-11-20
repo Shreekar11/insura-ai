@@ -9,101 +9,44 @@ It also maintains the legacy rule-based approach for backward compatibility.
 """
 
 from typing import Dict, List, Optional, Tuple, Any
+from uuid import UUID
 
 from app.models.page_data import PageData
 from app.services.normalization.llm_normalizer import LLMNormalizer
 from app.services.normalization.semantic_normalizer import SemanticNormalizer
+from app.services.chunking.chunking_service import ChunkingService
+from app.services.classification.classification_service import ClassificationService
+from app.services.classification.fallback_classifier import FallbackClassifier
+from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.normalization_repository import NormalizationRepository
+from app.repositories.classification_repository import ClassificationRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
 class NormalizationService:
-    """Service for normalizing OCR-extracted text from insurance documents.
+    """Service for normalizing and classifying OCR-extracted insurance documents.
     
-    This service supports two normalization approaches:
+    This service uses a hybrid LLM + code approach with chunking and classification:
+    1. Chunks pages into manageable segments
+    2. Normalizes each chunk using LLM (with signal extraction)
+    3. Aggregates classification signals across chunks
+    4. Persists chunks, normalized text, and classification to database
     
-    **Hybrid Approach (Recommended)**:
-    1. LLM-based structural cleanup (tables, hyphenation, OCR artifacts)
-    2. Deterministic field normalization (dates, amounts, policy numbers)
-    
-    **Legacy Rule-Based Approach**:
-    1. Removes garbage characters and noise
-    2. Fixes structural issues (hyphenation, line breaks)
-    3. Standardizes insurance-specific terminology
-    4. Removes headers, footers, and page numbers
-    5. Normalizes financial amounts and dates
-    
-    The hybrid approach is more robust and maintainable, offloading complex
-    structural cleanup to the LLM while keeping deterministic operations in code.
+    The service always uses the hybrid approach with classification enabled.
     
     Attributes:
-        llm_normalizer: LLM-based text normalizer (optional)
+        llm_normalizer: LLM-based text normalizer with signal extraction
         semantic_normalizer: Semantic field normalizer
-        use_hybrid: Whether to use hybrid approach (default: True)
-        insurance_term_fixes: Dictionary mapping common OCR errors to correct terms
-        header_patterns: Common header patterns to remove
-        footer_patterns: Common footer patterns to remove
+        chunking_service: Service for chunking large documents
+        classification_service: Service for aggregating classification signals
+        fallback_classifier: Fallback classifier for low-confidence cases
+        chunk_repository: Repository for chunk CRUD operations
+        normalization_repository: Repository for normalization data operations
+        classification_repository: Repository for classification data operations
     """
-    
-    # Common OCR misreads of insurance terms
-    INSURANCE_TERM_FIXES = {
-        # Policy variations
-        r'\bPoIicy\b': 'Policy',
-        r'\bPo1icy\b': 'Policy',
-        r'\bPoIicies\b': 'Policies',
-        r'\bPoI\b': 'Policy',
-        
-        # Claim variations
-        r'\bC1aim\b': 'Claim',
-        r'\bC\|aim\b': 'Claim',
-        r'\bCIaim\b': 'Claim',
-        r'\bC1aims\b': 'Claims',
-        
-        # Premium variations
-        r'\bPremIum\b': 'Premium',
-        r'\bPremlum\b': 'Premium',
-        r'\bPrem1um\b': 'Premium',
-        
-        # Endorsement variations
-        r'\bEndorse\s*ment\b': 'Endorsement',
-        r'\bEndorse-\s*ment\b': 'Endorsement',
-        
-        # Coverage variations
-        r'\bCoverage\s+A\b': 'Coverage A',
-        r'\bCoverage-A\b': 'Coverage A',
-        
-        # Common insurance terms
-        r'\bInsur-\s*ance\b': 'Insurance',
-        r'\bInsur\s*ance\b': 'Insurance',
-        r'\bDeduct-\s*ible\b': 'Deductible',
-        r'\bDeductib1e\b': 'Deductible',
-    }
-    
-    # Common header patterns in insurance documents
-    HEADER_PATTERNS = [
-        r'Policy\s+Declarations?',
-        r'Commercial\s+Package\s+Policy',
-        r'Liberty\s+Mutual\s+Insurance\s+Company',
-        r'State\s+Farm\s+Insurance',
-        r'Allstate\s+Insurance\s+Company',
-        r'Progressive\s+Insurance',
-        r'GEICO\s+Insurance',
-        r'Farmers\s+Insurance',
-        r'Certificate\s+of\s+Insurance',
-        r'ACORD\s+\d+',
-        r'Schedule\s+of\s+Values',
-    ]
-    
-    # Common footer patterns
-    FOOTER_PATTERNS = [
-        r'Page\s+\d+\s+of\s+\d+',
-        r'\d+\s*/\s*\d+',
-        r'Confidential',
-        r'Printed\s+on:?\s*\d{4}-\d{2}-\d{2}',
-        r'Printed\s+on:?\s*\d{1,2}/\d{1,2}/\d{2,4}',
-        r'Generated\s+on:?\s*\d{4}-\d{2}-\d{2}',
-    ]
+
     
     def __init__(
         self,
@@ -111,16 +54,35 @@ class NormalizationService:
         openrouter_api_url: Optional[str] = None,
         openrouter_model: Optional[str] = None,
         use_hybrid: bool = True,
+        chunking_service: Optional[ChunkingService] = None,
+        classification_service: Optional[ClassificationService] = None,
+        fallback_classifier: Optional[FallbackClassifier] = None,
+        chunk_repository: Optional[ChunkRepository] = None,
+        normalization_repository: Optional[NormalizationRepository] = None,
+        classification_repository: Optional[ClassificationRepository] = None,
     ):
         """Initialize OCR normalization service.
         
         Args:
-            api_key: Mistral API key for LLM normalization (required if use_hybrid=True)
+            openrouter_api_key: OpenRouter API key for LLM normalization
+            openrouter_api_url: OpenRouter API URL
+            openrouter_model: LLM model to use
             use_hybrid: Whether to use hybrid LLM + code approach (default: True)
-            llm_model: LLM model to use for normalization
+            chunking_service: Service for chunking large documents
+            classification_service: Service for aggregating classification signals
+            fallback_classifier: Fallback classifier for low-confidence cases
+            chunk_repository: Repository for chunk CRUD operations
+            normalization_repository: Repository for normalization data operations
+            classification_repository: Repository for classification data operations
         """
         self.use_hybrid = use_hybrid
         self.semantic_normalizer = SemanticNormalizer()
+        self.chunking_service = chunking_service or ChunkingService()
+        self.classification_service = classification_service
+        self.fallback_classifier = fallback_classifier
+        self.chunk_repository = chunk_repository
+        self.normalization_repository = normalization_repository
+        self.classification_repository = classification_repository
         
         # Initialize LLM normalizer if using hybrid approach
         self.llm_normalizer = None
@@ -143,655 +105,188 @@ class NormalizationService:
             extra={
                 "use_hybrid": self.use_hybrid,
                 "llm_model": openrouter_model if self.use_hybrid else None,
+                "has_classification": classification_service is not None,
+                "has_chunk_repo": chunk_repository is not None,
             }
         )
     
-    async def normalize_text(
-        self, 
-        raw_text: str,
-        use_chunking: bool = True,
-        max_tokens: int = 1500
-    ) -> str:
-        """Execute complete normalization pipeline on OCR text.
-        
-        This is the main entry point for text normalization. It automatically
-        selects between hybrid and rule-based approaches based on configuration.
-        
-        For large texts (> max_tokens), it will automatically use chunking to
-        stay within LLM token limits.
-        
-        Args:
-            raw_text: Raw OCR-extracted text to normalize
-            use_chunking: Whether to use chunking for large texts (default: True)
-            max_tokens: Maximum tokens before chunking (default: 1500)
-            
-        Returns:
-            str: Normalized, clean text ready for downstream processing
-            
-        Example:
-            >>> service = OCRNormalizationService(api_key="...")
-            >>> raw = "PoIicy Number: 12345\\nPage 1 of 5\\nPremIum: $1,234.00"
-            >>> clean = await service.normalize_text(raw)
-            >>> print(clean)
-            Policy Number: 12345
-            Premium: 1234.00
-        """
-        if not raw_text or not raw_text.strip():
-            LOGGER.warning("Empty text provided for normalization")
-            return ""
-        
-        # Check if chunking is needed
-        if use_chunking and self.use_hybrid and self.llm_normalizer:
-            from app.services.chunking import ChunkingService, TokenCounter
-            
-            token_counter = TokenCounter()
-            token_count = token_counter.count_tokens(raw_text)
-            
-            if token_count > max_tokens:
-                LOGGER.info(
-                    f"Text exceeds token limit ({token_count} > {max_tokens}), using chunking"
-                )
-                return await self._normalize_with_chunking(raw_text, max_tokens)
-        
-        # Standard normalization (no chunking needed)
-        if self.use_hybrid and self.llm_normalizer:
-            return await self._normalize_text_hybrid(raw_text)
-        else:
-            return self._normalize_text_legacy(raw_text)
-    
-    async def normalize_pages(
+
+    async def normalize_and_classify_pages(
         self,
         pages: List[PageData],
+        document_id: UUID,
         use_chunking: bool = True,
-        max_tokens: int = 1500
-    ) -> str:
-        """Normalize page-specific OCR data with page-level chunking.
+        max_tokens: int = 1500,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Normalize pages and perform document classification.
         
-        This method handles page-specific data from OCR extraction and performs
-        normalization with proper page-level chunking. Each page is processed
-        separately to maintain page context.
+        This method combines normalization with classification by:
+        1. Chunking pages if needed
+        2. Extracting classification signals during normalization
+        3. Persisting chunks and signals to database
+        4. Aggregating signals for final classification
+        5. Using fallback classification if confidence is low
         
         Args:
-            pages: List of PageData objects from OCR extraction
-            use_chunking: Whether to use chunking for large pages (default: True)
+            pages: List of PageData objects
+            document_id: UUID of the document being processed
+            use_chunking: Whether to use chunking (default: True)
             max_tokens: Maximum tokens per chunk (default: 1500)
             
         Returns:
-            str: Normalized text with page markers
+            Tuple of (normalized_text, classification_result)
             
         Example:
-            >>> service = NormalizationService(api_key="...")
-            >>> pages = [PageData(page_number=1, text="...", markdown="...")]
-            >>> normalized = await service.normalize_pages(pages)
+            >>> service = NormalizationService(...)
+            >>> pages = [PageData(...), ...]
+            >>> text, classification = await service.normalize_and_classify_pages(pages, doc_id)
+            >>> print(classification["classified_type"])  # "policy"
         """
         if not pages:
-            LOGGER.warning("Empty pages list provided for normalization")
-            return ""
+            LOGGER.warning("Empty pages list provided")
+            return "", None
+        
+        if not self.classification_service or not self.chunk_repository:
+            LOGGER.warning("Classification not configured, falling back to normalization only")
+            normalized_text = await self.normalize_pages(pages, use_chunking, max_tokens)
+            return normalized_text, None
         
         LOGGER.info(
-            "Starting page-specific normalization",
+            "Starting normalization with classification",
             extra={
+                "document_id": str(document_id),
                 "total_pages": len(pages),
                 "use_chunking": use_chunking,
-                "max_tokens": max_tokens
             }
         )
         
-        # Check if chunking is needed
-        if use_chunking and self.use_hybrid and self.llm_normalizer:
-            return await self._normalize_pages_with_chunking(pages, max_tokens)
-        else:
-            # Simple page-by-page normalization without chunking
-            return await self._normalize_pages_simple(pages)
-    
-    async def _normalize_pages_simple(self, pages: List[PageData]) -> str:
-        """Normalize pages without chunking.
-        
-        Args:
-            pages: List of PageData objects
-            
-        Returns:
-            str: Normalized text with page markers
-        """
-        normalized_parts = []
-        
-        for page in pages:
-            # Get page content (prefer markdown)
-            page_text = page.get_content(prefer_markdown=True)
-            
-            # Normalize the page
-            if self.use_hybrid and self.llm_normalizer:
-                normalized = await self._normalize_text_hybrid(page_text)
-            else:
-                normalized = self._normalize_text_legacy(page_text)
-            
-            # Add page marker and normalized text
-            if normalized.strip():
-                normalized_parts.append(f"=== PAGE {page.page_number} ===\n{normalized}")
-        
-        result = "\n\n".join(normalized_parts)
-        
-        LOGGER.info(
-            "Simple page normalization completed",
-            extra={
-                "pages_processed": len(pages),
-                "total_length": len(result)
-            }
-        )
-        
-        return result
-    
-    async def _normalize_pages_with_chunking(
-        self,
-        pages: List[PageData],
-        max_tokens: int = 1500
-    ) -> str:
-        """Normalize pages with page-level chunking.
-        
-        This method chunks each page separately and normalizes the chunks,
-        preserving page context and metadata.
-        
-        Args:
-            pages: List of PageData objects
-            max_tokens: Maximum tokens per chunk
-            
-        Returns:
-            str: Normalized text
-        """
-        from app.services.chunking import ChunkingService, TextChunk, ChunkMetadata
-        
-        LOGGER.info("Starting page-level chunking normalization")
-        
-        # Initialize chunking service
-        chunking_service = ChunkingService(
-            max_tokens_per_chunk=max_tokens,
-            overlap_tokens=50,
-            enable_section_chunking=True
-        )
-        
+        # Chunk pages
         all_chunks = []
+        chunk_metadata = []
         
-        # Process each page separately
         for page in pages:
             page_text = page.get_content(prefer_markdown=True)
             
-            # Chunk this page's text
-            page_chunks = chunking_service.chunk_document(text=page_text)
+            if not page_text or not page_text.strip():
+                continue
             
-            # Update chunk metadata to reflect correct page number
+            # Chunk this page
+            page_chunks = self.chunking_service.chunk_document(text=page_text)
+            
             for chunk in page_chunks:
+                # Update chunk metadata with page number
                 chunk.metadata.page_number = page.page_number
-            
-            all_chunks.extend(page_chunks)
-            
-            LOGGER.debug(
-                f"Chunked page {page.page_number}",
-                extra={
+                all_chunks.append(chunk)
+                chunk_metadata.append({
                     "page_number": page.page_number,
-                    "chunks_created": len(page_chunks),
-                    "page_length": len(page_text)
-                }
+                    "chunk_index": chunk.metadata.chunk_index,
+                })
+        
+        LOGGER.info(f"Created {len(all_chunks)} chunks from {len(pages)} pages")
+        
+        # Normalize chunks and extract signals
+        normalized_chunks = []
+        chunk_signals = []
+        
+        for i, chunk in enumerate(all_chunks):
+            page_num = chunk.metadata.page_number or 1
+            
+            # Extract signals during normalization
+            result = await self.llm_normalizer.normalize_with_signals(
+                chunk.text,
+                page_number=page_num
+            )
+            
+            normalized_chunks.append(result["normalized_text"])
+            chunk_signals.append(result)
+            
+            # Persist chunk to database
+            db_chunk = await self.chunk_repository.create_chunk(
+                document_id=document_id,
+                page_number=page_num,
+                chunk_index=chunk.metadata.chunk_index,
+                raw_text=chunk.text,
+                token_count=chunk.metadata.token_count,
+                section_name=chunk.metadata.section_name,
+            )
+            
+            # Persist normalized chunk using normalization repository
+            await self.normalization_repository.create_normalized_chunk(
+                chunk_id=db_chunk.id,
+                normalized_text=result["normalized_text"],
+                method="llm_with_signals",
+            )
+            
+            # Persist classification signals using classification repository
+            await self.classification_repository.create_classification_signal(
+                chunk_id=db_chunk.id,
+                signals=result["signals"],
+                model_name=self.llm_normalizer.openrouter_model,
+                keywords=result.get("keywords", []),
+                entities=result.get("entities", {}),
+                confidence=result.get("confidence"),
             )
         
-        # Log chunking statistics
-        stats = chunking_service.get_chunk_statistics(all_chunks)
-        LOGGER.info(
-            "Page-level chunking completed",
-            extra=stats
+        LOGGER.info(f"Normalized and persisted {len(normalized_chunks)} chunks")
+        
+        # Aggregate signals
+        classification_result = self.classification_service.aggregate_signals(
+            chunk_signals=chunk_signals,
+            chunk_metadata=chunk_metadata,
         )
         
-        # Normalize each chunk
-        normalized_chunks = await self.normalize_chunks(all_chunks)
+        # Check if fallback is needed
+        if self.fallback_classifier and self.classification_service.needs_fallback(classification_result):
+            LOGGER.info("Low confidence, triggering fallback classification")
+            
+            # Collect keywords and top chunks
+            all_keywords = classification_result["decision_details"].get("keywords", [])
+            top_chunks_text = [nc for nc in normalized_chunks[:5]]  # Top 5 chunks
+            
+            fallback_result = await self.fallback_classifier.classify(
+                keywords=all_keywords,
+                top_chunks_text=top_chunks_text,
+                aggregated_scores=classification_result["all_scores"],
+            )
+            
+            # Update classification result
+            classification_result["classified_type"] = fallback_result["classified_type"]
+            classification_result["confidence"] = fallback_result["confidence"]
+            classification_result["method"] = "fallback"
+            classification_result["fallback_used"] = True
+            classification_result["decision_details"]["fallback_reasoning"] = fallback_result.get("reasoning")
+        
+        # Persist final classification to database
+        if self.classification_repository:
+            try:
+                await self.classification_repository.create_document_classification(
+                    document_id=document_id,
+                    classified_type=classification_result["classified_type"],
+                    confidence=classification_result["confidence"],
+                    classifier_model=classification_result.get("method", "aggregate"),
+                    decision_details=classification_result.get("decision_details"),
+                )
+                LOGGER.info("Classification result persisted to database")
+            except Exception as e:
+                LOGGER.error(f"Failed to persist classification: {e}", exc_info=True)
+                # Don't fail the entire operation if classification persistence fails
         
         # Merge normalized chunks
-        merged_text = self.merge_normalized_chunks(normalized_chunks)
+        merged_text = "\n\n".join(normalized_chunks)
         
         LOGGER.info(
-            "Page-level chunking normalization completed",
+            "Normalization and classification completed",
             extra={
-                "total_pages": len(pages),
-                "total_chunks": len(all_chunks),
-                "normalized_length": len(merged_text)
+                "classified_type": classification_result["classified_type"],
+                "confidence": classification_result["confidence"],
+                "method": classification_result["method"],
+                "chunks_processed": len(normalized_chunks),
             }
         )
         
-        return merged_text
+        return merged_text, classification_result
     
-    async def _normalize_text_hybrid(self, raw_text: str) -> str:
-        """Execute hybrid LLM + code normalization pipeline.
-        
-        Stage 1: LLM structural cleanup
-        Stage 2: Deterministic field normalization
-        
-        Args:
-            raw_text: Raw OCR-extracted text
-            
-        Returns:
-            str: Normalized text
-        """
-        LOGGER.info(
-            "Starting hybrid normalization",
-            extra={"original_length": len(raw_text)}
-        )
-        
-        # Stage 1: LLM structural cleanup
-        llm_normalized = await self.llm_normalizer.normalize(raw_text)
-        
-        # Stage 2: Semantic field normalization
-        result = self.semantic_normalizer.normalize_text_with_fields(llm_normalized)
-        final_text = result["normalized_text"]
-        
-        LOGGER.info(
-            "Hybrid normalization completed",
-            extra={
-                "original_length": len(raw_text),
-                "llm_normalized_length": len(llm_normalized),
-                "final_length": len(final_text),
-                "dates_extracted": len(result.get("extracted_fields", {}).get("dates", [])),
-                "amounts_extracted": len(result.get("extracted_fields", {}).get("amounts", [])),
-            }
-        )
-        
-        return final_text
-    
-    def _normalize_text_legacy(self, raw_text: str) -> str:
-        """Execute legacy rule-based normalization pipeline.
-        
-        This is the original normalization approach, kept for backward compatibility.
-        
-        Args:
-            raw_text: Raw OCR-extracted text to normalize
-            
-        Returns:
-            str: Normalized, clean text ready for downstream processing
-        """
-        LOGGER.info(
-            "Starting legacy normalization",
-            extra={"original_length": len(raw_text)}
-        )
-        
-        # Step A: Basic text cleaning
-        text = self._remove_garbage_characters(raw_text)
-        text = self._normalize_whitespace(text)
-        text = self._remove_page_numbers(text)
-        text = self._remove_headers(text)
-        text = self._remove_footers(text)
-        text = self._fix_hyphenation(text)
-        
-        # Step B: Structural normalization
-        text = self._fix_broken_lines(text)
-        text = self._normalize_lists(text)
-        text = self._normalize_newlines(text)
-        
-        # Step C: Insurance-specific normalization
-        text = self._fix_insurance_terms(text)
-        text = self._normalize_amounts(text)
-        text = self._normalize_dates(text)
-        text = self._normalize_policy_number(text)
-        
-        # Final cleanup
-        text = self._final_cleanup(text)
-        
-        LOGGER.info(
-            "Legacy normalization completed",
-            extra={
-                "original_length": len(raw_text),
-                "normalized_length": len(text),
-                "reduction_percent": round((1 - len(text) / len(raw_text)) * 100, 2)
-            }
-        )
-        
-        return text
-    
-    def _remove_garbage_characters(self, text: str) -> str:
-        """Remove non-printable and OCR artifact characters.
-        
-        Removes characters that are not standard ASCII printable characters,
-        while preserving newlines which are important for structure.
-        
-        Args:
-            text: Text containing garbage characters
-            
-        Returns:
-            str: Text with garbage characters removed
-        """
-        # Keep only ASCII printable characters and newlines
-        # ASCII printable range: 0x20-0x7E, plus \n (0x0A)
-        cleaned = re.sub(r'[^\x20-\x7E\n]', '', text)
-        
-        LOGGER.debug("Removed garbage characters")
-        return cleaned
-    
-    def _normalize_whitespace(self, text: str) -> str:
-        """Normalize whitespace characters.
-        
-        Converts tabs to spaces, collapses multiple spaces into single spaces,
-        and limits consecutive newlines to a maximum of 2.
-        
-        Args:
-            text: Text with inconsistent whitespace
-            
-        Returns:
-            str: Text with normalized whitespace
-        """
-        # Convert tabs to spaces
-        text = text.replace('\t', ' ')
-        
-        # Collapse multiple spaces into single space
-        text = re.sub(r'[ ]+', ' ', text)
-        
-        # Limit consecutive newlines to maximum of 2
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        
-        LOGGER.debug("Normalized whitespace")
-        return text
-    
-    def _remove_page_numbers(self, text: str) -> str:
-        """Remove page numbers and pagination markers.
-        
-        Args:
-            text: Text containing page numbers
-            
-        Returns:
-            str: Text with page numbers removed
-        """
-        # Remove "Page X of Y" patterns
-        text = re.sub(r'Page\s+\d+\s+of\s+\d+', '', text, flags=re.IGNORECASE)
-        
-        # Remove "X/Y" patterns (only if on their own line)
-        text = re.sub(r'^\s*\d+\s*/\s*\d+\s*$', '', text, flags=re.MULTILINE)
-        
-        # Remove standalone numbers on their own lines (likely page numbers)
-        text = re.sub(r'^\s*\d+\s*$', '', text, flags=re.MULTILINE)
-        
-        LOGGER.debug("Removed page numbers")
-        return text
-    
-    def _remove_headers(self, text: str) -> str:
-        """Remove common insurance document headers.
-        
-        Args:
-            text: Text containing headers
-            
-        Returns:
-            str: Text with headers removed
-        """
-        for pattern in self.HEADER_PATTERNS:
-            # Remove headers that appear at the beginning of lines
-            text = re.sub(
-                rf'^\s*{pattern}\s*$',
-                '',
-                text,
-                flags=re.MULTILINE | re.IGNORECASE
-            )
-        
-        LOGGER.debug("Removed headers")
-        return text
-    
-    def _remove_footers(self, text: str) -> str:
-        """Remove common footer patterns.
-        
-        Args:
-            text: Text containing footers
-            
-        Returns:
-            str: Text with footers removed
-        """
-        for pattern in self.FOOTER_PATTERNS:
-            text = re.sub(
-                pattern,
-                '',
-                text,
-                flags=re.IGNORECASE
-            )
-        
-        LOGGER.debug("Removed footers")
-        return text
-    
-    def _fix_hyphenation(self, text: str) -> str:
-        """Fix broken words caused by OCR hyphenation.
-        
-        OCR often produces "Poli- cy" or "Commer- cial" for words split
-        across lines. This method rejoins these words.
-        
-        Args:
-            text: Text with hyphenation issues
-            
-        Returns:
-            str: Text with hyphenation fixed
-        """
-        # Fix hyphenated words split across lines
-        # Pattern: word-\n word or word- \n word
-        text = re.sub(r'(\w+)-\s*\n\s*(\w+)', r'\1\2', text)
-        
-        # Fix hyphenated words with space before next part
-        # Pattern: word- word
-        text = re.sub(r'(\w+)-\s+(\w+)', r'\1\2', text)
-        
-        LOGGER.debug("Fixed hyphenation")
-        return text
-    
-    def _fix_broken_lines(self, text: str) -> str:
-        """Fix sentences broken across multiple lines.
-        
-        Insurance documents often have sentences split across lines.
-        This method merges lines that don't end with punctuation
-        and are followed by lowercase text.
-        
-        Args:
-            text: Text with broken lines
-            
-        Returns:
-            str: Text with lines merged appropriately
-        """
-        lines = text.split('\n')
-        fixed_lines = []
-        i = 0
-        
-        while i < len(lines):
-            current_line = lines[i].strip()
-            
-            # Check if we should merge with next line
-            if (i < len(lines) - 1 and
-                current_line and
-                not current_line[-1] in '.!?:' and
-                lines[i + 1].strip() and
-                lines[i + 1].strip()[0].islower()):
-                
-                # Merge with next line
-                next_line = lines[i + 1].strip()
-                fixed_lines.append(f"{current_line} {next_line}")
-                i += 2
-            else:
-                fixed_lines.append(current_line)
-                i += 1
-        
-        LOGGER.debug("Fixed broken lines")
-        return '\n'.join(fixed_lines)
-    
-    def _normalize_lists(self, text: str) -> str:
-        """Normalize inconsistent list formatting.
-        
-        OCR often produces inconsistent list bullets and formatting.
-        This method standardizes list formatting.
-        
-        Args:
-            text: Text with inconsistent lists
-            
-        Returns:
-            str: Text with normalized lists
-        """
-        # Normalize various bullet characters to standard bullet
-        bullet_chars = ['•', '◦', '▪', '▫', '‣', '⁃', '-', '*']
-        for char in bullet_chars:
-            text = re.sub(
-                rf'^\s*{re.escape(char)}\s*',
-                '• ',
-                text,
-                flags=re.MULTILINE
-            )
-        
-        LOGGER.debug("Normalized lists")
-        return text
-    
-    def _normalize_newlines(self, text: str) -> str:
-        """Ensure consistent paragraph separation.
-        
-        Args:
-            text: Text with inconsistent newlines
-            
-        Returns:
-            str: Text with normalized paragraph separation
-        """
-        # Remove excessive blank lines (already limited to 2 by whitespace normalization)
-        # Ensure single blank line between paragraphs
-        lines = text.split('\n')
-        normalized = []
-        prev_empty = False
-        
-        for line in lines:
-            is_empty = not line.strip()
-            
-            if is_empty:
-                if not prev_empty:
-                    normalized.append('')
-                prev_empty = True
-            else:
-                normalized.append(line)
-                prev_empty = False
-        
-        LOGGER.debug("Normalized newlines")
-        return '\n'.join(normalized)
-    
-    def _fix_insurance_terms(self, text: str) -> str:
-        """Fix commonly misread insurance terminology.
-        
-        Args:
-            text: Text with misread insurance terms
-            
-        Returns:
-            str: Text with corrected insurance terms
-        """
-        for pattern, replacement in self.INSURANCE_TERM_FIXES.items():
-            text = re.sub(pattern, replacement, text)
-        
-        LOGGER.debug("Fixed insurance terms")
-        return text
-    
-    def _normalize_amounts(self, text: str) -> str:
-        """Normalize financial amounts for consistency.
-        
-        This method standardizes currency formatting by removing
-        currency symbols and thousand separators while preserving
-        the numeric values and decimal points.
-        
-        Args:
-            text: Text containing financial amounts
-            
-        Returns:
-            str: Text with normalized amounts
-        """
-        # Pattern to match currency amounts
-        # Matches: $1,234.56 or ₹25,000/- or $1,234
-        currency_pattern = r'([$₹£€])?\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)\s*(/-)?' 
-        
-        def normalize_amount(match):
-            amount = match.group(2)
-            # Remove commas from amount
-            normalized = amount.replace(',', '')
-            return normalized
-        
-        text = re.sub(currency_pattern, normalize_amount, text)
-        
-        LOGGER.debug("Normalized amounts")
-        return text
-    
-    def _normalize_dates(self, text: str) -> str:
-        """Normalize date formats to ISO format (YYYY-MM-DD).
-        
-        This method attempts to standardize various date formats
-        found in insurance documents to a consistent ISO format.
-        
-        Args:
-            text: Text containing various date formats
-            
-        Returns:
-            str: Text with normalized dates
-        """
-        # Pattern 1: MM/DD/YYYY or MM-DD-YYYY
-        text = re.sub(
-            r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{4})\b',
-            r'\3-\1-\2',
-            text
-        )
-        
-        # Pattern 2: DD/MM/YY or MM/DD/YY (ambiguous, assume MM/DD)
-        text = re.sub(
-            r'\b(\d{1,2})[/-](\d{1,2})[/-](\d{2})\b',
-            r'20\3-\1-\2',
-            text
-        )
-        
-        # Fix OCR errors in dates: O1 -> 01, 0l -> 01, etc.
-        text = re.sub(r'\bO(\d)', r'0\1', text)
-        text = re.sub(r'\b0l\b', '01', text)
-        
-        LOGGER.debug("Normalized dates")
-        return text
-    
-    def _final_cleanup(self, text: str) -> str:
-        """Perform final cleanup operations.
-        
-        Args:
-            text: Text after all normalization steps
-            
-        Returns:
-            str: Final cleaned text
-        """
-        # Remove any remaining multiple spaces
-        text = re.sub(r' {2,}', ' ', text)
-        
-        # Remove spaces at the beginning and end of lines
-        text = '\n'.join(line.strip() for line in text.split('\n'))
-        
-        # Remove leading/trailing whitespace from entire text
-        text = text.strip()
-        
-        # Ensure no more than one blank line between paragraphs
-        text = re.sub(r'\n{3,}', '\n\n', text)
-        
-        LOGGER.debug("Completed final cleanup")
-        return text
-    
-    def normalize_page_text(
-        self,
-        page_text: str,
-        page_number: int
-    ) -> Dict[str, any]:
-        """Normalize text from a single page.
-        
-        This method is useful for page-level processing and debugging.
-        
-        Args:
-            page_text: Raw text from a single page
-            page_number: Page number for logging
-            
-        Returns:
-            dict: Dictionary containing normalized text and metadata
-        """
-        LOGGER.debug(
-            "Normalizing page text",
-            extra={"page_number": page_number}
-        )
-        
-        normalized_text = self.normalize_text(page_text)
-        
-        return {
-            "page_number": page_number,
-            "original_length": len(page_text),
-            "normalized_length": len(normalized_text),
-            "normalized_text": normalized_text,
-        }
+
     
     def detect_document_sections(self, text: str) -> Dict[str, List[str]]:
         """Detect common insurance document sections.
@@ -844,155 +339,9 @@ class NormalizationService:
         
         return detected
     
-    async def _normalize_with_chunking(
-        self,
-        raw_text: str,
-        max_tokens: int = 1500
-    ) -> str:
-        """Normalize text using chunking strategy.
-        
-        This method:
-        1. Chunks the text using ChunkingService
-        2. Normalizes each chunk independently
-        3. Merges normalized chunks back together
-        
-        Args:
-            raw_text: Raw text to normalize
-            max_tokens: Maximum tokens per chunk
-            
-        Returns:
-            str: Normalized text
-        """
-        from app.services.chunking import ChunkingService
-        
-        LOGGER.info("Starting chunk-based normalization")
-        
-        # Initialize chunking service
-        chunking_service = ChunkingService(
-            max_tokens_per_chunk=max_tokens,
-            overlap_tokens=50,
-            enable_section_chunking=True
-        )
-        
-        # Chunk the document
-        chunks = chunking_service.chunk_document(raw_text)
-        
-        # Log chunking statistics
-        stats = chunking_service.get_chunk_statistics(chunks)
-        LOGGER.info(
-            "Document chunked for normalization",
-            extra=stats
-        )
-        
-        # Normalize each chunk
-        normalized_chunks = await self.normalize_chunks(chunks)
-        
-        # Merge normalized chunks
-        merged_text = self.merge_normalized_chunks(normalized_chunks)
-        
-        LOGGER.info(
-            "Chunk-based normalization completed",
-            extra={
-                "total_chunks": len(chunks),
-                "original_length": len(raw_text),
-                "normalized_length": len(merged_text)
-            }
-        )
-        
-        return merged_text
+
     
-    async def normalize_chunks(
-        self,
-        chunks: List["TextChunk"]
-    ) -> List["NormalizedChunk"]:
-        """Normalize multiple chunks.
-        
-        Args:
-            chunks: List of text chunks to normalize
-            
-        Returns:
-            List of normalized chunks
-        """
-        from app.services.chunking import NormalizedChunk
-        import time
-        
-        normalized_chunks = []
-        
-        for chunk in chunks:
-            start_time = time.time()
-            
-            # Normalize the chunk
-            if self.use_hybrid and self.llm_normalizer:
-                normalized_text = await self._normalize_text_hybrid(chunk.text)
-            else:
-                normalized_text = self._normalize_text_legacy(chunk.text)
-            
-            processing_time_ms = int((time.time() - start_time) * 1000)
-            
-            # Create normalized chunk
-            normalized_chunk = NormalizedChunk(
-                original_chunk=chunk,
-                normalized_text=normalized_text,
-                processing_time_ms=processing_time_ms,
-                normalization_method="hybrid" if self.use_hybrid else "rule_based"
-            )
-            
-            normalized_chunks.append(normalized_chunk)
-            
-            LOGGER.debug(
-                f"Normalized chunk {chunk.metadata.chunk_index} "
-                f"(page {chunk.metadata.page_number})",
-                extra={
-                    "section": chunk.metadata.section_name,
-                    "processing_time_ms": processing_time_ms
-                }
-            )
-        
-        return normalized_chunks
+
     
-    def merge_normalized_chunks(
-        self,
-        normalized_chunks: List["NormalizedChunk"]
-    ) -> str:
-        """Merge normalized chunks back into a single document.
-        
-        Args:
-            normalized_chunks: List of normalized chunks
-            
-        Returns:
-            str: Merged normalized text
-        """
-        if not normalized_chunks:
-            return ""
-        
-        # Sort chunks by page number and chunk index
-        sorted_chunks = sorted(
-            normalized_chunks,
-            key=lambda c: (c.metadata.page_number, c.metadata.chunk_index)
-        )
-        
-        merged_parts = []
-        current_page = None
-        
-        for chunk in sorted_chunks:
-            # Add page marker if page changed
-            if chunk.metadata.page_number != current_page:
-                current_page = chunk.metadata.page_number
-                if len(merged_parts) > 0:  # Don't add marker before first page
-                    merged_parts.append(f"\n=== PAGE {current_page} ===\n")
-            
-            # Add section marker if section name exists
-            if chunk.metadata.section_name:
-                merged_parts.append(f"\n--- {chunk.metadata.section_name} ---\n")
-            
-            # Add normalized text
-            merged_parts.append(chunk.normalized_text)
-        
-        merged_text = '\n'.join(merged_parts)
-        
-        # Clean up excessive whitespace
-        import re
-        merged_text = re.sub(r'\n{3,}', '\n\n', merged_text)
-        
-        return merged_text.strip()
+
 
