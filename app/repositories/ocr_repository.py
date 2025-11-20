@@ -1,10 +1,11 @@
 """OCR repository for handling external API interactions and HTTP operations."""
 
 import time
-from typing import Dict, Any
+from typing import Dict, Any, List
 
 import httpx
 
+from app.models.page_data import PageData
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -117,7 +118,7 @@ class OCRRepository:
         self,
         document_url: str,
         model: str,
-    ) -> str:
+    ) -> List[PageData]:
         """Call Mistral OCR API to extract text from document.
 
         Args:
@@ -125,7 +126,7 @@ class OCRRepository:
             model: Model name to use
 
         Returns:
-            str: Extracted text content
+            List[PageData]: List of page-specific data with text and metadata
 
         Raises:
             APIClientError: If API call fails
@@ -158,29 +159,50 @@ class OCRRepository:
 
                     result = response.json()
                     
-                    # Extract text from OCR API response format
+                    # Extract page-specific data from OCR API response
                     pages = result.get("pages", [])
                     
-                    # Combine text from all pages
-                    extracted_text = ""
-                    for page in pages:
-                        page_text = page.get("markdown", page.get("text", ""))
-                        if page_text:
-                            extracted_text += page_text + "\n\n"
-                    
-                    extracted_text = extracted_text.strip()
+                    # Create PageData objects for each page
+                    page_data_list = []
+                    for idx, page in enumerate(pages):
+                        # Get page number (1-indexed)
+                        page_number = idx + 1
+                        
+                        # Extract text and markdown
+                        markdown = page.get("markdown", "")
+                        text = page.get("text", "")
+                        
+                        # Use markdown if available, otherwise use text
+                        if not markdown and not text:
+                            LOGGER.warning(
+                                f"Page {page_number} has no text or markdown content",
+                                extra={"document_url": document_url, "page_number": page_number}
+                            )
+                            continue
+                        
+                        # Create PageData object
+                        page_data = PageData(
+                            page_number=page_number,
+                            text=text or markdown,  # Fallback to markdown if text is empty
+                            markdown=markdown if markdown else None,
+                            metadata={
+                                "source": "mistral_ocr",
+                                "model": model,
+                            }
+                        )
+                        page_data_list.append(page_data)
 
                     LOGGER.debug(
                         "Mistral OCR API call successful",
                         extra={
                             "document_url": document_url,
                             "attempt": attempt + 1,
-                            "pages_processed": len(pages),
-                            "text_length": len(extracted_text),
+                            "pages_processed": len(page_data_list),
+                            "total_text_length": sum(len(p) for p in page_data_list),
                         },
                     )
 
-                    return extracted_text
+                    return page_data_list
 
                 except httpx.HTTPStatusError as e:
                     await self._handle_http_error(e, attempt, document_url)

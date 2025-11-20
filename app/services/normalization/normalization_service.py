@@ -10,6 +10,7 @@ It also maintains the legacy rule-based approach for backward compatibility.
 
 from typing import Dict, List, Optional, Tuple, Any
 
+from app.models.page_data import PageData
 from app.services.normalization.llm_normalizer import LLMNormalizer
 from app.services.normalization.semantic_normalizer import SemanticNormalizer
 from app.utils.logging import get_logger
@@ -145,14 +146,24 @@ class NormalizationService:
             }
         )
     
-    async def normalize_text(self, raw_text: str) -> str:
+    async def normalize_text(
+        self, 
+        raw_text: str,
+        use_chunking: bool = True,
+        max_tokens: int = 1500
+    ) -> str:
         """Execute complete normalization pipeline on OCR text.
         
         This is the main entry point for text normalization. It automatically
         selects between hybrid and rule-based approaches based on configuration.
         
+        For large texts (> max_tokens), it will automatically use chunking to
+        stay within LLM token limits.
+        
         Args:
             raw_text: Raw OCR-extracted text to normalize
+            use_chunking: Whether to use chunking for large texts (default: True)
+            max_tokens: Maximum tokens before chunking (default: 1500)
             
         Returns:
             str: Normalized, clean text ready for downstream processing
@@ -169,10 +180,182 @@ class NormalizationService:
             LOGGER.warning("Empty text provided for normalization")
             return ""
         
+        # Check if chunking is needed
+        if use_chunking and self.use_hybrid and self.llm_normalizer:
+            from app.services.chunking import ChunkingService, TokenCounter
+            
+            token_counter = TokenCounter()
+            token_count = token_counter.count_tokens(raw_text)
+            
+            if token_count > max_tokens:
+                LOGGER.info(
+                    f"Text exceeds token limit ({token_count} > {max_tokens}), using chunking"
+                )
+                return await self._normalize_with_chunking(raw_text, max_tokens)
+        
+        # Standard normalization (no chunking needed)
         if self.use_hybrid and self.llm_normalizer:
             return await self._normalize_text_hybrid(raw_text)
         else:
             return self._normalize_text_legacy(raw_text)
+    
+    async def normalize_pages(
+        self,
+        pages: List[PageData],
+        use_chunking: bool = True,
+        max_tokens: int = 1500
+    ) -> str:
+        """Normalize page-specific OCR data with page-level chunking.
+        
+        This method handles page-specific data from OCR extraction and performs
+        normalization with proper page-level chunking. Each page is processed
+        separately to maintain page context.
+        
+        Args:
+            pages: List of PageData objects from OCR extraction
+            use_chunking: Whether to use chunking for large pages (default: True)
+            max_tokens: Maximum tokens per chunk (default: 1500)
+            
+        Returns:
+            str: Normalized text with page markers
+            
+        Example:
+            >>> service = NormalizationService(api_key="...")
+            >>> pages = [PageData(page_number=1, text="...", markdown="...")]
+            >>> normalized = await service.normalize_pages(pages)
+        """
+        if not pages:
+            LOGGER.warning("Empty pages list provided for normalization")
+            return ""
+        
+        LOGGER.info(
+            "Starting page-specific normalization",
+            extra={
+                "total_pages": len(pages),
+                "use_chunking": use_chunking,
+                "max_tokens": max_tokens
+            }
+        )
+        
+        # Check if chunking is needed
+        if use_chunking and self.use_hybrid and self.llm_normalizer:
+            return await self._normalize_pages_with_chunking(pages, max_tokens)
+        else:
+            # Simple page-by-page normalization without chunking
+            return await self._normalize_pages_simple(pages)
+    
+    async def _normalize_pages_simple(self, pages: List[PageData]) -> str:
+        """Normalize pages without chunking.
+        
+        Args:
+            pages: List of PageData objects
+            
+        Returns:
+            str: Normalized text with page markers
+        """
+        normalized_parts = []
+        
+        for page in pages:
+            # Get page content (prefer markdown)
+            page_text = page.get_content(prefer_markdown=True)
+            
+            # Normalize the page
+            if self.use_hybrid and self.llm_normalizer:
+                normalized = await self._normalize_text_hybrid(page_text)
+            else:
+                normalized = self._normalize_text_legacy(page_text)
+            
+            # Add page marker and normalized text
+            if normalized.strip():
+                normalized_parts.append(f"=== PAGE {page.page_number} ===\n{normalized}")
+        
+        result = "\n\n".join(normalized_parts)
+        
+        LOGGER.info(
+            "Simple page normalization completed",
+            extra={
+                "pages_processed": len(pages),
+                "total_length": len(result)
+            }
+        )
+        
+        return result
+    
+    async def _normalize_pages_with_chunking(
+        self,
+        pages: List[PageData],
+        max_tokens: int = 1500
+    ) -> str:
+        """Normalize pages with page-level chunking.
+        
+        This method chunks each page separately and normalizes the chunks,
+        preserving page context and metadata.
+        
+        Args:
+            pages: List of PageData objects
+            max_tokens: Maximum tokens per chunk
+            
+        Returns:
+            str: Normalized text
+        """
+        from app.services.chunking import ChunkingService, TextChunk, ChunkMetadata
+        
+        LOGGER.info("Starting page-level chunking normalization")
+        
+        # Initialize chunking service
+        chunking_service = ChunkingService(
+            max_tokens_per_chunk=max_tokens,
+            overlap_tokens=50,
+            enable_section_chunking=True
+        )
+        
+        all_chunks = []
+        
+        # Process each page separately
+        for page in pages:
+            page_text = page.get_content(prefer_markdown=True)
+            
+            # Chunk this page's text
+            page_chunks = chunking_service.chunk_document(text=page_text)
+            
+            # Update chunk metadata to reflect correct page number
+            for chunk in page_chunks:
+                chunk.metadata.page_number = page.page_number
+            
+            all_chunks.extend(page_chunks)
+            
+            LOGGER.debug(
+                f"Chunked page {page.page_number}",
+                extra={
+                    "page_number": page.page_number,
+                    "chunks_created": len(page_chunks),
+                    "page_length": len(page_text)
+                }
+            )
+        
+        # Log chunking statistics
+        stats = chunking_service.get_chunk_statistics(all_chunks)
+        LOGGER.info(
+            "Page-level chunking completed",
+            extra=stats
+        )
+        
+        # Normalize each chunk
+        normalized_chunks = await self.normalize_chunks(all_chunks)
+        
+        # Merge normalized chunks
+        merged_text = self.merge_normalized_chunks(normalized_chunks)
+        
+        LOGGER.info(
+            "Page-level chunking normalization completed",
+            extra={
+                "total_pages": len(pages),
+                "total_chunks": len(all_chunks),
+                "normalized_length": len(merged_text)
+            }
+        )
+        
+        return merged_text
     
     async def _normalize_text_hybrid(self, raw_text: str) -> str:
         """Execute hybrid LLM + code normalization pipeline.
@@ -204,8 +387,8 @@ class NormalizationService:
                 "original_length": len(raw_text),
                 "llm_normalized_length": len(llm_normalized),
                 "final_length": len(final_text),
-                "dates_extracted": len(result["extracted_fields"]["dates"]),
-                "amounts_extracted": len(result["extracted_fields"]["amounts"]),
+                "dates_extracted": len(result.get("extracted_fields", {}).get("dates", [])),
+                "amounts_extracted": len(result.get("extracted_fields", {}).get("amounts", [])),
             }
         )
         
@@ -660,3 +843,156 @@ class NormalizationService:
             )
         
         return detected
+    
+    async def _normalize_with_chunking(
+        self,
+        raw_text: str,
+        max_tokens: int = 1500
+    ) -> str:
+        """Normalize text using chunking strategy.
+        
+        This method:
+        1. Chunks the text using ChunkingService
+        2. Normalizes each chunk independently
+        3. Merges normalized chunks back together
+        
+        Args:
+            raw_text: Raw text to normalize
+            max_tokens: Maximum tokens per chunk
+            
+        Returns:
+            str: Normalized text
+        """
+        from app.services.chunking import ChunkingService
+        
+        LOGGER.info("Starting chunk-based normalization")
+        
+        # Initialize chunking service
+        chunking_service = ChunkingService(
+            max_tokens_per_chunk=max_tokens,
+            overlap_tokens=50,
+            enable_section_chunking=True
+        )
+        
+        # Chunk the document
+        chunks = chunking_service.chunk_document(raw_text)
+        
+        # Log chunking statistics
+        stats = chunking_service.get_chunk_statistics(chunks)
+        LOGGER.info(
+            "Document chunked for normalization",
+            extra=stats
+        )
+        
+        # Normalize each chunk
+        normalized_chunks = await self.normalize_chunks(chunks)
+        
+        # Merge normalized chunks
+        merged_text = self.merge_normalized_chunks(normalized_chunks)
+        
+        LOGGER.info(
+            "Chunk-based normalization completed",
+            extra={
+                "total_chunks": len(chunks),
+                "original_length": len(raw_text),
+                "normalized_length": len(merged_text)
+            }
+        )
+        
+        return merged_text
+    
+    async def normalize_chunks(
+        self,
+        chunks: List["TextChunk"]
+    ) -> List["NormalizedChunk"]:
+        """Normalize multiple chunks.
+        
+        Args:
+            chunks: List of text chunks to normalize
+            
+        Returns:
+            List of normalized chunks
+        """
+        from app.services.chunking import NormalizedChunk
+        import time
+        
+        normalized_chunks = []
+        
+        for chunk in chunks:
+            start_time = time.time()
+            
+            # Normalize the chunk
+            if self.use_hybrid and self.llm_normalizer:
+                normalized_text = await self._normalize_text_hybrid(chunk.text)
+            else:
+                normalized_text = self._normalize_text_legacy(chunk.text)
+            
+            processing_time_ms = int((time.time() - start_time) * 1000)
+            
+            # Create normalized chunk
+            normalized_chunk = NormalizedChunk(
+                original_chunk=chunk,
+                normalized_text=normalized_text,
+                processing_time_ms=processing_time_ms,
+                normalization_method="hybrid" if self.use_hybrid else "rule_based"
+            )
+            
+            normalized_chunks.append(normalized_chunk)
+            
+            LOGGER.debug(
+                f"Normalized chunk {chunk.metadata.chunk_index} "
+                f"(page {chunk.metadata.page_number})",
+                extra={
+                    "section": chunk.metadata.section_name,
+                    "processing_time_ms": processing_time_ms
+                }
+            )
+        
+        return normalized_chunks
+    
+    def merge_normalized_chunks(
+        self,
+        normalized_chunks: List["NormalizedChunk"]
+    ) -> str:
+        """Merge normalized chunks back into a single document.
+        
+        Args:
+            normalized_chunks: List of normalized chunks
+            
+        Returns:
+            str: Merged normalized text
+        """
+        if not normalized_chunks:
+            return ""
+        
+        # Sort chunks by page number and chunk index
+        sorted_chunks = sorted(
+            normalized_chunks,
+            key=lambda c: (c.metadata.page_number, c.metadata.chunk_index)
+        )
+        
+        merged_parts = []
+        current_page = None
+        
+        for chunk in sorted_chunks:
+            # Add page marker if page changed
+            if chunk.metadata.page_number != current_page:
+                current_page = chunk.metadata.page_number
+                if len(merged_parts) > 0:  # Don't add marker before first page
+                    merged_parts.append(f"\n=== PAGE {current_page} ===\n")
+            
+            # Add section marker if section name exists
+            if chunk.metadata.section_name:
+                merged_parts.append(f"\n--- {chunk.metadata.section_name} ---\n")
+            
+            # Add normalized text
+            merged_parts.append(chunk.normalized_text)
+        
+        merged_text = '\n'.join(merged_parts)
+        
+        # Clean up excessive whitespace
+        import re
+        merged_text = re.sub(r'\n{3,}', '\n\n', merged_text)
+        
+        return merged_text.strip()
+

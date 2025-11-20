@@ -2,6 +2,7 @@
 
 from pathlib import Path
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -25,9 +26,34 @@ class Settings(BaseSettings):
     mistral_api_url: str = "https://api.mistral.ai/v1/ocr"
     mistral_model: str = "mistral-ocr-latest"
 
-    openrouter_api_key: str
-    openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions"
-    openrouter_model: str = "nvidia/nemotron-nano-12b-v2-vl:free"
+    # OpenRouter API Configuration
+    openrouter_api_key: str = Field(..., description="OpenRouter API key for LLM normalization")
+    openrouter_api_url: str = Field(
+        default="https://openrouter.ai/api/v1/chat/completions",
+        description="OpenRouter API endpoint URL"
+    )
+    openrouter_model: str = Field(
+        default="google/gemini-2.0-flash-001",
+        description="OpenRouter model name for normalization"
+    )
+
+    # Chunking Configuration
+    chunk_max_tokens: int = Field(
+        default=1500,
+        description="Maximum tokens per chunk for LLM processing"
+    )
+    chunk_overlap_tokens: int = Field(
+        default=50,
+        description="Number of tokens to overlap between chunks"
+    )
+    enable_section_chunking: bool = Field(
+        default=True,
+        description="Enable section-aware chunking for insurance documents"
+    )
+    enable_chunking: bool = Field(
+        default=True,
+        description="Enable automatic chunking for large documents"
+    )
 
     # Timeout Settings (in seconds)
     ocr_timeout: int = 120

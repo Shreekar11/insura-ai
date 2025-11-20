@@ -35,38 +35,106 @@ class LLMNormalizer:
     """
     
     # System prompt for LLM normalization
-    NORMALIZATION_PROMPT = """You are an expert in insurance document OCR cleanup.
+    NORMALIZATION_PROMPT = """You are an expert system for Insurance OCR Text Normalization. 
+Your role is to convert raw OCR text into clean, structurally correct, 
+semantically identical normalized markdown.
 
-Your task is to transform raw OCR text into clean, normalized markdown WITHOUT changing the meaning or rewriting the content.
+STRICT RULES:
+- Do NOT change the meaning of the text.
+- Do NOT summarize, rewrite, omit, or invent content.
+- Do NOT hallucinate missing words or rewrite legal/insurance phrases.
+- Output ONLY the cleaned markdown text with no explanations.
 
-Perform the following normalization steps:
-1. Fix broken words, hyphenation, and merged tokens.
-2. Remove OCR artifacts such as:
-   • backslashes
-   • LaTeX fragments ($…$, \\%)
-   • unnecessary escape characters
-3. Normalize percentages (e.g., "$75 %$" → "75%").
-4. Normalize tables:
-   • Merge broken rows
-   • Clean header formatting
-   • Ensure | col | col | structure
-5. Normalize markdown:
-   • Ensure proper headers (#, ##)
-   • Insert line breaks after headings
-   • Clean bullet and numbering lists (1., 2., i., ii.)
-6. Reconstruct paragraphs with correct spacing.
-7. Ensure the output is clean markdown with:
-   • No hallucinations
-   • No new text
-   • No semantic alterations
+---------------------------------------
+### NORMALIZATION REQUIREMENTS
+---------------------------------------
 
-Return ONLY the normalized text without any explanations or metadata."""
+## 1. Fix OCR text defects (WITHOUT changing meaning)
+Correct only structural and formatting issues:
+- Fix broken words, merged words, and misplaced hyphens.
+  Example: "usefor" → "use for", "purposein" → "purpose in"
+- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
+- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
+
+## 2. Remove OCR artifacts
+Remove:
+- Backslashes (`\`, `\\`)
+- LaTeX fragments (`$...$`, `\%`, `\\%`)
+- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
+- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
+- Page markers like `---`, `===`, page numbers unless part of the text
+
+## 3. Normalize values
+- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
+- Normalize bullets/lists:
+  - 1., 2., 3.
+  - i., ii., iii.
+  - Hyphen/asterisk bullets
+- Ensure consistent spacing and indentation
+
+## 4. Markdown normalization
+- Correct headers (#, ##, ###) and ensure they appear on their own line.
+- Add a blank line after every header.
+- Convert malformed or partial headers into correct markdown headers.
+- Ensure section titles are not merged with following content.
+
+## 5. Paragraph reconstruction
+- Insert missing line breaks between paragraphs.
+- Join lines that were incorrectly split mid-sentence.
+- Do NOT merge paragraphs that should remain separate.
+
+## 6. Table reconstruction (VERY IMPORTANT)
+Reconstruct tables into clean markdown table format:
+
+- Detect multi-line headers and merge them into a single row.
+- Remove fragment / partial header leftovers.
+- Remove blank rows inside tables.
+- Ensure consistent pipe `|` formatting:
+  
+  | Column A | Column B |
+  |----------|----------|
+  | value    | value    |
+
+- Preserve all table data exactly as written.
+
+## 7. Preserve domain-critical semantics
+DO NOT modify:
+- Insurance terms
+- Legal language
+- Policy wordings
+- Clause numbers
+- Definitions
+- Exclusions or inclusions
+- Section titles
+
+The text must remain **legally identical** to the source.
+
+## 8. No additions, no exclusions
+- Do NOT infer missing content.
+- Do NOT rewrite any part of the content.
+- Do NOT guess corrected words unless the OCR error is unambiguous (“usefor”, “6months”).
+- Do NOT add glossaries, summaries, or commentary.
+
+---------------------------------------
+### OUTPUT RULES
+---------------------------------------
+- Output ONLY the final normalized markdown text.
+- Do NOT wrap output in code fences.
+- Do NOT include explanations.
+- Do NOT include metadata, comments, notes, or system messages.
+
+---------------------------------------
+### FINAL GOAL
+---------------------------------------
+Produce perfectly structured, clean, readable, 
+and semantically unchanged insurance markdown text suitable for 
+downstream deterministic extraction."""
 
     def __init__(
         self,
         openrouter_api_key: str,
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "nvidia/nemotron-nano-12b-vl:free",
+        openrouter_model: str = "google/gemini-2.0-flash-001",
         timeout: int = 60,
         max_retries: int = 3,
     ):
@@ -75,7 +143,7 @@ Return ONLY the normalized text without any explanations or metadata."""
         Args:
             openrouter_api_key: OpenRouter API key
             openrouter_api_url: OpenRouter chat completion endpoint
-            openrouter_model: Model name to use (default: mistralai/mistral-medium-3.1)
+            openrouter_model: Model name to use (default: google/gemini-2.0-flash-001)
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
         """
@@ -149,7 +217,7 @@ Return ONLY the normalized text without any explanations or metadata."""
             return raw_text
     
     async def _call_llm_api(self, text: str) -> str:
-        """Call Mistral LLM API for text normalization.
+        """Call LLM API for text normalization.
         
         Args:
             text: Text to normalize
@@ -203,7 +271,7 @@ Return ONLY the normalized text without any explanations or metadata."""
                     normalized_text = result["choices"][0]["message"]["content"].strip()
                     
                     LOGGER.debug(
-                        "Mistral LLM API call successful",
+                        "LLM API call successful",
                         extra={
                             "attempt": attempt + 1,
                             "input_length": len(text),
@@ -242,18 +310,18 @@ Return ONLY the normalized text without any explanations or metadata."""
         try:
             error_detail = error.response.json()
             LOGGER.error(
-                f"Mistral LLM API error response: {error_detail}",
+                f"LLM API error response: {error_detail}",
                 extra={"status_code": error.response.status_code}
             )
         except Exception:
             LOGGER.error(
-                f"Mistral LLM API error response (text): {error.response.text}",
+                f"LLM API error response (text): {error.response.text}",
                 extra={"status_code": error.response.status_code}
             )
         
         if attempt < self.max_retries - 1:
             LOGGER.warning(
-                f"Mistral LLM API call failed, retrying (attempt {attempt + 1}/{self.max_retries})",
+                f"LLM API call failed, retrying (attempt {attempt + 1}/{self.max_retries})",
                 extra={
                     "status_code": error.response.status_code,
                     "error": str(error),
@@ -262,12 +330,12 @@ Return ONLY the normalized text without any explanations or metadata."""
             await self._wait_before_retry(attempt)
         else:
             LOGGER.error(
-                "Mistral LLM API call failed after all retries",
+                "LLM API call failed after all retries",
                 exc_info=True,
                 extra={"status_code": error.response.status_code}
             )
             raise APIClientError(
-                f"Mistral LLM API returned error: {error.response.status_code}"
+                f"LLM API returned error: {error.response.status_code}"
             ) from error
     
     async def _handle_timeout_error(
@@ -286,13 +354,13 @@ Return ONLY the normalized text without any explanations or metadata."""
         """
         if attempt < self.max_retries - 1:
             LOGGER.warning(
-                f"Mistral LLM API call timed out, retrying (attempt {attempt + 1}/{self.max_retries})",
+                f"LLM API call timed out, retrying (attempt {attempt + 1}/{self.max_retries})",
                 extra={"error": str(error)}
             )
             await self._wait_before_retry(attempt)
         else:
             LOGGER.error(
-                "Mistral LLM API call timed out after all retries",
+                "LLM API call timed out after all retries",
                 exc_info=True
             )
             raise OCRTimeoutError(
@@ -315,17 +383,17 @@ Return ONLY the normalized text without any explanations or metadata."""
         """
         if attempt < self.max_retries - 1:
             LOGGER.warning(
-                f"Mistral LLM API call failed, retrying (attempt {attempt + 1}/{self.max_retries})",
+                f"LLM API call failed, retrying (attempt {attempt + 1}/{self.max_retries})",
                 extra={"error": str(error)}
             )
             await self._wait_before_retry(attempt)
         else:
             LOGGER.error(
-                "Mistral LLM API call failed after all retries",
+                "LLM API call failed after all retries",
                 exc_info=True
             )
             raise APIClientError(
-                f"Failed to call Mistral LLM API: {str(error)}"
+                f"Failed to call LLM API: {str(error)}"
             ) from error
     
     async def _wait_before_retry(self, attempt: int) -> None:

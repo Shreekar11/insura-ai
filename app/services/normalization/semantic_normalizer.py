@@ -8,7 +8,13 @@ import re
 from typing import Optional, Dict, Any
 
 from app.utils.logging import get_logger
-from .constants import INDIAN_CURRENCY_PATTERN, INTL_CURRENCY_PATTERN, AMOUNT_PATTERN, DATE_PATTERNS, MONTH_NAMES
+from app.services.normalization.constants import (
+    INDIAN_CURRENCY_PATTERN,
+    INTL_CURRENCY_PATTERN,
+    AMOUNT_PATTERN,
+    DATE_PATTERNS,
+    MONTH_NAMES
+)
 
 LOGGER = get_logger(__name__)
 

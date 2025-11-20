@@ -435,3 +435,56 @@ class PropertySOV(Base):
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
+
+class DocumentChunk(Base):
+    """Document chunks for token-limited processing."""
+
+    __tablename__ = "document_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    page_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    section_name: Mapped[str | None] = mapped_column(String, nullable=True)
+    chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    raw_text: Mapped[str] = mapped_column(Text, nullable=False)
+    token_count: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    normalized_chunks: Mapped[list["NormalizedChunk"]] = relationship(
+        "NormalizedChunk", back_populates="chunk", cascade="all, delete-orphan"
+    )
+
+
+class NormalizedChunk(Base):
+    """Normalized chunks after LLM processing."""
+
+    __tablename__ = "normalized_chunks"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False
+    )
+    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
+    normalization_method: Mapped[str] = mapped_column(
+        String, nullable=False, default="llm"
+    )  # llm | hybrid | rule_based
+    processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    chunk: Mapped["DocumentChunk"] = relationship(
+        "DocumentChunk", back_populates="normalized_chunks"
+    )
+
+
