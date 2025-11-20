@@ -215,7 +215,10 @@ class DocumentClassification(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     classifier_model: Mapped[str | None] = mapped_column(
         String, nullable=True
-    )  # rules | gpt_zero_shot | claude_zero_shot | mistral_zero_shot
+    )  # rules | gpt_zero_shot | claude_zero_shot | mistral_zero_shot | chunk_aggregator_v1 | llm_fallback_v1
+    decision_details: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="Aggregation details: scores, method, chunks_used, fallback_used"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -486,5 +489,37 @@ class NormalizedChunk(Base):
     chunk: Mapped["DocumentChunk"] = relationship(
         "DocumentChunk", back_populates="normalized_chunks"
     )
+
+
+class ChunkClassificationSignal(Base):
+    """Classification signals extracted from document chunks."""
+
+    __tablename__ = "chunk_classification_signals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    chunk_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False
+    )
+    signals: Mapped[dict] = mapped_column(
+        JSON, nullable=False, comment="Per-class confidence scores: {policy: 0.12, claim: 0.78, ...}"
+    )
+    keywords: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="Extracted keywords/phrases indicating document type"
+    )
+    entities: Mapped[dict | None] = mapped_column(
+        JSON, nullable=True, comment="Extracted entities: policy_number, claim_number, dates, amounts"
+    )
+    model_name: Mapped[str] = mapped_column(String, nullable=False)
+    model_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="LLM confidence in signal extraction"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    chunk: Mapped["DocumentChunk"] = relationship("DocumentChunk")
 
 

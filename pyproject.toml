@@ -21,6 +21,7 @@ dependencies = [
     "alembic>=1.13.1",
     "psycopg2-binary>=2.9.9",
     "temporalio>=1.7.0",
+    "greenlet>=3.2.4",
 ]
 
 [project.optional-dependencies]

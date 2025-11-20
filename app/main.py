@@ -11,6 +11,7 @@ from app.api.main import api_router
 from app.models.response.response import HealthCheckResponse
 from app.config import settings
 from app.utils.logging import get_logger
+from app.database.client import init_database, close_database, db_client
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -45,11 +46,39 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             "environment": settings.environment,
         },
     )
+    
+    # Initialize database connection and run auto-migration
+    try:
+        LOGGER.info("Initializing database...")
+        await init_database(
+            auto_migrate=True,  # Enable auto-migration
+            drop_existing=False  # Don't drop existing tables (set to True only for dev reset)
+        )
+        LOGGER.info("Database initialized successfully")
+    except Exception as e:
+        LOGGER.error(
+            "Failed to initialize database",
+            exc_info=True,
+            extra={"error": str(e)}
+        )
+        # Continue startup even if database fails (for development)
+        # In production, you might want to raise the exception
 
     yield
 
     # Shutdown
     LOGGER.info("Shutting down application")
+    
+    # Close database connection
+    try:
+        await close_database()
+    except Exception as e:
+        LOGGER.error(
+            "Error closing database",
+            exc_info=True,
+            extra={"error": str(e)}
+        )
+
 
 
 # Create FastAPI application
@@ -88,8 +117,11 @@ async def health_check() -> HealthCheckResponse:
     Returns:
         HealthCheckResponse: Service health status
     """
+    # Check database health
+    db_health = await db_client.health_check()
+    
     return HealthCheckResponse(
-        status="healthy",
+        status="healthy" if db_health["status"] == "healthy" else "degraded",
         version=settings.app_version,
         service=settings.app_name,
     )
