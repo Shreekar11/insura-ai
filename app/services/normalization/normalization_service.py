@@ -187,18 +187,29 @@ class NormalizationService:
         # Normalize chunks and extract signals
         normalized_chunks = []
         chunk_signals = []
+        all_extracted_fields = []
         
         for i, chunk in enumerate(all_chunks):
             page_num = chunk.metadata.page_number or 1
             
-            # Extract signals during normalization
-            result = await self.llm_normalizer.normalize_with_signals(
+            # Stage 1: LLM normalization with signal extraction
+            llm_result = await self.llm_normalizer.normalize_with_signals(
                 chunk.text,
                 page_number=page_num
             )
             
-            normalized_chunks.append(result["normalized_text"])
-            chunk_signals.append(result)
+            # Stage 2: Semantic normalization for field-level accuracy
+            semantic_result = self.semantic_normalizer.normalize_text_with_fields(
+                llm_result["normalized_text"]
+            )
+            
+            # Use the semantically normalized text as the final output
+            final_normalized_text = semantic_result["normalized_text"]
+            extracted_fields = semantic_result["extracted_fields"]
+            
+            normalized_chunks.append(final_normalized_text)
+            chunk_signals.append(llm_result)
+            all_extracted_fields.append(extracted_fields)
             
             # Persist chunk to database
             db_chunk = await self.chunk_repository.create_chunk(
@@ -210,24 +221,50 @@ class NormalizationService:
                 section_name=chunk.metadata.section_name,
             )
             
-            # Persist normalized chunk using normalization repository
+            # Persist normalized chunk with semantic normalization
             await self.normalization_repository.create_normalized_chunk(
                 chunk_id=db_chunk.id,
-                normalized_text=result["normalized_text"],
-                method="llm_with_signals",
+                normalized_text=final_normalized_text,
+                method="hybrid_llm_semantic",
             )
+            
+            # Log extracted fields for monitoring
+            if extracted_fields:
+                LOGGER.info(
+                    f"Extracted fields from chunk {chunk.metadata.chunk_index}",
+                    extra={
+                        "chunk_id": str(db_chunk.id),
+                        "dates_count": len(extracted_fields.get("dates", [])),
+                        "amounts_count": len(extracted_fields.get("amounts", [])),
+                        "emails_count": len(extracted_fields.get("emails", [])),
+                        "extracted_fields": extracted_fields,
+                    }
+                )
             
             # Persist classification signals using classification repository
             await self.classification_repository.create_classification_signal(
                 chunk_id=db_chunk.id,
-                signals=result["signals"],
+                signals=llm_result["signals"],
                 model_name=self.llm_normalizer.openrouter_model,
-                keywords=result.get("keywords", []),
-                entities=result.get("entities", {}),
-                confidence=result.get("confidence"),
+                keywords=llm_result.get("keywords", []),
+                entities=llm_result.get("entities", {}),
+                confidence=llm_result.get("confidence"),
             )
         
-        LOGGER.info(f"Normalized and persisted {len(normalized_chunks)} chunks")
+        # Log summary of semantic normalization
+        total_dates = sum(len(fields.get("dates", [])) for fields in all_extracted_fields)
+        total_amounts = sum(len(fields.get("amounts", [])) for fields in all_extracted_fields)
+        total_emails = sum(len(fields.get("emails", [])) for fields in all_extracted_fields)
+        
+        LOGGER.info(
+            f"Normalized and persisted {len(normalized_chunks)} chunks with semantic field extraction",
+            extra={
+                "total_chunks": len(normalized_chunks),
+                "total_dates_extracted": total_dates,
+                "total_amounts_extracted": total_amounts,
+                "total_emails_extracted": total_emails,
+            }
+        )
         
         # Aggregate signals
         classification_result = self.classification_service.aggregate_signals(
