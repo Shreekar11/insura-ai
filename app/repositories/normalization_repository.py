@@ -40,6 +40,7 @@ class NormalizationRepository:
         normalized_text: str,
         method: str = "llm",
         processing_time_ms: Optional[int] = None,
+        extracted_fields: Optional[dict] = None,
     ) -> NormalizedChunk:
         """Create a normalized chunk record.
         
@@ -48,6 +49,7 @@ class NormalizationRepository:
             normalized_text: The normalized text content
             method: Normalization method used (e.g., "llm", "hybrid")
             processing_time_ms: Time taken to normalize in milliseconds
+            extracted_fields: Structured fields extracted during normalization
             
         Returns:
             NormalizedChunk: The created normalized chunk record
@@ -58,7 +60,8 @@ class NormalizationRepository:
             ...     chunk_id=chunk_uuid,
             ...     normalized_text="Clean normalized text",
             ...     method="llm",
-            ...     processing_time_ms=250
+            ...     processing_time_ms=250,
+            ...     extracted_fields={"dates": [], "amounts": []}
             ... )
         """
         norm_chunk = NormalizedChunk(
@@ -66,6 +69,7 @@ class NormalizationRepository:
             normalized_text=normalized_text,
             normalization_method=method,
             processing_time_ms=processing_time_ms,
+            extracted_fields=extracted_fields,
         )
         self.session.add(norm_chunk)
         await self.session.flush()

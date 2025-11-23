@@ -13,7 +13,11 @@ from app.services.normalization.constants import (
     INTL_CURRENCY_PATTERN,
     AMOUNT_PATTERN,
     DATE_PATTERNS,
-    MONTH_NAMES
+    MONTH_NAMES,
+    CURRENCY_SYMBOL_TO_ISO,
+    CURRENCY_NAME_TO_ISO,
+    NUMBER_WORDS,
+    CURRENCY_PATTERNS
 )
 
 LOGGER = get_logger(__name__)
@@ -37,6 +41,10 @@ class SemanticNormalizer:
     AMOUNT_PATTERN = AMOUNT_PATTERN
     DATE_PATTERNS = DATE_PATTERNS
     MONTH_NAMES = MONTH_NAMES
+    CURRENCY_SYMBOL_TO_ISO = CURRENCY_SYMBOL_TO_ISO
+    CURRENCY_NAME_TO_ISO = CURRENCY_NAME_TO_ISO
+    NUMBER_WORDS = NUMBER_WORDS
+    CURRENCY_PATTERNS = CURRENCY_PATTERNS
     
     def __init__(self):
         """Initialize semantic normalizer."""
@@ -95,55 +103,199 @@ class SemanticNormalizer:
         LOGGER.debug(f"Could not normalize date: {date_str}")
         return None
     
-    def normalize_amount(self, amount_str: str) -> Optional[float]:
-        """Normalize monetary amount to numeric value.
+    def parse_spelled_out_number(self, text: str) -> Optional[float]:
+        """Parse spelled-out numbers to numeric values.
         
-        Handles various currency formats:
-        - ₹1,20,000
-        - Rs. 12,500/-
-        - USD $500.00
-        - 25,00,000.00
+        Handles:
+        - Basic numbers: "fifty" → 50
+        - Compound numbers: "twenty five" → 25
+        - With multipliers: "five thousand" → 5000, "two lakh" → 200000
+        
+        Args:
+            text: Text containing spelled-out number
+            
+        Returns:
+            float: Numeric value or None if parsing fails
+            
+        Example:
+            >>> normalizer.parse_spelled_out_number("fifty")
+            50.0
+            >>> normalizer.parse_spelled_out_number("two lakh")
+            200000.0
+        """
+        if not text:
+            return None
+        
+        text = text.lower().strip()
+        words = text.split()
+        
+        total = 0
+        current = 0
+        
+        for word in words:
+            if word in self.NUMBER_WORDS:
+                value = self.NUMBER_WORDS[word]
+                
+                if value >= 100:
+                    if current == 0:
+                        current = 1
+                    current *= value
+                    if value >= 1000:
+                        total += current
+                        current = 0
+                else:
+                    current += value
+        
+        total += current
+        return float(total) if total > 0 else None
+    
+    def clean_numeric_value(self, value_str: str, locale: str = 'en_US') -> Optional[float]:
+        """Clean and parse numeric value handling different locale formats.
+        
+        Handles:
+        - US format: 1,000.00 (comma as thousands, period as decimal)
+        - EU format: 1.000,00 (period as thousands, comma as decimal)
+        - Indian format: 1,20,000 (Indian numbering system)
+        
+        Args:
+            value_str: Numeric string to clean
+            locale: Locale hint ('en_US', 'en_IN', 'de_DE', etc.)
+            
+        Returns:
+            float: Cleaned numeric value or None if parsing fails
+        """
+        if not value_str:
+            return None
+        
+        value_str = value_str.strip()
+        
+        # Detect format based on patterns
+        # European format: has period as thousands separator and comma as decimal
+        if re.search(r'\d\.\d{3}', value_str) and ',' in value_str:
+            # European: 1.000,00 → 1000.00
+            value_str = value_str.replace('.', '').replace(',', '.')
+        # Indian format: 1,20,000
+        elif re.search(r'\d,\d{2},\d{3}', value_str):
+            # Indian: 1,20,000 → 120000
+            value_str = value_str.replace(',', '')
+        # US format: 1,000.00
+        else:
+            # US: remove commas
+            value_str = value_str.replace(',', '')
+        
+        try:
+            return float(value_str)
+        except ValueError:
+            LOGGER.debug(f"Failed to parse numeric value: {value_str}")
+            return None
+    
+    def normalize_currency(self, amount_str: str) -> Optional[Dict[str, Any]]:
+        """Normalize currency amount to structured format with ISO 4217 code.
+        
+        Handles:
+        - Symbol-based: $100, €50.50, £20, ₹1,20,000
+        - ISO code: USD 100, EUR 50.50, GBP 20
+        - Spelled-out: "fifty dollars", "two lakh rupees"
+        - Various locales: 1,000.00 (US) vs 1.000,00 (EU)
         
         Args:
             amount_str: Amount string to normalize
             
         Returns:
-            float: Numeric amount, or None if parsing fails
+            dict: {"amount": float, "currency": str} or None if parsing fails
+            
+        Example:
+            >>> normalizer.normalize_currency("$1,200.50")
+            {"amount": 1200.50, "currency": "USD"}
+            >>> normalizer.normalize_currency("fifty pounds")
+            {"amount": 50.0, "currency": "GBP"}
         """
         if not amount_str:
             return None
         
         amount_str = amount_str.strip()
         
-        # Try Indian currency pattern
-        match = re.search(self.INDIAN_CURRENCY_PATTERN, amount_str)
-        if match:
-            amount = match.group(1).replace(',', '')
-            try:
-                return float(amount)
-            except ValueError:
-                pass
+        # Try spelled-out currency first
+        lower_text = amount_str.lower()
+        for currency_name, iso_code in self.CURRENCY_NAME_TO_ISO.items():
+            if currency_name in lower_text:
+                # Extract the number part
+                number_part = lower_text.replace(currency_name, '').strip()
+                amount = self.parse_spelled_out_number(number_part)
+                if amount:
+                    return {"amount": amount, "currency": iso_code}
         
-        # Try international currency pattern
-        match = re.search(self.INTL_CURRENCY_PATTERN, amount_str)
-        if match:
-            amount = match.group(1).replace(',', '')
-            try:
-                return float(amount)
-            except ValueError:
-                pass
+        # Try pattern matching
+        for pattern, pattern_type in self.CURRENCY_PATTERNS:
+            match = re.search(pattern, amount_str)
+            if match:
+                try:
+                    if pattern_type == 'iso_code':
+                        # ISO code before amount: USD 100
+                        iso_code = match.group(1)
+                        amount_value = self.clean_numeric_value(match.group(2))
+                        if amount_value and iso_code in self.CURRENCY_SYMBOL_TO_ISO.values():
+                            return {"amount": amount_value, "currency": iso_code}
+                    
+                    elif pattern_type == 'iso_code_after':
+                        # Amount before ISO code: 100 USD
+                        amount_value = self.clean_numeric_value(match.group(1))
+                        iso_code = match.group(2)
+                        if amount_value and iso_code in self.CURRENCY_SYMBOL_TO_ISO.values():
+                            return {"amount": amount_value, "currency": iso_code}
+                    
+                    elif pattern_type == 'symbol_before':
+                        # Symbol before amount: $100
+                        symbol = match.group(1)
+                        amount_value = self.clean_numeric_value(match.group(2))
+                        iso_code = self.CURRENCY_SYMBOL_TO_ISO.get(symbol)
+                        if amount_value and iso_code:
+                            return {"amount": amount_value, "currency": iso_code}
+                    
+                    elif pattern_type == 'indian':
+                        # Indian format: Rs. 1,20,000/-
+                        amount_value = self.clean_numeric_value(match.group(1), locale='en_IN')
+                        if amount_value:
+                            return {"amount": amount_value, "currency": "INR"}
+                    
+                    elif pattern_type == 'european':
+                        # European format: 1.000,00 EUR
+                        amount_value = self.clean_numeric_value(match.group(1), locale='de_DE')
+                        iso_code = match.group(2)
+                        if amount_value and iso_code in self.CURRENCY_SYMBOL_TO_ISO.values():
+                            return {"amount": amount_value, "currency": iso_code}
+                
+                except (ValueError, IndexError) as e:
+                    LOGGER.debug(f"Failed to parse currency: {amount_str}", extra={"error": str(e)})
+                    continue
         
-        # Try generic amount pattern
-        match = re.search(self.AMOUNT_PATTERN, amount_str)
-        if match:
-            amount = match.group(1).replace(',', '')
-            try:
-                return float(amount)
-            except ValueError:
-                pass
-        
-        LOGGER.debug(f"Could not normalize amount: {amount_str}")
+        LOGGER.debug(f"Could not normalize currency: {amount_str}")
         return None
+    
+    def normalize_amount(self, amount_str: str) -> Optional[Dict[str, Any]]:
+        """Normalize monetary amount with currency code (BREAKING CHANGE).
+        
+        This method now returns structured currency data with ISO 4217 codes.
+        
+        Handles various currency formats:
+        - Symbol-based: $1,200.50, ₹1,20,000, €50.50
+        - ISO code: USD 100, EUR 50.50, GBP 20
+        - Indian format: Rs. 12,500/-
+        - Spelled-out: "fifty dollars", "two lakh rupees"
+        
+        Args:
+            amount_str: Amount string to normalize
+            
+        Returns:
+            dict: {"amount": float, "currency": str} or None if parsing fails
+            
+        Example:
+            >>> normalizer.normalize_amount("$1,200.50")
+            {"amount": 1200.50, "currency": "USD"}
+            >>> normalizer.normalize_amount("Rs. 12,500/-")
+            {"amount": 12500.0, "currency": "INR"}
+        """
+        return self.normalize_currency(amount_str)
     
     
     def normalize_policy_number(self, policy_number: str) -> Optional[str]:
@@ -238,15 +390,31 @@ class SemanticNormalizer:
                     # Replace in text
                     normalized_text = normalized_text.replace(date_str, normalized_date)
         
-        # Extract and normalize amounts
-        for match in re.finditer(self.INDIAN_CURRENCY_PATTERN, text):
-            amount_str = match.group(0)
-            normalized_amount = self.normalize_amount(amount_str)
-            if normalized_amount is not None:
-                extracted_fields["amounts"].append({
-                    "original": amount_str,
-                    "normalized": normalized_amount
-                })
+        
+        # Extract and normalize amounts with currency codes
+        processed_positions = set()  # Track processed positions to avoid duplicates
+        
+        for pattern, pattern_type in self.CURRENCY_PATTERNS:
+            for match in re.finditer(pattern, text):
+                amount_str = match.group(0)
+                start_pos = match.start()
+                
+                # Skip if we've already processed this position
+                if start_pos in processed_positions:
+                    continue
+                
+                normalized_currency = self.normalize_currency(amount_str)
+                if normalized_currency:
+                    extracted_fields["amounts"].append({
+                        "original": amount_str,
+                        "normalized": normalized_currency
+                    })
+                    
+                    # Replace in text with standardized format: "1500.00 INR"
+                    standardized_format = f"{normalized_currency['amount']:.2f} {normalized_currency['currency']}"
+                    normalized_text = normalized_text.replace(amount_str, standardized_format, 1)
+                    processed_positions.add(start_pos)
+        
         
         # Extract emails
         email_pattern = r'\b[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Z|a-z]{2,}\b'

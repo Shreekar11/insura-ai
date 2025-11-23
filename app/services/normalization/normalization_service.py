@@ -226,6 +226,7 @@ class NormalizationService:
                 chunk_id=db_chunk.id,
                 normalized_text=final_normalized_text,
                 method="hybrid_llm_semantic",
+                extracted_fields=extracted_fields,
             )
             
             # Log extracted fields for monitoring
