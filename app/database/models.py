@@ -15,7 +15,7 @@ from sqlalchemy import (
     Text,
     TIMESTAMP,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.database.base import Base
@@ -481,6 +481,7 @@ class NormalizedChunk(Base):
         String, nullable=False, default="llm"
     )  # llm | hybrid | rule_based
     processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    extracted_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
