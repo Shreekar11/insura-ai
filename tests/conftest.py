@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 
 from app.main import app
 from app.services.ocr.ocr_service import OCRService
-from app.services.ocr_base import OCRResult
+from app.services.ocr.ocr_base import OCRResult
 
 
 @pytest.fixture

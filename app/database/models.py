@@ -515,11 +515,28 @@ class NormalizedChunk(Base):
     relationships: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, comment="Structured relationships between entities"
     )
+    
+    # Provenance tracking
+    content_hash: Mapped[str | None] = mapped_column(
+        String(64), nullable=True, index=True, comment="SHA256 hash of normalized_text for change detection"
+    )
     model_version: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="LLM/normalizer version for provenance"
     )
+    prompt_version: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Prompt template version used"
+    )
+    pipeline_run_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, comment="Pipeline execution identifier"
+    )
+    source_stage: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Pipeline stage that created this (normalization, extraction, etc.)"
+    )
     quality_score: Mapped[Decimal | None] = mapped_column(
         Numeric, nullable=True, comment="Confidence/quality metric for normalization"
+    )
+    extracted_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True, comment="When extraction was performed"
     )
     
     created_at: Mapped[datetime] = mapped_column(

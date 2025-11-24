@@ -42,6 +42,9 @@ class ChunkRepository:
         raw_text: str,
         token_count: int,
         section_name: Optional[str] = None,
+        stable_chunk_id: Optional[str] = None,
+        section_type: Optional[str] = None,
+        subsection_type: Optional[str] = None,
     ) -> DocumentChunk:
         """Create a new document chunk.
         
@@ -52,6 +55,9 @@ class ChunkRepository:
             raw_text: Raw text content of the chunk
             token_count: Number of tokens in the chunk
             section_name: Optional section name for the chunk
+            stable_chunk_id: Deterministic chunk ID
+            section_type: High-level section type
+            subsection_type: Fine-grained subsection type
             
         Returns:
             DocumentChunk: The created chunk record
@@ -64,7 +70,8 @@ class ChunkRepository:
             ...     chunk_index=0,
             ...     raw_text="Policy details...",
             ...     token_count=150,
-            ...     section_name="Policy Declarations"
+            ...     section_name="Policy Declarations",
+            ...     stable_chunk_id="doc_..._p1_c0"
             ... )
         """
         chunk = DocumentChunk(
@@ -74,6 +81,9 @@ class ChunkRepository:
             raw_text=raw_text,
             token_count=token_count,
             section_name=section_name,
+            stable_chunk_id=stable_chunk_id,
+            section_type=section_type,
+            subsection_type=subsection_type,
         )
         self.session.add(chunk)
         await self.session.flush()

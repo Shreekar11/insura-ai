@@ -20,6 +20,9 @@ class ChunkMetadata:
         token_count: Estimated token count
         start_char: Starting character position in original text
         end_char: Ending character position in original text
+        stable_chunk_id: Deterministic ID (doc_{id}_p{page}_c{chunk})
+        section_type: High-level section type (Declarations, Coverages, etc.)
+        subsection_type: Fine-grained subsection (Named Insured, Limits, etc.)
     """
     
     document_id: Optional[UUID] = None
@@ -29,6 +32,9 @@ class ChunkMetadata:
     token_count: int = 0
     start_char: int = 0
     end_char: int = 0
+    stable_chunk_id: Optional[str] = None
+    section_type: Optional[str] = None
+    subsection_type: Optional[str] = None
 
 
 @dataclass
