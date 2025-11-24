@@ -855,6 +855,9 @@ class SOVItem(Base):
     document_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
     )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
     location_number: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Location identifier"
     )
@@ -863,6 +866,9 @@ class SOVItem(Base):
     )
     description: Mapped[str | None] = mapped_column(
         Text, nullable=True, comment="Property description"
+    )
+    address: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Property address"
     )
     construction_type: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Construction class"
@@ -876,11 +882,17 @@ class SOVItem(Base):
     square_footage: Mapped[int | None] = mapped_column(
         Integer, nullable=True, comment="Building size"
     )
-    limit: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Coverage limit"
+    building_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Building coverage limit"
     )
-    deductible: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Deductible amount"
+    contents_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Contents coverage limit"
+    )
+    bi_limit: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Business interruption limit"
+    )
+    total_insured_value: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Total insured value (TIV)"
     )
     additional_data: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, comment="Additional fields"
@@ -904,8 +916,14 @@ class LossRunClaim(Base):
     document_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
     )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
     claim_number: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Claim identifier"
+    )
+    policy_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Associated policy number"
     )
     insured_name: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Insured party name"
@@ -913,8 +931,14 @@ class LossRunClaim(Base):
     loss_date: Mapped[datetime | None] = mapped_column(
         Date, nullable=True, comment="Date of loss"
     )
+    report_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Date claim was reported"
+    )
     cause_of_loss: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Loss cause/type"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Claim description"
     )
     incurred_amount: Mapped[Decimal | None] = mapped_column(
         Numeric, nullable=True, comment="Total incurred"
@@ -927,6 +951,159 @@ class LossRunClaim(Base):
     )
     status: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Claim status"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class PolicyItem(Base):
+    """Structured extraction of policy information."""
+
+    __tablename__ = "policy_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    policy_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Policy identification number"
+    )
+    policy_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type of policy (Property, Auto, GL, etc.)"
+    )
+    insured_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Name of insured party"
+    )
+    effective_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Policy effective date"
+    )
+    expiration_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Policy expiration date"
+    )
+    premium_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Total premium"
+    )
+    coverage_limits: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Coverage limits by type"
+    )
+    deductibles: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Deductibles by coverage type"
+    )
+    carrier_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Insurance carrier"
+    )
+    agent_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Agent/broker name"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class EndorsementItem(Base):
+    """Structured extraction of policy endorsement/amendment information."""
+
+    __tablename__ = "endorsement_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    endorsement_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Endorsement identifier"
+    )
+    policy_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Associated policy number"
+    )
+    effective_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Endorsement effective date"
+    )
+    change_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type of change (Addition, Deletion, Modification)"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Description of change"
+    )
+    premium_change: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Premium impact (positive or negative)"
+    )
+    coverage_changes: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Coverage modifications"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class InvoiceItem(Base):
+    """Structured extraction of invoice and payment information."""
+
+    __tablename__ = "invoice_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    invoice_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Invoice identifier"
+    )
+    policy_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Associated policy number"
+    )
+    invoice_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Invoice date"
+    )
+    due_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Payment due date"
+    )
+    total_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Total invoice amount"
+    )
+    amount_paid: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Amount paid to date"
+    )
+    balance_due: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Remaining balance"
+    )
+    payment_status: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Status (Paid, Pending, Overdue)"
+    )
+    payment_method: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Payment method if paid"
     )
     additional_data: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, comment="Additional fields"
