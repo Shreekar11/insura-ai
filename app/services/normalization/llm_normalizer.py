@@ -131,56 +131,99 @@ Produce perfectly structured, clean, readable,
 and semantically unchanged insurance markdown text suitable for 
 downstream deterministic extraction."""
 
-    # Signal extraction prompt for classification AND section detection
-    SIGNAL_EXTRACTION_PROMPT = """You are an OCR normalizer and metadata extractor specialized in insurance documents.
+    # Normalization and signal extraction prompt for classification AND section detection
+    NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT = """You are an OCR normalizer and metadata extractor specialized in insurance documents.
 
 TASK:
-1) Normalize the following OCR chunk (fix broken words, hyphenation, remove obvious artifacts, keep tables readable).
+1) Normalize the following OCR chunk according to the STRICT NORMALIZATION REQUIREMENTS below.
+2) Detect the section type and subsection type.
+3) Extract classification signals for document classes.
+4) Return keywords and key entities.
 
-2) Detect the section type from the content:
-   - section_type: Main section (Declarations, Coverages, Endorsements, SOV, Loss Run, Schedule, Conditions, Exclusions, or null if unclear)
-   - subsection_type: Specific subsection if applicable (Named Insured, Limits, Deductible, Property Schedule, etc., or null)
-   - section_confidence: 0.0-1.0 confidence in section detection
+---------------------------------------
+### NORMALIZATION REQUIREMENTS
+---------------------------------------
 
-3) Extract classification signals for the following document classes:
-   [policy, claim, submission, quote, proposal, SOV, financials, loss_run, audit, endorsement, invoice, correspondence]
-   
-   For each class, provide a numeric score 0.0-1.0 indicating how strongly this chunk suggests that class.
-   
-4) Return up to 8 short keywords or phrases from the chunk that indicate document type.
-   Examples: "Loss Date", "Declarations Page", "Policy Number", "Claim Number", "Premium", "Coverage"
-   
-5) Extract key entities if present and their normalized forms:
-   - policy_number: Policy identification number
-   - claim_number: Claim identification number
-   - insured_name: Name of the insured party
-   - loss_date: Date of loss (YYYY-MM-DD format)
-   - effective_date: Policy effective date (YYYY-MM-DD format)
-   - premium_amount: Premium amount (numeric)
+## 1. Fix OCR text defects (WITHOUT changing meaning)
+Correct only structural and formatting issues:
+- Fix broken words, merged words, and misplaced hyphens.
+  Example: "usefor" → "use for", "purposein" → "purpose in"
+- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
+- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
 
-SECTION DETECTION GUIDELINES:
+## 2. Remove OCR artifacts
+Remove:
+- Backslashes (`\`, `\\`)
+- LaTeX fragments (`$...$`, `\%`, `\\%`)
+- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
+- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
+- Page markers like `---`, `===`, page numbers unless part of the text
+
+## 3. Normalize values
+- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
+- Normalize bullets/lists (1., i., -, etc.) and ensure consistent spacing.
+
+## 4. Markdown normalization
+- Correct headers (#, ##, ###) and ensure they appear on their own line.
+- Add a blank line after every header.
+- Convert malformed or partial headers into correct markdown headers.
+
+## 5. Paragraph reconstruction
+- Insert missing line breaks between paragraphs.
+- Join lines that were incorrectly split mid-sentence.
+- Do NOT merge paragraphs that should remain separate.
+
+## 6. Table reconstruction (VERY IMPORTANT)
+Reconstruct tables into clean markdown table format:
+- Detect multi-line headers and merge them into a single row.
+- Remove fragment / partial header leftovers.
+- Remove blank rows inside tables.
+- Ensure consistent pipe `|` formatting.
+- Preserve all table data exactly as written.
+
+## 7. Preserve domain-critical semantics
+DO NOT modify:
+- Insurance terms, Legal language, Policy wordings
+- Clause numbers, Definitions, Exclusions or inclusions
+- Section titles
+- The text must remain **legally identical** to the source.
+
+## 8. No additions, no exclusions
+- Do NOT infer missing content.
+- Do NOT rewrite any part of the content.
+- Do NOT guess corrected words unless the OCR error is unambiguous.
+
+---------------------------------------
+### EXTRACTION GUIDELINES
+---------------------------------------
+
+SECTION DETECTION:
 - "Declarations": Policy declarations page, dec page, policy information summary
 - "Coverages": Coverage details, limits of insurance, insuring agreements, coverage sections
 - "Endorsements": Policy endorsements, attached forms, schedule of forms, modifications
 - "SOV": Statement of values, schedule of locations, property schedule, building schedule
 - "Loss Run": Loss history, claims history, loss run report, historical claims
-- "Schedule": Various schedules (equipment, locations, vehicles, etc.)
+- "Schedule": Various schedules (equipment, locations, vehicles)
 - "Conditions": Policy conditions, general conditions, terms and conditions
 - "Exclusions": Coverage exclusions, what is not covered
 
-CLASSIFICATION GUIDELINES:
-- "policy": Contains policy declarations, coverage details, policy numbers, insured information
-- "claim": Contains loss date, claim number, adjuster info, loss description
-- "submission": Contains application info, agent details, quote requests
-- "quote": Contains premium quotes, carrier names, coverage options
-- "proposal": Contains proposal details, recommendations
-- "SOV": Schedule of Values, property lists, TIV (Total Insured Value)
-- "financials": Balance sheets, income statements, financial statements
+CLASSIFICATION SIGNALS (0.0-1.0):
+- Classes: [policy, claim, submission, quote, proposal, SOV, financials, loss_run, audit, endorsement, invoice, correspondence]
+- "policy": Declarations, coverage details, policy numbers
+- "claim": Loss date, claim number, adjuster info
+- "submission": Application info, agent details
+- "quote": Premium quotes, carrier names
+- "SOV": Schedule of Values, property lists
 - "loss_run": Historical loss data, claims history
-- "audit": Audit reports, compliance documents
-- "endorsement": Policy modifications, amendments
-- "invoice": Billing statements, payment requests
-- "correspondence": Letters, emails, general communication
+
+ENTITIES TO EXTRACT:
+- policy_number, claim_number, insured_name
+- loss_date (YYYY-MM-DD), effective_date (YYYY-MM-DD)
+- premium_amount (numeric)
+
+---------------------------------------
+### OUTPUT FORMAT
+---------------------------------------
 
 CRITICAL JSON FORMATTING RULES:
 1. The normalized_text field MUST have all newlines escaped as \\n
@@ -189,8 +232,8 @@ CRITICAL JSON FORMATTING RULES:
 4. Do NOT include actual newline characters in the JSON
 5. Ensure the JSON is on a SINGLE LINE or properly escaped if multiline
 
-RETURN ONLY VALID JSON with exactly these keys (no code fences, no explanations, no extra text):
-{"normalized_text": "Text with escaped \\n newlines and \\" quotes", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.92, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
+RETURN ONLY VALID JSON with exactly these keys:
+{"normalized_text": "Text with escaped \\n newlines...", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.92, "signals": {"policy": 0.95, ...}, "keywords": ["Policy Number", ...], "entities": {"policy_number": "12345", ...}, "confidence": 0.92}
 
 EXAMPLE VALID OUTPUT:
 {"normalized_text": "Policy Number: 12345\\nInsured: John Doe\\nEffective Date: 2025-01-01", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.95, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
@@ -490,7 +533,7 @@ IMPORTANT:
             "messages": [
                 {
                     "role": "system",
-                    "content": self.SIGNAL_EXTRACTION_PROMPT
+                    "content": self.NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT
                 },
                 {
                     "role": "user",
