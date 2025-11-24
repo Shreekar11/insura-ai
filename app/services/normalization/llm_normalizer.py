@@ -131,26 +131,42 @@ Produce perfectly structured, clean, readable,
 and semantically unchanged insurance markdown text suitable for 
 downstream deterministic extraction."""
 
-    # Signal extraction prompt for classification
+    # Signal extraction prompt for classification AND section detection
     SIGNAL_EXTRACTION_PROMPT = """You are an OCR normalizer and metadata extractor specialized in insurance documents.
 
 TASK:
 1) Normalize the following OCR chunk (fix broken words, hyphenation, remove obvious artifacts, keep tables readable).
-2) Extract classification signals for the following document classes:
+
+2) Detect the section type from the content:
+   - section_type: Main section (Declarations, Coverages, Endorsements, SOV, Loss Run, Schedule, Conditions, Exclusions, or null if unclear)
+   - subsection_type: Specific subsection if applicable (Named Insured, Limits, Deductible, Property Schedule, etc., or null)
+   - section_confidence: 0.0-1.0 confidence in section detection
+
+3) Extract classification signals for the following document classes:
    [policy, claim, submission, quote, proposal, SOV, financials, loss_run, audit, endorsement, invoice, correspondence]
    
    For each class, provide a numeric score 0.0-1.0 indicating how strongly this chunk suggests that class.
    
-3) Return up to 8 short keywords or phrases from the chunk that indicate document type.
+4) Return up to 8 short keywords or phrases from the chunk that indicate document type.
    Examples: "Loss Date", "Declarations Page", "Policy Number", "Claim Number", "Premium", "Coverage"
    
-4) Extract key entities if present and their normalized forms:
+5) Extract key entities if present and their normalized forms:
    - policy_number: Policy identification number
    - claim_number: Claim identification number
    - insured_name: Name of the insured party
    - loss_date: Date of loss (YYYY-MM-DD format)
    - effective_date: Policy effective date (YYYY-MM-DD format)
    - premium_amount: Premium amount (numeric)
+
+SECTION DETECTION GUIDELINES:
+- "Declarations": Policy declarations page, dec page, policy information summary
+- "Coverages": Coverage details, limits of insurance, insuring agreements, coverage sections
+- "Endorsements": Policy endorsements, attached forms, schedule of forms, modifications
+- "SOV": Statement of values, schedule of locations, property schedule, building schedule
+- "Loss Run": Loss history, claims history, loss run report, historical claims
+- "Schedule": Various schedules (equipment, locations, vehicles, etc.)
+- "Conditions": Policy conditions, general conditions, terms and conditions
+- "Exclusions": Coverage exclusions, what is not covered
 
 CLASSIFICATION GUIDELINES:
 - "policy": Contains policy declarations, coverage details, policy numbers, insured information
@@ -174,14 +190,16 @@ CRITICAL JSON FORMATTING RULES:
 5. Ensure the JSON is on a SINGLE LINE or properly escaped if multiline
 
 RETURN ONLY VALID JSON with exactly these keys (no code fences, no explanations, no extra text):
-{"normalized_text": "Text with escaped \\n newlines and \\" quotes", "signals": {"policy": 0.12, "claim": 0.78, "submission": 0.05, "quote": 0.02, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.0, "invoice": 0.0, "correspondence": 0.03}, "keywords": ["loss date", "insured", "claim number"], "entities": {"claim_number": "CLM-2025-001", "loss_date": "2025-01-10"}, "confidence": 0.87}
+{"normalized_text": "Text with escaped \\n newlines and \\" quotes", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.92, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
 
 EXAMPLE VALID OUTPUT:
-{"normalized_text": "Policy Number: 12345\\nInsured: John Doe\\nEffective Date: 2025-01-01", "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
+{"normalized_text": "Policy Number: 12345\\nInsured: John Doe\\nEffective Date: 2025-01-01", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.95, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
 
 IMPORTANT:
 - All 12 document classes MUST be present in signals with scores 0.0-1.0
 - Scores should sum to approximately 1.0 but don't need to be exact
+- section_type and subsection_type can be null if section is unclear
+- section_confidence should reflect your confidence in section detection
 - Only include entities that are actually present in the text
 - confidence is your overall confidence in the signal extraction (0.0-1.0)
 - ENSURE ALL JSON IS PROPERLY ESCAPED AND VALID
@@ -301,6 +319,9 @@ IMPORTANT:
             LOGGER.warning("Empty text provided for signal extraction")
             return {
                 "normalized_text": "",
+                "section_type": None,
+                "subsection_type": None,
+                "section_confidence": 0.0,
                 "signals": self._get_default_signals(),
                 "keywords": [],
                 "entities": {},
@@ -320,6 +341,8 @@ IMPORTANT:
                 extra={
                     "original_length": len(raw_text),
                     "normalized_length": len(result["normalized_text"]),
+                    "section_type": result.get("section_type"),
+                    "section_confidence": result.get("section_confidence", 0.0),
                     "top_class": max(result["signals"].items(), key=lambda x: x[1])[0],
                     "top_score": max(result["signals"].values()),
                     "keywords_count": len(result.get("keywords", [])),
@@ -338,6 +361,9 @@ IMPORTANT:
             # Fallback: return normalized text without signals
             return {
                 "normalized_text": raw_text,
+                "section_type": None,
+                "subsection_type": None,
+                "section_confidence": 0.0,
                 "signals": self._get_default_signals(),
                 "keywords": [],
                 "entities": {},
@@ -712,6 +738,19 @@ IMPORTANT:
             if "confidence" not in parsed:
                 parsed["confidence"] = 0.5
             
+            # Extract and validate section fields
+            if "section_type" not in parsed:
+                parsed["section_type"] = None
+            if "subsection_type" not in parsed:
+                parsed["subsection_type"] = None
+            if "section_confidence" not in parsed:
+                parsed["section_confidence"] = 0.0
+            
+            # Validate section_confidence
+            section_conf = parsed.get("section_confidence", 0.0)
+            if not isinstance(section_conf, (int, float)) or section_conf < 0.0 or section_conf > 1.0:
+                parsed["section_confidence"] = 0.0
+            
             # Ensure confidence is valid
             confidence = parsed.get("confidence", 0.5)
             if not isinstance(confidence, (int, float)) or confidence < 0.0 or confidence > 1.0:
@@ -725,6 +764,9 @@ IMPORTANT:
             # Return a safe fallback instead of raising
             return {
                 "normalized_text": "",
+                "section_type": None,
+                "subsection_type": None,
+                "section_confidence": 0.0,
                 "signals": self._get_default_signals(),
                 "keywords": [],
                 "entities": {},

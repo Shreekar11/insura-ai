@@ -9,7 +9,8 @@ It also maintains the legacy rule-based approach for backward compatibility.
 """
 
 from typing import Dict, List, Optional, Tuple, Any
-from uuid import UUID
+from uuid import UUID, uuid4
+import hashlib
 
 from app.models.page_data import PageData
 from app.services.normalization.llm_normalizer import LLMNormalizer
@@ -17,6 +18,8 @@ from app.services.normalization.semantic_normalizer import SemanticNormalizer
 from app.services.chunking.chunking_service import ChunkingService
 from app.services.classification.classification_service import ClassificationService
 from app.services.classification.fallback_classifier import FallbackClassifier
+from app.services.extraction.entity_relationship_extractor import EntityRelationshipExtractor
+from app.services.extraction.entity_resolver import EntityResolver
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.classification_repository import ClassificationRepository
@@ -60,6 +63,8 @@ class NormalizationService:
         chunk_repository: Optional[ChunkRepository] = None,
         normalization_repository: Optional[NormalizationRepository] = None,
         classification_repository: Optional[ClassificationRepository] = None,
+        entity_extractor: Optional[EntityRelationshipExtractor] = None,
+        entity_resolver: Optional[EntityResolver] = None,
     ):
         """Initialize OCR normalization service.
         
@@ -83,6 +88,8 @@ class NormalizationService:
         self.chunk_repository = chunk_repository
         self.normalization_repository = normalization_repository
         self.classification_repository = classification_repository
+        self.entity_extractor = entity_extractor
+        self.entity_resolver = entity_resolver
         
         # Initialize LLM normalizer if using hybrid approach
         self.llm_normalizer = None
@@ -99,6 +106,14 @@ class NormalizationService:
                     openrouter_api_url=openrouter_api_url,
                     openrouter_model=openrouter_model,
                 )
+                
+                # Initialize entity extractor if not provided
+                if not self.entity_extractor:
+                    self.entity_extractor = EntityRelationshipExtractor(
+                        openrouter_api_key=openrouter_api_key,
+                        openrouter_api_url=openrouter_api_url,
+                        openrouter_model=openrouter_model,
+                    )
         
         LOGGER.info(
             "Initialized OCR normalization service",
@@ -160,6 +175,13 @@ class NormalizationService:
             }
         )
         
+        # Generate pipeline run ID for provenance tracking
+        pipeline_run_id = str(uuid4())
+        LOGGER.info(
+            "Generated pipeline run ID",
+            extra={"pipeline_run_id": pipeline_run_id, "document_id": str(document_id)}
+        )
+        
         # Chunk pages
         all_chunks = []
         chunk_metadata = []
@@ -171,11 +193,22 @@ class NormalizationService:
                 continue
             
             # Chunk this page
-            page_chunks = self.chunking_service.chunk_document(text=page_text)
+            page_chunks = self.chunking_service.chunk_document(
+                text=page_text,
+                document_id=document_id
+            )
             
             for chunk in page_chunks:
                 # Update chunk metadata with page number
                 chunk.metadata.page_number = page.page_number
+                
+                # Generate stable chunk ID
+                chunk.metadata.stable_chunk_id = self._generate_stable_chunk_id(
+                    document_id=document_id,
+                    page_number=page.page_number,
+                    chunk_index=chunk.metadata.chunk_index
+                )
+                
                 all_chunks.append(chunk)
                 chunk_metadata.append({
                     "page_number": page.page_number,
@@ -192,11 +225,32 @@ class NormalizationService:
         for i, chunk in enumerate(all_chunks):
             page_num = chunk.metadata.page_number or 1
             
-            # Stage 1: LLM normalization with signal extraction
+            # Stage 1: LLM normalization with signal extraction AND section detection
             llm_result = await self.llm_normalizer.normalize_with_signals(
                 chunk.text,
                 page_number=page_num
             )
+            
+            # Extract section information from LLM result
+            section_type = llm_result.get("section_type")
+            subsection_type = llm_result.get("subsection_type")
+            section_confidence = llm_result.get("section_confidence", 0.0)
+            
+            # Update chunk metadata with section information
+            chunk.metadata.section_type = section_type
+            chunk.metadata.subsection_type = subsection_type
+            
+            # Log section detection
+            if section_type:
+                LOGGER.info(
+                    f"Detected section for chunk {i}",
+                    extra={
+                        "chunk_index": chunk.metadata.chunk_index,
+                        "section_type": section_type,
+                        "subsection_type": subsection_type,
+                        "confidence": section_confidence,
+                    }
+                )
             
             # Stage 2: Semantic normalization for field-level accuracy
             semantic_result = self.semantic_normalizer.normalize_text_with_fields(
@@ -211,7 +265,7 @@ class NormalizationService:
             chunk_signals.append(llm_result)
             all_extracted_fields.append(extracted_fields)
             
-            # Persist chunk to database
+            # Persist chunk to database with stable ID and section info
             db_chunk = await self.chunk_repository.create_chunk(
                 document_id=document_id,
                 page_number=page_num,
@@ -219,15 +273,98 @@ class NormalizationService:
                 raw_text=chunk.text,
                 token_count=chunk.metadata.token_count,
                 section_name=chunk.metadata.section_name,
+                stable_chunk_id=chunk.metadata.stable_chunk_id,
+                section_type=chunk.metadata.section_type,
+                subsection_type=chunk.metadata.subsection_type,
             )
             
-            # Persist normalized chunk with semantic normalization
-            await self.normalization_repository.create_normalized_chunk(
+            # Compute content hash
+            content_hash = hashlib.sha256(final_normalized_text.encode('utf-8')).hexdigest()
+            
+            # Check if content changed
+            content_changed = await self.normalization_repository.check_content_changed(
                 chunk_id=db_chunk.id,
-                normalized_text=final_normalized_text,
-                method="hybrid_llm_semantic",
-                extracted_fields=extracted_fields,
+                new_content_hash=content_hash
             )
+            
+            extraction_result = None
+            
+            if not content_changed:
+                LOGGER.info(
+                    f"Chunk {chunk.metadata.chunk_index} unchanged (hash: {content_hash[:16]}), skipping entity extraction",
+                    extra={"chunk_id": str(db_chunk.id), "content_hash": content_hash[:16]}
+                )
+                
+                # Update existing chunk metadata (pipeline_run_id) without changing content
+                await self.normalization_repository.update_normalized_chunk(
+                    chunk_id=db_chunk.id,
+                    pipeline_run_id=pipeline_run_id,
+                )
+                
+            else:
+                LOGGER.info(
+                    f"Chunk {chunk.metadata.chunk_index} content changed, proceeding with extraction",
+                    extra={"chunk_id": str(db_chunk.id), "content_hash": content_hash[:16]}
+                )
+                
+                # Stage 3: Entity and relationship extraction (if enabled)
+                if self.entity_extractor:
+                    try:
+                        extraction_result = await self.entity_extractor.extract(
+                            text=final_normalized_text,
+                            chunk_id=db_chunk.id
+                        )
+                        
+                        # Stage 4: Entity resolution (if enabled)
+                        if self.entity_resolver and extraction_result.get("entities"):
+                            try:
+                                await self.entity_resolver.resolve_entities_batch(
+                                    entities=extraction_result["entities"],
+                                    chunk_id=db_chunk.id,
+                                    document_id=document_id
+                                )
+                                LOGGER.info(
+                                    f"Resolved {len(extraction_result['entities'])} entities for chunk {chunk.metadata.chunk_index}",
+                                    extra={"chunk_id": str(db_chunk.id)}
+                                )
+                            except Exception as e:
+                                LOGGER.error(
+                                    f"Entity resolution failed for chunk {chunk.metadata.chunk_index}: {e}",
+                                    exc_info=True
+                                )
+                    except Exception as e:
+                        LOGGER.error(
+                            f"Entity extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
+                            exc_info=True
+                        )
+                
+                # Persist normalized chunk (create or update)
+                existing_chunk = await self.normalization_repository.get_normalized_chunk_by_id(db_chunk.id)
+                
+                if existing_chunk:
+                    await self.normalization_repository.update_normalized_chunk(
+                        chunk_id=db_chunk.id,
+                        normalized_text=final_normalized_text,
+                        extracted_fields=extracted_fields,
+                        entities=extraction_result if extraction_result else None,
+                        relationships=extraction_result if extraction_result else None,
+                        pipeline_run_id=pipeline_run_id,
+                        quality_score=llm_result.get("confidence", 0.8),
+                    )
+                else:
+                    await self.normalization_repository.create_normalized_chunk(
+                        chunk_id=db_chunk.id,
+                        normalized_text=final_normalized_text,
+                        method="hybrid_llm_semantic",
+                        extracted_fields=extracted_fields,
+                        entities=extraction_result if extraction_result else None,
+                        relationships=extraction_result if extraction_result else None,
+                        model_version=self.llm_normalizer.openrouter_model if self.llm_normalizer else None,
+                        prompt_version="v1.0",  # TODO: Make this configurable
+                        pipeline_run_id=pipeline_run_id,
+                        source_stage="normalization",
+                        quality_score=llm_result.get("confidence", 0.8),
+                    )
             
             # Log extracted fields for monitoring
             if extracted_fields:
@@ -376,6 +513,26 @@ class NormalizationService:
             )
         
         return detected
+    
+    def _generate_stable_chunk_id(
+        self,
+        document_id: UUID,
+        page_number: int,
+        chunk_index: int
+    ) -> str:
+        """Generate deterministic chunk ID.
+        
+        Format: doc_{document_id}_p{page_number}_c{chunk_index}
+        
+        Args:
+            document_id: Document UUID
+            page_number: Page number (1-indexed)
+            chunk_index: Chunk index (0-indexed)
+            
+        Returns:
+            str: Stable chunk ID
+        """
+        return f"doc_{str(document_id)}_p{page_number}_c{chunk_index}"
     
 
     
