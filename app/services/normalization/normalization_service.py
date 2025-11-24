@@ -65,6 +65,7 @@ class NormalizationService:
         classification_repository: Optional[ClassificationRepository] = None,
         entity_extractor: Optional[EntityRelationshipExtractor] = None,
         entity_resolver: Optional[EntityResolver] = None,
+        extractor_factory: Optional[Any] = None,
     ):
         """Initialize OCR normalization service.
         
@@ -79,6 +80,9 @@ class NormalizationService:
             chunk_repository: Repository for chunk CRUD operations
             normalization_repository: Repository for normalization data operations
             classification_repository: Repository for classification data operations
+            entity_extractor: Entity and relationship extractor
+            entity_resolver: Entity resolver for canonical entity mapping
+            extractor_factory: Factory for section-specific extractors
         """
         self.use_hybrid = use_hybrid
         self.semantic_normalizer = SemanticNormalizer()
@@ -90,6 +94,7 @@ class NormalizationService:
         self.classification_repository = classification_repository
         self.entity_extractor = entity_extractor
         self.entity_resolver = entity_resolver
+        self.extractor_factory = extractor_factory
         
         # Initialize LLM normalizer if using hybrid approach
         self.llm_normalizer = None
@@ -122,6 +127,7 @@ class NormalizationService:
                 "llm_model": openrouter_model if self.use_hybrid else None,
                 "has_classification": classification_service is not None,
                 "has_chunk_repo": chunk_repository is not None,
+                "has_extractor_factory": extractor_factory is not None,
             }
         )
     
@@ -336,6 +342,38 @@ class NormalizationService:
                         LOGGER.error(
                             f"Entity extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
                             exc_info=True
+                        )
+                
+                # Section-aware routing using factory pattern
+                if chunk.metadata.section_type and content_changed and self.extractor_factory:
+                    try:
+                        extractor = self.extractor_factory.get_extractor(
+                            chunk.metadata.section_type
+                        )
+                        
+                        extracted_items = await extractor.extract(
+                            text=final_normalized_text,
+                            document_id=document_id,
+                            chunk_id=db_chunk.id
+                        )
+                        
+                        LOGGER.info(
+                            f"Extracted {len(extracted_items)} items using {extractor.__class__.__name__}",
+                            extra={
+                                "chunk_id": str(db_chunk.id),
+                                "section_type": chunk.metadata.section_type,
+                                "extractor": extractor.__class__.__name__,
+                                "items_count": len(extracted_items)
+                            }
+                        )
+                    except Exception as e:
+                        LOGGER.error(
+                            f"Extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
+                            exc_info=True,
+                            extra={
+                                "section_type": chunk.metadata.section_type,
+                                "chunk_id": str(db_chunk.id)
+                            }
                         )
                 
                 # Persist normalized chunk (create or update)
