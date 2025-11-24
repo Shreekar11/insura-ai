@@ -76,7 +76,7 @@ Analyze the following text and extract ALL SOV items (property schedules).
         """
         return self.SOV_EXTRACTION_PROMPT
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,

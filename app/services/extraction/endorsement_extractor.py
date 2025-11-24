@@ -72,7 +72,7 @@ Analyze the following text and extract ALL endorsement information.
         """
         return self.ENDORSEMENT_EXTRACTION_PROMPT
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,

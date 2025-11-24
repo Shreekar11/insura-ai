@@ -31,7 +31,7 @@ class DefaultExtractor(BaseExtractor):
         """
         return ""
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,

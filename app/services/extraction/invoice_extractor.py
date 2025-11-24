@@ -71,7 +71,7 @@ Analyze the following text and extract ALL invoice information.
         """
         return self.INVOICE_EXTRACTION_PROMPT
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,

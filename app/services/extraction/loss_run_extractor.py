@@ -75,7 +75,7 @@ Analyze the following text and extract ALL loss run claim items.
         """
         return self.LOSS_RUN_EXTRACTION_PROMPT
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,

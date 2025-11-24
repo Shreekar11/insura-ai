@@ -79,7 +79,7 @@ Analyze the following text and extract ALL policy information.
         """
         return self.POLICY_EXTRACTION_PROMPT
     
-    async def extract(
+    async def run(
         self,
         text: str,
         document_id: UUID,
