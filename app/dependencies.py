@@ -113,6 +113,7 @@ async def get_fallback_classifier() -> FallbackClassifier:
     )
 
 
+
 async def get_normalization_service(
     chunk_repository: Annotated[ChunkRepository, Depends(get_chunk_repository)],
     normalization_repository: Annotated[NormalizationRepository, Depends(get_normalization_repository)],
@@ -120,6 +121,7 @@ async def get_normalization_service(
     chunking_service: Annotated[ChunkingService, Depends(get_chunking_service)],
     classification_service: Annotated[ClassificationService, Depends(get_classification_service)],
     fallback_classifier: Annotated[FallbackClassifier, Depends(get_fallback_classifier)],
+    db_session: Annotated[AsyncSession, Depends(get_db_session)],
 ) -> NormalizationService:
     """Get normalization service instance with all dependencies.
     
@@ -130,10 +132,22 @@ async def get_normalization_service(
         chunking_service: Service for document chunking
         classification_service: Service for classification
         fallback_classifier: Fallback classifier
+        db_session: Database session for extractor factory
         
     Returns:
         NormalizationService: Fully configured normalization service
     """
+    # Import here to avoid circular dependency
+    from app.services.extraction.extractor_factory import ExtractorFactory
+    
+    # Create extractor factory for section-aware extraction
+    extractor_factory = ExtractorFactory(
+        session=db_session,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_api_url=settings.openrouter_api_url,
+        openrouter_model=settings.openrouter_model,
+    )
+    
     return NormalizationService(
         openrouter_api_key=settings.openrouter_api_key,
         openrouter_api_url=settings.openrouter_api_url,
@@ -145,7 +159,9 @@ async def get_normalization_service(
         chunk_repository=chunk_repository,
         normalization_repository=normalization_repository,
         classification_repository=classification_repository,
+        extractor_factory=extractor_factory,
     )
+
 
 
 async def get_ocr_service(

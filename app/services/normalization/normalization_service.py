@@ -368,10 +368,38 @@ class NormalizationService(BaseService):
                         )
                 
                 # Section-aware routing using factory pattern
+                # Debug logging for section-aware extraction
+                LOGGER.info(
+                    f"Section-aware extraction check for chunk {chunk.metadata.chunk_index}",
+                    extra={
+                        "chunk_id": str(db_chunk.id),
+                        "section_type": chunk.metadata.section_type,
+                        "content_changed": content_changed,
+                        "extractor_factory_available": self.extractor_factory is not None,
+                        "will_attempt_extraction": bool(chunk.metadata.section_type and content_changed and self.extractor_factory)
+                    }
+                )
+                
                 if chunk.metadata.section_type and content_changed and self.extractor_factory:
                     try:
+                        LOGGER.info(
+                            f"Attempting to get extractor for section type: {chunk.metadata.section_type}",
+                            extra={
+                                "chunk_id": str(db_chunk.id),
+                                "section_type": chunk.metadata.section_type
+                            }
+                        )
+                        
                         extractor = self.extractor_factory.get_extractor(
                             chunk.metadata.section_type
+                        )
+                        
+                        LOGGER.info(
+                            f"Got extractor: {extractor.__class__.__name__} for section: {chunk.metadata.section_type}",
+                            extra={
+                                "chunk_id": str(db_chunk.id),
+                                "extractor_class": extractor.__class__.__name__
+                            }
                         )
                         
                         extracted_items = await extractor.extract(
@@ -398,6 +426,24 @@ class NormalizationService(BaseService):
                                 "chunk_id": str(db_chunk.id)
                             }
                         )
+                else:
+                    # Log why section-aware extraction was skipped
+                    skip_reasons = []
+                    if not chunk.metadata.section_type:
+                        skip_reasons.append("no section_type detected")
+                    if not content_changed:
+                        skip_reasons.append("content unchanged")
+                    if not self.extractor_factory:
+                        skip_reasons.append("extractor_factory not available")
+                    
+                    LOGGER.info(
+                        f"Skipping section-aware extraction for chunk {chunk.metadata.chunk_index}: {', '.join(skip_reasons)}",
+                        extra={
+                            "chunk_id": str(db_chunk.id),
+                            "skip_reasons": skip_reasons
+                        }
+                    )
+                
                 
                 # Persist normalized chunk (create or update)
                 existing_chunk = await self.normalization_repository.get_normalized_chunk_by_id(db_chunk.id)
