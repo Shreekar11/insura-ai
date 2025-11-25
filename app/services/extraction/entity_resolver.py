@@ -39,17 +39,17 @@ class EntityResolver:
     async def resolve_entity(
         self,
         entity_mention: Dict[str, Any],
-        chunk_id: UUID,
+        chunk_id: Optional[UUID],
         document_id: UUID
     ) -> UUID:
         """Resolve entity mention to canonical entity.
         
         Creates new canonical entity if it doesn't exist, otherwise returns
-        existing entity ID. Also creates chunk-entity link.
+        existing entity ID. Also creates chunk-entity link if chunk_id provided.
         
         Args:
             entity_mention: Entity mention dict with entity_type, normalized_value, etc.
-            chunk_id: ID of the chunk containing this mention
+            chunk_id: ID of the chunk containing this mention (None for document-level entities)
             document_id: ID of the document
             
         Returns:
@@ -73,19 +73,21 @@ class EntityResolver:
             raw_value=entity_mention.get("raw_value", normalized_value)
         )
         
-        # Create chunk entity mention
-        await self._create_entity_mention(
-            chunk_id=chunk_id,
-            canonical_entity_id=canonical_entity.id,
-            entity_mention=entity_mention
-        )
-        
-        # Create chunk-entity link
-        await self._create_chunk_entity_link(
-            chunk_id=chunk_id,
-            canonical_entity_id=canonical_entity.id,
-            confidence=entity_mention.get("confidence", 0.8)
-        )
+        # Create chunk entity mention and link only if chunk_id is provided
+        # (skip for document-level entities)
+        if chunk_id is not None:
+            await self._create_entity_mention(
+                chunk_id=chunk_id,
+                canonical_entity_id=canonical_entity.id,
+                entity_mention=entity_mention
+            )
+            
+            # Create chunk-entity link
+            await self._create_chunk_entity_link(
+                chunk_id=chunk_id,
+                canonical_entity_id=canonical_entity.id,
+                confidence=entity_mention.get("confidence", 0.8)
+            )
         
         LOGGER.debug(
             "Resolved entity mention to canonical entity",
@@ -102,14 +104,14 @@ class EntityResolver:
     async def resolve_entities_batch(
         self,
         entities: list[Dict[str, Any]],
-        chunk_id: UUID,
+        chunk_id: Optional[UUID],
         document_id: UUID
     ) -> list[UUID]:
         """Resolve multiple entity mentions in batch.
         
         Args:
             entities: List of entity mention dicts
-            chunk_id: ID of the chunk
+            chunk_id: ID of the chunk (None for document-level entities)
             document_id: ID of the document
             
         Returns:
@@ -181,9 +183,10 @@ class EntityResolver:
         canonical_entity = CanonicalEntity(
             entity_type=entity_type,
             canonical_key=canonical_key,
-            canonical_value=normalized_value,
-            first_seen_value=raw_value,
-            metadata={}
+            attributes={
+                "normalized_value": normalized_value,
+                "raw_value": raw_value
+            }
         )
         
         self.session.add(canonical_entity)
@@ -218,7 +221,6 @@ class EntityResolver:
         """
         mention = ChunkEntityMention(
             chunk_id=chunk_id,
-            canonical_entity_id=canonical_entity_id,
             entity_type=entity_mention.get("entity_type"),
             raw_value=entity_mention.get("raw_value"),
             normalized_value=entity_mention.get("normalized_value"),

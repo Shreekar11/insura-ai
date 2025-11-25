@@ -21,6 +21,8 @@ from app.services.classification.classification_service import ClassificationSer
 from app.services.classification.fallback_classifier import FallbackClassifier
 from app.services.extraction.entity_relationship_extractor import EntityRelationshipExtractor
 from app.services.extraction.entity_resolver import EntityResolver
+from app.services.extraction.document_entity_aggregator import DocumentEntityAggregator
+from app.services.extraction.relationship_extractor_global import RelationshipExtractorGlobal
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.classification_repository import ClassificationRepository
@@ -54,9 +56,11 @@ class NormalizationService(BaseService):
     
     def __init__(
         self,
-        openrouter_api_key: Optional[str] = None,
-        openrouter_api_url: Optional[str] = None,
-        openrouter_model: Optional[str] = None,
+        gemini_api_key: Optional[str] = None,
+        gemini_model: Optional[str] = None,
+        openrouter_api_key: Optional[str] = None, # Deprecated
+        openrouter_api_url: Optional[str] = None, # Deprecated
+        openrouter_model: Optional[str] = None, # Deprecated
         use_hybrid: bool = True,
         chunking_service: Optional[ChunkingService] = None,
         classification_service: Optional[ClassificationService] = None,
@@ -71,9 +75,8 @@ class NormalizationService(BaseService):
         """Initialize OCR normalization service.
         
         Args:
-            openrouter_api_key: OpenRouter API key for LLM normalization
-            openrouter_api_url: OpenRouter API URL
-            openrouter_model: LLM model to use
+            gemini_api_key: Gemini API key for LLM normalization
+            gemini_model: LLM model to use
             use_hybrid: Whether to use hybrid LLM + code approach (default: True)
             chunking_service: Service for chunking large documents
             classification_service: Service for aggregating classification signals
@@ -104,7 +107,7 @@ class NormalizationService(BaseService):
         # Initialize LLM normalizer if using hybrid approach
         self.llm_normalizer = None
         if use_hybrid:
-            if not openrouter_api_key:
+            if not gemini_api_key:
                 LOGGER.warning(
                     "Hybrid normalization enabled but no API key provided. "
                     "Falling back to rule-based normalization."
@@ -112,24 +115,22 @@ class NormalizationService(BaseService):
                 self.use_hybrid = False
             else:
                 self.llm_normalizer = LLMNormalizer(
-                    openrouter_api_key=openrouter_api_key,
-                    openrouter_api_url=openrouter_api_url,
-                    openrouter_model=openrouter_model,
+                    gemini_api_key=gemini_api_key,
+                    gemini_model=gemini_model,
                 )
                 
                 # Initialize entity extractor if not provided
                 if not self.entity_extractor:
                     self.entity_extractor = EntityRelationshipExtractor(
-                        openrouter_api_key=openrouter_api_key,
-                        openrouter_api_url=openrouter_api_url,
-                        openrouter_model=openrouter_model,
+                        gemini_api_key=gemini_api_key,
+                        gemini_model=gemini_model,
                     )
         
         LOGGER.info(
             "Initialized OCR normalization service",
             extra={
                 "use_hybrid": self.use_hybrid,
-                "llm_model": openrouter_model if self.use_hybrid else None,
+                "llm_model": gemini_model if self.use_hybrid else None,
                 "has_classification": classification_service is not None,
                 "has_chunk_repo": chunk_repository is not None,
                 "has_extractor_factory": extractor_factory is not None,
@@ -224,7 +225,8 @@ class NormalizationService(BaseService):
             # Chunk this page
             page_chunks = self.chunking_service.chunk_document(
                 text=page_text,
-                document_id=document_id
+                document_id=document_id,
+                initial_page_number=page.page_number
             )
             
             for chunk in page_chunks:
@@ -336,6 +338,37 @@ class NormalizationService(BaseService):
                     extra={"chunk_id": str(db_chunk.id), "content_hash": content_hash[:16]}
                 )
                 
+                # Persist normalized chunk FIRST (create or update) so it exists for entity resolution
+                existing_chunk = await self.normalization_repository.get_normalized_chunk_by_id(db_chunk.id)
+                
+                normalized_chunk_id = None
+                if existing_chunk:
+                    await self.normalization_repository.update_normalized_chunk(
+                        chunk_id=db_chunk.id,
+                        normalized_text=final_normalized_text,
+                        extracted_fields=extracted_fields,
+                        entities=extraction_result if extraction_result else None,
+                        relationships=extraction_result if extraction_result else None,
+                        pipeline_run_id=pipeline_run_id,
+                        quality_score=llm_result.get("confidence", 0.8),
+                    )
+                    normalized_chunk_id = existing_chunk.id
+                else:
+                    new_normalized_chunk = await self.normalization_repository.create_normalized_chunk(
+                        chunk_id=db_chunk.id,
+                        normalized_text=final_normalized_text,
+                        method="hybrid_llm_semantic",
+                        extracted_fields=extracted_fields,
+                        entities=extraction_result.get("entities") if extraction_result else None,
+                        relationships=extraction_result.get("relationships") if extraction_result else None,
+                        model_version=self.llm_normalizer.client.model if self.llm_normalizer else None,
+                        prompt_version="v1.0",  # TODO: Make this configurable
+                        pipeline_run_id=pipeline_run_id,
+                        source_stage="normalization",
+                        quality_score=llm_result.get("confidence", 0.8),
+                    )
+                    normalized_chunk_id = new_normalized_chunk.id
+                
                 # Stage 3: Entity and relationship extraction (if enabled)
                 if self.entity_extractor:
                     try:
@@ -345,16 +378,17 @@ class NormalizationService(BaseService):
                         )
                         
                         # Stage 4: Entity resolution (if enabled)
+                        # IMPORTANT: Use normalized_chunk_id, not db_chunk.id
                         if self.entity_resolver and extraction_result.get("entities"):
                             try:
                                 await self.entity_resolver.resolve_entities_batch(
                                     entities=extraction_result["entities"],
-                                    chunk_id=db_chunk.id,
+                                    chunk_id=normalized_chunk_id,  # Use normalized chunk ID!
                                     document_id=document_id
                                 )
                                 LOGGER.info(
                                     f"Resolved {len(extraction_result['entities'])} entities for chunk {chunk.metadata.chunk_index}",
-                                    extra={"chunk_id": str(db_chunk.id)}
+                                    extra={"normalized_chunk_id": str(normalized_chunk_id)}
                                 )
                             except Exception as e:
                                 LOGGER.error(
@@ -366,6 +400,14 @@ class NormalizationService(BaseService):
                             f"Entity extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
                             exc_info=True
                         )
+                
+                # Update normalized chunk with extraction results if extraction happened
+                if extraction_result and normalized_chunk_id:
+                    await self.normalization_repository.update_normalized_chunk(
+                        chunk_id=db_chunk.id,
+                        entities=extraction_result.get("entities"),
+                        relationships=extraction_result.get("relationships"),
+                    )
                 
                 # Section-aware routing using factory pattern
                 # Debug logging for section-aware extraction
@@ -444,34 +486,6 @@ class NormalizationService(BaseService):
                         }
                     )
                 
-                
-                # Persist normalized chunk (create or update)
-                existing_chunk = await self.normalization_repository.get_normalized_chunk_by_id(db_chunk.id)
-                
-                if existing_chunk:
-                    await self.normalization_repository.update_normalized_chunk(
-                        chunk_id=db_chunk.id,
-                        normalized_text=final_normalized_text,
-                        extracted_fields=extracted_fields,
-                        entities=extraction_result if extraction_result else None,
-                        relationships=extraction_result if extraction_result else None,
-                        pipeline_run_id=pipeline_run_id,
-                        quality_score=llm_result.get("confidence", 0.8),
-                    )
-                else:
-                    await self.normalization_repository.create_normalized_chunk(
-                        chunk_id=db_chunk.id,
-                        normalized_text=final_normalized_text,
-                        method="hybrid_llm_semantic",
-                        extracted_fields=extracted_fields,
-                        entities=extraction_result.get("entities") if extraction_result else None,
-                        relationships=extraction_result.get("relationships") if extraction_result else None,
-                        model_version=self.llm_normalizer.openrouter_model if self.llm_normalizer else None,
-                        prompt_version="v1.0",  # TODO: Make this configurable
-                        pipeline_run_id=pipeline_run_id,
-                        source_stage="normalization",
-                        quality_score=llm_result.get("confidence", 0.8),
-                    )
             
             # Log extracted fields for monitoring
             if extracted_fields:
@@ -490,7 +504,7 @@ class NormalizationService(BaseService):
             await self.classification_repository.create_classification_signal(
                 chunk_id=db_chunk.id,
                 signals=llm_result["signals"],
-                model_name=self.llm_normalizer.openrouter_model,
+                model_name=self.llm_normalizer.client.model,
                 keywords=llm_result.get("keywords", []),
                 entities=llm_result.get("entities", {}),
                 confidence=llm_result.get("confidence"),
@@ -566,6 +580,9 @@ class NormalizationService(BaseService):
             }
         )
         
+        # Perform document-level extraction (Pass 2: Global entity aggregation and relationship extraction)
+        await self._process_document_level_extraction(document_id)
+        
         return merged_text, classification_result
     
 
@@ -640,6 +657,92 @@ class NormalizationService(BaseService):
             str: Stable chunk ID
         """
         return f"doc_{str(document_id)}_p{page_number}_c{chunk_index}"
+    
+    async def _process_document_level_extraction(
+        self,
+        document_id: UUID
+    ) -> None:
+        """Process document-level entity aggregation and relationship extraction (Pass 2).
+        
+        This method orchestrates the global extraction pipeline:
+        1. Aggregate entities from all chunks
+        2. Resolve to canonical entities
+        3. Extract relationships using global context
+        
+        Args:
+            document_id: Document ID to process
+        """
+        if not self.entity_resolver:
+            LOGGER.warning(
+                "Entity resolver not configured, skipping document-level extraction",
+                extra={"document_id": str(document_id)}
+            )
+            return
+        
+        LOGGER.info(
+            "Starting document-level extraction (Pass 2)",
+            extra={"document_id": str(document_id)}
+        )
+        
+        try:
+            # Step 1: Aggregate entities from all chunks
+            aggregator = DocumentEntityAggregator(session=self.repository.session)
+            aggregated = await aggregator.aggregate_entities(document_id)
+            
+            LOGGER.info(
+                f"Aggregated {aggregated.unique_entities} unique entities from {aggregated.total_chunks} chunks",
+                extra={
+                    "document_id": str(document_id),
+                    "total_entities": aggregated.total_entities,
+                    "unique_entities": aggregated.unique_entities,
+                    "deduplication_ratio": f"{(1 - aggregated.unique_entities / max(aggregated.total_entities, 1)) * 100:.1f}%"
+                }
+            )
+            
+            # Step 2: Resolve to canonical entities
+            resolved = await self.entity_resolver.resolve_entities_batch(
+                entities=aggregated.entities,
+                chunk_id=None,  # Document-level, not chunk-specific
+                document_id=document_id
+            )
+            
+            LOGGER.info(
+                f"Resolved {len(resolved)} canonical entities",
+                extra={"document_id": str(document_id)}
+            )
+            
+            # Step 3: Extract relationships using global context
+            if self.llm_normalizer:  # Only if LLM is available
+                relationship_extractor = RelationshipExtractorGlobal(
+                    session=self.repository.session,
+                    gemini_api_key=self.llm_normalizer.client.api_key,
+                    gemini_model=self.llm_normalizer.client.model
+                )
+                
+                relationships = await relationship_extractor.extract_relationships(document_id)
+                
+                LOGGER.info(
+                    f"Extracted {len(relationships)} relationships",
+                    extra={"document_id": str(document_id)}
+                )
+            else:
+                LOGGER.warning(
+                    "LLM not available, skipping relationship extraction",
+                    extra={"document_id": str(document_id)}
+                )
+            
+            LOGGER.info(
+                "Document-level extraction completed successfully",
+                extra={"document_id": str(document_id)}
+            )
+            
+        except Exception as e:
+            LOGGER.error(
+                f"Document-level extraction failed: {e}",
+                exc_info=True,
+                extra={"document_id": str(document_id)}
+            )
+            # Don't fail the entire pipeline if document-level extraction fails
     
 
     

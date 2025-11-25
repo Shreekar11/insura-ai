@@ -68,7 +68,8 @@ class ChunkingService:
     def chunk_document(
         self,
         text: str,
-        document_id: Optional[UUID] = None
+        document_id: Optional[UUID] = None,
+        initial_page_number: int = 1
     ) -> List[TextChunk]:
         """Chunk a document using dual-layer strategy.
         
@@ -110,7 +111,7 @@ class ChunkingService:
             LOGGER.info("Document under token limit, no chunking needed")
             metadata = ChunkMetadata(
                 document_id=document_id,
-                page_number=1,
+                page_number=initial_page_number,
                 section_name=None,
                 chunk_index=0,
                 token_count=total_tokens,
@@ -120,7 +121,11 @@ class ChunkingService:
             return [TextChunk(text=text, metadata=metadata)]
         
         # Layer 1: Page-level chunking
-        page_chunks = self.page_chunker.chunk_by_pages(text, document_id)
+        page_chunks = self.page_chunker.chunk_by_pages(
+            text, 
+            document_id,
+            initial_page_number=initial_page_number
+        )
         LOGGER.info(f"Created {len(page_chunks)} page-level chunks")
         
         # Layer 2: Section-aware chunking (if enabled)

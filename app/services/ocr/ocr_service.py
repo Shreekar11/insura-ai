@@ -40,29 +40,30 @@ class OCRService(BaseOCRService):
     def __init__(
         self,
         api_key: str,
-        openrouter_api_key: str,
+        gemini_api_key: str,
         db_session: Optional[AsyncSession] = None,
         api_url: str = "https://api.mistral.ai/v1/ocr",
         model: str = "mistral-ocr-latest",
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/ocr",
-        openrouter_model: str = "mistral-medium-2508",
+        gemini_model: str = "gemini-2.0-flash",
         timeout: int = 120,
         max_retries: int = 3,
         retry_delay: int = 2,
         use_hybrid_normalization: bool = True,
         enable_classification: bool = True,
         normalization_service: Optional[NormalizationService] = None,
+        openrouter_api_key: str = None, # Deprecated
+        openrouter_api_url: str = None, # Deprecated
+        openrouter_model: str = None, # Deprecated
     ):
         """Initialize OCR service.
 
         Args:
             api_key: Mistral API key
-            openrouter_api_key: OpenRouter API key for LLM normalization
+            gemini_api_key: Gemini API key for LLM normalization
             db_session: Database session for classification persistence
             api_url: Mistral API endpoint URL
             model: Model name to use
-            openrouter_api_url: OpenRouter API endpoint URL
-            openrouter_model: OpenRouter model name for normalization
+            gemini_model: Gemini model name for normalization
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
@@ -97,9 +98,8 @@ class OCRService(BaseOCRService):
             if enable_classification:
                 classification_service = ClassificationService()
                 fallback_classifier = FallbackClassifier(
-                    openrouter_api_key=openrouter_api_key,
-                    openrouter_api_url=openrouter_api_url,
-                    openrouter_model=openrouter_model,
+                    gemini_api_key=gemini_api_key,
+                    gemini_model=gemini_model,
                 )
                 chunk_repository = ChunkRepository(db_session)
         
@@ -108,9 +108,8 @@ class OCRService(BaseOCRService):
             self.normalization_service = normalization_service
         else:
             self.normalization_service = NormalizationService(
-                openrouter_api_key=openrouter_api_key,
-                openrouter_api_url=openrouter_api_url,
-                openrouter_model=openrouter_model,
+                gemini_api_key=gemini_api_key,
+                gemini_model=gemini_model,
                 use_hybrid=use_hybrid_normalization,
                 classification_service=classification_service,
                 fallback_classifier=fallback_classifier,

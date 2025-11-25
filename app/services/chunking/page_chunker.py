@@ -47,7 +47,8 @@ class PageChunker:
     def chunk_by_pages(
         self,
         text: str,
-        document_id: Optional[UUID] = None
+        document_id: Optional[UUID] = None,
+        initial_page_number: int = 1
     ) -> List[TextChunk]:
         """Split text into page-level chunks.
         
@@ -67,8 +68,8 @@ class PageChunker:
         
         if not pages:
             # No page markers found, treat entire text as single page
-            LOGGER.info("No page markers found, treating as single page")
-            pages = [(1, text)]
+            LOGGER.info(f"No page markers found, treating as page {initial_page_number}")
+            pages = [(initial_page_number, text)]
         
         chunks = []
         for page_number, page_text in pages:
@@ -113,7 +114,7 @@ class PageChunker:
             matches = list(re.finditer(pattern, text, re.IGNORECASE))
             if matches:
                 LOGGER.debug(f"Found {len(matches)} page markers with pattern: {pattern}")
-                pages = self._split_by_markers(text, matches)
+                pages = self._split_by_markers(text, matches, initial_page_number)
                 break
         
         return pages
@@ -121,7 +122,8 @@ class PageChunker:
     def _split_by_markers(
         self,
         text: str,
-        matches: List[re.Match]
+        matches: List[re.Match],
+        initial_page_number: int = 1
     ) -> List[tuple[int, str]]:
         """Split text by page marker matches.
         
@@ -155,7 +157,7 @@ class PageChunker:
             if first_marker_pos > 0:
                 pre_text = text[:first_marker_pos].strip()
                 if pre_text:
-                    pages.insert(0, (1, pre_text))
+                    pages.insert(0, (initial_page_number, pre_text))
         
         return pages
     

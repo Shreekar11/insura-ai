@@ -5,12 +5,12 @@ to optimize API costs and latency. It extracts structured information from
 normalized insurance document text.
 """
 
-import httpx
 import json
 import asyncio
 from typing import Dict, List, Any, Optional
 from uuid import UUID
 
+from app.core.gemini_client import GeminiClient
 from app.utils.exceptions import APIClientError, OCRTimeoutError
 from app.utils.logging import get_logger
 
@@ -62,105 +62,270 @@ class EntityRelationshipExtractor:
         max_retries: Maximum retry attempts
     """
     
-    # Combined extraction prompt
-    EXTRACTION_PROMPT = """You are an expert at extracting structured information from insurance documents.
+    # Pass 1: Entity Extraction Only (relationships moved to Pass 2)
+    ENTITY_EXTRACTION_PROMPT = """You are an advanced insurance-domain information extraction system designed to convert unstructured insurance document text into structured, graph-ready JSON.
 
-Analyze the following insurance document text and extract:
-1. All entities (policy numbers, names, dates, amounts, etc.)
-2. Relationships between those entities
+Your task in this phase is **ENTITY EXTRACTION ONLY** (Pass 1 of 2).  
+DO NOT infer or output relationships in this phase.
 
-**Entity Types:**
-- POLICY_NUMBER: Policy identification number
-- CLAIM_NUMBER: Claim identification number
-- INSURED_NAME: Name of insured party
-- ADDRESS: Physical address
-- COVERAGE_TYPE: Type of coverage (e.g., Property, Liability, Auto)
-- LIMIT: Coverage limit amount
-- DEDUCTIBLE: Deductible amount
-- EFFECTIVE_DATE: Policy effective date
-- EXPIRY_DATE: Policy expiration date
-- CARRIER: Insurance carrier/company name
-- BROKER: Insurance broker/agent name
-- PREMIUM: Premium amount
-- LOCATION: Property location or building name
+---
 
-**Relationship Types:**
-- HAS_INSURED: Policy has insured party
-- HAS_COVERAGE: Policy has coverage type
-- HAS_LIMIT: Coverage has limit amount
-- HAS_DEDUCTIBLE: Coverage has deductible
-- HAS_CLAIM: Policy has claim
-- LOCATED_AT: Entity located at address
-- EFFECTIVE_FROM: Policy effective from date
-- EXPIRES_ON: Policy expires on date
-- ISSUED_BY: Policy issued by carrier
-- BROKERED_BY: Policy brokered by broker
+# 🎯 OBJECTIVE
+Extract all entity mentions present in the document, normalize them, and return metadata suitable for graph construction.
 
-**Instructions:**
-1. Extract all entities with their exact text spans
-2. Normalize entity values (e.g., remove spaces from policy numbers, standardize dates to YYYY-MM-DD)
-3. Identify relationships between entities
-4. Provide confidence scores (0.0-1.0) for each extraction
+Your output must be:
+- **Deterministic**
+- **Strictly JSON**
+- **Graph-ready**
+- **Span-accurate**
+- **Confidence-scored**
 
-**Return ONLY valid JSON** with this exact structure (no code fences, no explanations):
+---
+
+# 📘 ENTITY ONTOLOGY
+Extract ONLY the following allowed entity types:
+
+### **Policy / Claim Identifiers**
+- POLICY_NUMBER — Alphanumeric policy identifiers (e.g., "POL12345", "Policy No. ABC-4444")
+- CLAIM_NUMBER — Loss/claim identifiers
+
+### **Actors / Parties**
+- INSURED_NAME — Named insured(s)
+- CARRIER — Insurance carrier company
+- BROKER — Broker or agent
+
+### **Temporal Entities**
+- EFFECTIVE_DATE — Policy binding/coverage start
+- EXPIRY_DATE — Policy end date
+
+### **Financial Entities**
+- PREMIUM — Total premium amount
+- LIMIT — Coverage limit
+- DEDUCTIBLE — Deductible
+
+### **Coverage / Structural Entities**
+- COVERAGE_TYPE — Example: Property, Liability, Auto, Inland Marine
+- ADDRESS — Mailing or risk address
+- LOCATION — Building name, suite, property label, etc.
+
+---
+
+# 🧠 EXTRACTION GUIDELINES
+
+### 1. **Span Accuracy**
+- span_start and span_end refer to character offsets inside the *exact input text provided to you*.
+- Count characters exactly; do not estimate.
+
+### 2. **Normalization Rules**
+Apply:
+- Trim whitespace  
+- Remove special chars from IDs (e.g., "POL-123 456" → "POL123456")  
+- Standardize dates to **YYYY-MM-DD**  
+- Convert currency to numeric form (e.g., "$1,200.00" → "1200.00")  
+- Titles/case retain original (raw_value), normalize only normalized_value  
+
+### 3. **Extraction Strategy**
+Perform a 3-step extraction:
+1. Scan structurally for well-known patterns (policy numbers, dates, currency)
+2. Use semantic understanding for implicit mentions
+3. Extract **even partial / incomplete** entities → lower confidence
+
+### 4. **Strict Exclusions**
+DO NOT extract:
+- Regulation references ("Section 4.2", "AB-123 statute")
+- Page numbers
+- Headers/footers
+- Definitions ("'Policy' means…" unless it contains a real value)
+- Boilerplate legal text
+- Acronyms alone without clear meaning
+
+### 5. **Confidence Guidelines**
+- 0.90–1.00 = Explicitly present, high certainty
+- 0.70–0.89 = Present but formatting unclear
+- 0.40–0.69 = Partially present or inferred
+- 0.10–0.39 = Very weak signal (still allowed)
+- Never return < 0.10
+
+---
+
+# 🔎 OUTPUT FORMAT (STRICT)
+
+Return ONLY this JSON structure:
+```json
 {
   "entities": [
     {
+      "entity_id": "string-unique-id",
       "entity_type": "POLICY_NUMBER",
-      "raw_value": "POL-123-456",
-      "normalized_value": "POL123456",
+      "raw_value": "Policy No. ABC-4444",
+      "normalized_value": "ABC4444",
       "confidence": 0.95,
-      "span_start": 10,
-      "span_end": 21
-    }
-  ],
-  "relationships": [
-    {
-      "type": "HAS_INSURED",
-      "source_type": "POLICY_NUMBER",
-      "source_value": "POL123456",
-      "target_type": "INSURED_NAME",
-      "target_value": "John Doe",
-      "confidence": 0.90
+      "span_start": 123,
+      "span_end": 145
     }
   ]
 }
+```
 
-**Important:**
-- Only extract entities that are actually present in the text
-- Provide accurate span positions for entities
-- Ensure all JSON is properly escaped
-- Use normalized values for relationship references
+### **Rules**
+- entity_id must be a deterministic hash based on entity_type and normalized_value
+- No relationships here (those belong to pass 2)
+- No markdown, no explanations, no comments
+
+---
+
+# 🚫 DO NOT
+- Do NOT infer relationships
+- Do NOT produce multiple JSON blocks
+- Do NOT hallucinate entities
+- Do NOT output anything besides the JSON
+
+---
+
+# 📝 EXAMPLES
+
+**Example 1: Policy Declaration**
+Input Text:
+"Policy Number: POL-2024-12345. Insured: ABC Manufacturing LLC. Effective Date: 01/15/2024. Premium: $15,000.00"
+
+Output:
+```json
+{
+  "entities": [
+    {
+      "entity_id": "policy_number_pol202412345",
+      "entity_type": "POLICY_NUMBER",
+      "raw_value": "POL-2024-12345",
+      "normalized_value": "POL202412345",
+      "confidence": 0.98,
+      "span_start": 16,
+      "span_end": 30
+    },
+    {
+      "entity_id": "insured_name_abc_manufacturing_llc",
+      "entity_type": "INSURED_NAME",
+      "raw_value": "ABC Manufacturing LLC",
+      "normalized_value": "ABC Manufacturing LLC",
+      "confidence": 0.95,
+      "span_start": 42,
+      "span_end": 63
+    },
+    {
+      "entity_id": "effective_date_2024-01-15",
+      "entity_type": "EFFECTIVE_DATE",
+      "raw_value": "01/15/2024",
+      "normalized_value": "2024-01-15",
+      "confidence": 0.99,
+      "span_start": 82,
+      "span_end": 92
+    },
+    {
+      "entity_id": "premium_15000.00",
+      "entity_type": "PREMIUM",
+      "raw_value": "$15,000.00",
+      "normalized_value": "15000.00",
+      "confidence": 0.97,
+      "span_start": 103,
+      "span_end": 113
+    }
+  ]
+}
+```
+
+**Example 2: Coverage Section**
+Input Text:
+"Building Coverage: $5,000,000 limit with $10,000 deductible. Contents Coverage: $1,000,000."
+
+Output:
+```json
+{
+  "entities": [
+    {
+      "entity_id": "coverage_type_building_coverage",
+      "entity_type": "COVERAGE_TYPE",
+      "raw_value": "Building Coverage",
+      "normalized_value": "Building Coverage",
+      "confidence": 0.96,
+      "span_start": 0,
+      "span_end": 17
+    },
+    {
+      "entity_id": "limit_5000000.00",
+      "entity_type": "LIMIT",
+      "raw_value": "$5,000,000",
+      "normalized_value": "5000000.00",
+      "confidence": 0.98,
+      "span_start": 19,
+      "span_end": 29
+    },
+    {
+      "entity_id": "deductible_10000.00",
+      "entity_type": "DEDUCTIBLE",
+      "raw_value": "$10,000",
+      "normalized_value": "10000.00",
+      "confidence": 0.97,
+      "span_start": 41,
+      "span_end": 48
+    },
+    {
+      "entity_id": "coverage_type_contents_coverage",
+      "entity_type": "COVERAGE_TYPE",
+      "raw_value": "Contents Coverage",
+      "normalized_value": "Contents Coverage",
+      "confidence": 0.96,
+      "span_start": 62,
+      "span_end": 79
+    },
+    {
+      "entity_id": "limit_1000000.00",
+      "entity_type": "LIMIT",
+      "raw_value": "$1,000,000",
+      "normalized_value": "1000000.00",
+      "confidence": 0.98,
+      "span_start": 81,
+      "span_end": 91
+    }
+  ]
+}
+```
+
+---
+
+Now extract entities from the following text:
+
+{text}
 """
     
     def __init__(
         self,
-        openrouter_api_key: str,
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
         timeout: int = 60,
         max_retries: int = 3,
+        openrouter_api_url: str = None, # Deprecated
     ):
         """Initialize entity/relationship extractor.
         
         Args:
-            openrouter_api_key: OpenRouter API key
-            openrouter_api_url: OpenRouter API URL
-            openrouter_model: Model to use for extraction
+            gemini_api_key: Gemini API key
+            gemini_model: Model to use for extraction
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
         """
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_api_url = openrouter_api_url
-        self.openrouter_model = openrouter_model
-        self.timeout = timeout
-        self.max_retries = max_retries
+        self.gemini_model = gemini_model
+        
+        # Initialize GeminiClient
+        self.client = GeminiClient(
+            api_key=gemini_api_key,
+            model=gemini_model,
+            timeout=timeout,
+            max_retries=max_retries
+        )
         
         LOGGER.info(
             "Initialized entity/relationship extractor",
             extra={
-                "model": self.openrouter_model,
-                "api_url": self.openrouter_api_url,
+                "model": self.gemini_model,
             }
         )
     
@@ -169,17 +334,20 @@ Analyze the following insurance document text and extract:
         text: str,
         chunk_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
-        """Extract entities and relationships from text.
+        """Extract entities from text (Pass 1 - entities only).
+        
+        Note: Relationships are now extracted in Pass 2 (global extraction)
+        after entity resolution.
         
         Args:
             text: Normalized text to extract from
             chunk_id: Optional chunk ID for logging
             
         Returns:
-            dict: Dictionary with entities and relationships
+            dict: Dictionary with entities only
                 {
                     "entities": [...],
-                    "relationships": [...]
+                    "relationships": []  # Empty in Pass 1
                 }
         """
         if not text or not text.strip():
@@ -187,7 +355,7 @@ Analyze the following insurance document text and extract:
             return {"entities": [], "relationships": []}
         
         LOGGER.info(
-            "Starting entity/relationship extraction",
+            "Starting entity extraction (Pass 1)",
             extra={
                 "text_length": len(text),
                 "chunk_id": str(chunk_id) if chunk_id else None
@@ -197,11 +365,13 @@ Analyze the following insurance document text and extract:
         try:
             result = await self._call_llm_api(text)
             
+            # Pass 1 returns only entities, relationships will be empty
+            result["relationships"] = []
+            
             LOGGER.info(
-                "Extraction completed successfully",
+                "Entity extraction completed successfully",
                 extra={
                     "entities_count": len(result.get("entities", [])),
-                    "relationships_count": len(result.get("relationships", [])),
                     "chunk_id": str(chunk_id) if chunk_id else None
                 }
             )
@@ -210,7 +380,7 @@ Analyze the following insurance document text and extract:
             
         except Exception as e:
             LOGGER.error(
-                "Extraction failed, returning empty result",
+                "Entity extraction failed, returning empty result",
                 exc_info=True,
                 extra={"error": str(e), "chunk_id": str(chunk_id) if chunk_id else None}
             )
@@ -228,86 +398,20 @@ Analyze the following insurance document text and extract:
         Raises:
             APIClientError: If API call fails after retries
         """
-        headers = {
-            "Authorization": f"Bearer {self.openrouter_api_key}",
-            "Content-Type": "application/json",
-        }
-        
-        payload = {
-            "model": self.openrouter_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": self.EXTRACTION_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": f"Text:\n{text}"
-                }
-            ],
-            "temperature": 0.0,  # Deterministic output
-            "max_tokens": 4000,  # Allow for structured output
-        }
-        
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            for attempt in range(self.max_retries):
-                try:
-                    response = await client.post(
-                        self.openrouter_api_url,
-                        json=payload,
-                        headers=headers
-                    )
-                    response.raise_for_status()
-                    
-                    result = response.json()
-                    llm_response = result["choices"][0]["message"]["content"].strip()
-                    
-                    # Parse JSON response
-                    parsed = self._parse_extraction_response(llm_response)
-                    
-                    return parsed
-                    
-                except httpx.HTTPStatusError as e:
-                    # Server errors (5xx) - retry with exponential backoff
-                    if e.response.status_code >= 500:
-                        if attempt < self.max_retries - 1:
-                            wait_time = 2 ** attempt  # Exponential backoff: 1s, 2s, 4s
-                            LOGGER.warning(
-                                f"LLM server error {e.response.status_code}, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})",
-                                extra={"status_code": e.response.status_code}
-                            )
-                            await asyncio.sleep(wait_time)
-                            continue
-                    
-                    # Client errors (4xx) - don't retry, or if max retries reached for 5xx
-                    LOGGER.error(
-                        f"LLM API error: {e.response.status_code}",
-                        exc_info=True,
-                        extra={"status_code": e.response.status_code}
-                    )
-                    raise APIClientError(f"API returned error: {e.response.status_code}") from e
-                    
-                except httpx.TimeoutException as e:
-                    if attempt < self.max_retries - 1:
-                        wait_time = 2 ** attempt  # Exponential backoff
-                        LOGGER.warning(
-                            f"LLM timeout, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})"
-                        )
-                        await asyncio.sleep(wait_time)
-                        continue
-                    raise OCRTimeoutError("API call timed out") from e
-                    
-                except Exception as e:
-                    if attempt < self.max_retries - 1:
-                        wait_time = 2 ** attempt  # Exponential backoff
-                        LOGGER.warning(
-                            f"Unexpected error, retrying in {wait_time}s (attempt {attempt + 1}/{self.max_retries})"
-                        )
-                        await asyncio.sleep(wait_time)
-                        continue
-                    raise
-        
-        raise APIClientError("Failed to extract after all retry attempts")
+        try:
+            # Use GeminiClient
+            llm_response = await self.client.generate_content(
+                contents=f"Text:\n{text}",
+                system_instruction=self.ENTITY_EXTRACTION_PROMPT,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            
+            # Parse JSON response
+            return self._parse_extraction_response(llm_response)
+            
+        except Exception as e:
+            LOGGER.error(f"LLM extraction failed: {e}", exc_info=True)
+            raise APIClientError(f"Failed to extract entities: {e}")
     
     def _parse_extraction_response(self, response_text: str) -> Dict[str, Any]:
         """Parse and validate extraction response.
