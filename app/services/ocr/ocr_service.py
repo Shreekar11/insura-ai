@@ -6,6 +6,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.ocr_repository import OCRRepository
+from app.repositories.document_repository import DocumentRepository
 from app.repositories.chunk_repository import ChunkRepository
 from app.services.ocr.ocr_base import BaseOCRService, OCRResult
 from app.services.normalization.normalization_service import NormalizationService
@@ -50,6 +51,7 @@ class OCRService(BaseOCRService):
         retry_delay: int = 2,
         use_hybrid_normalization: bool = True,
         enable_classification: bool = True,
+        normalization_service: Optional[NormalizationService] = None,
     ):
         """Initialize OCR service.
 
@@ -66,14 +68,16 @@ class OCRService(BaseOCRService):
             retry_delay: Delay between retries in seconds
             use_hybrid_normalization: Use hybrid LLM + code normalization (default: True)
             enable_classification: Enable document classification (default: True)
+            normalization_service: Optional injected NormalizationService
         """
+        super().__init__(repository=None)
+        
         self.model = model
         self.enable_classification = enable_classification
         
-        self.repository = OCRRepository(
+        self.ocr_client = OCRRepository(
             api_key=api_key,
             api_url=api_url,
-            db_session=db_session,
             timeout=timeout,
             max_retries=max_retries,
             retry_delay=retry_delay,
@@ -83,25 +87,37 @@ class OCRService(BaseOCRService):
         classification_service = None
         fallback_classifier = None
         chunk_repository = None
+        self.document_repository = None
         
-        if enable_classification and db_session:
-            classification_service = ClassificationService()
-            fallback_classifier = FallbackClassifier(
+        if db_session:
+            self.document_repository = DocumentRepository(db_session)
+            # Set the primary repository for BaseService
+            self.repository = self.document_repository
+            
+            if enable_classification:
+                classification_service = ClassificationService()
+                fallback_classifier = FallbackClassifier(
+                    openrouter_api_key=openrouter_api_key,
+                    openrouter_api_url=openrouter_api_url,
+                    openrouter_model=openrouter_model,
+                )
+                chunk_repository = ChunkRepository(db_session)
+        
+        # Use injected service or create new one
+        if normalization_service:
+            self.normalization_service = normalization_service
+        else:
+            self.normalization_service = NormalizationService(
                 openrouter_api_key=openrouter_api_key,
                 openrouter_api_url=openrouter_api_url,
                 openrouter_model=openrouter_model,
+                use_hybrid=use_hybrid_normalization,
+                classification_service=classification_service,
+                fallback_classifier=fallback_classifier,
+                chunk_repository=chunk_repository,
+                normalization_repository=NormalizationRepository(db_session) if db_session else None,
+                classification_repository=ClassificationRepository(db_session) if db_session else None,
             )
-            chunk_repository = ChunkRepository(db_session)
-        
-        self.normalization_service = NormalizationService(
-            openrouter_api_key=openrouter_api_key,
-            openrouter_api_url=openrouter_api_url,
-            openrouter_model=openrouter_model,
-            use_hybrid=use_hybrid_normalization,
-            classification_service=classification_service,
-            fallback_classifier=fallback_classifier,
-            chunk_repository=chunk_repository,
-        )
 
         LOGGER.info(
             "Initialized OCR service",
@@ -113,6 +129,20 @@ class OCRService(BaseOCRService):
         )
 
     async def extract_text_from_url(
+        self,
+        document_url: str,
+        document_id: Optional[UUID] = None,
+    ) -> OCRResult:
+        """Wrapper for run() to maintain backward compatibility.
+        
+        Delegates to BaseService.execute().
+        """
+        return await self.execute(
+            document_url=document_url,
+            document_id=document_id
+        )
+
+    async def run(
         self,
         document_url: str,
         document_id: Optional[UUID] = None,
@@ -141,32 +171,32 @@ class OCRService(BaseOCRService):
             self._validate_document_url(document_url)
 
             # Download document (validation check whether the document is a PDF or an image)
-            await self.repository.download_document(document_url)
+            await self.ocr_client.download_document(document_url)
 
-            # Extract text using Mistral API - returns (List[PageData], document_id)
-            pages, repo_document_id = await self.repository.call_mistral_ocr_api(
+            # Extract text using Mistral API - returns List[PageData]
+            pages = await self.ocr_client.call_mistral_ocr_api(
                 document_url=document_url,
                 model=self.model,
             )
             
-            # Use document_id from repository if not provided
-            if document_id is None and repo_document_id is not None:
-                document_id = repo_document_id
+            # Create document record if not provided and repository is available
+            if document_id is None and self.document_repository:
+                # Default test user UUID (same as before)
+                DEFAULT_TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+                
+                document = await self.document_repository.create_document(
+                    file_path=document_url,
+                    page_count=len(pages),
+                    user_id=DEFAULT_TEST_USER_ID,
+                )
+                document_id = document.id
                 LOGGER.info(
-                    "Using document_id from repository",
+                    "Document record created via repository",
                     extra={"document_id": str(document_id)}
                 )
 
             # Validate extraction result
             self._validate_extraction_result(pages, document_url)
-
-            # Use document_id from repository if not provided
-            if document_id is None and repo_document_id is not None:
-                document_id = repo_document_id
-                LOGGER.info(
-                    "Using document_id from repository",
-                    extra={"document_id": str(document_id)}
-                )
 
             # Always normalize with classification and chunking (hybrid method)
             LOGGER.info("Applying hybrid normalization with classification and chunking")
@@ -206,7 +236,7 @@ class OCRService(BaseOCRService):
                     "pages_count": len(pages),
                     "normalized_text_length": len(normalized_text),
                     "processing_time": processing_time,
-                    "normalization_applied": normalization_applied,
+                    "normalization_applied": True,
                 },
             )
 

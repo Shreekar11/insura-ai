@@ -4,6 +4,8 @@ from abc import ABC, abstractmethod
 from typing import Dict, Any, Optional
 from uuid import UUID
 
+from app.core.base_service import BaseService
+
 
 class OCRResult:
     """OCR extraction result container.
@@ -68,7 +70,7 @@ class OCRResult:
         return result
 
 
-class BaseOCRService(ABC):
+class BaseOCRService(BaseService):
     """Abstract base class for OCR service implementations.
 
     This class defines the interface that all OCR service implementations

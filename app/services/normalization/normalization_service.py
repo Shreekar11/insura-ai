@@ -12,6 +12,7 @@ from typing import Dict, List, Optional, Tuple, Any
 from uuid import UUID, uuid4
 import hashlib
 
+from app.core.base_service import BaseService
 from app.models.page_data import PageData
 from app.services.normalization.llm_normalizer import LLMNormalizer
 from app.services.normalization.semantic_normalizer import SemanticNormalizer
@@ -28,7 +29,7 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
-class NormalizationService:
+class NormalizationService(BaseService):
     """Service for normalizing and classifying OCR-extracted insurance documents.
     
     This service uses a hybrid LLM + code approach with chunking and classification:
@@ -84,6 +85,10 @@ class NormalizationService:
             entity_resolver: Entity resolver for canonical entity mapping
             extractor_factory: Factory for section-specific extractors
         """
+
+        # Initialize BaseService with the primary repository
+        super().__init__(repository=normalization_repository)
+        
         self.use_hybrid = use_hybrid
         self.semantic_normalizer = SemanticNormalizer()
         self.chunking_service = chunking_service or ChunkingService()
@@ -133,6 +138,24 @@ class NormalizationService:
     
 
     async def normalize_and_classify_pages(
+        self,
+        pages: List[PageData],
+        document_id: UUID,
+        use_chunking: bool = True,
+        max_tokens: int = 1500,
+    ) -> Tuple[str, Optional[Dict[str, Any]]]:
+        """Wrapper for run() to maintain backward compatibility.
+        
+        Delegates to BaseService.execute().
+        """
+        return await self.execute(
+            pages=pages,
+            document_id=document_id,
+            use_chunking=use_chunking,
+            max_tokens=max_tokens
+        )
+
+    async def run(
         self,
         pages: List[PageData],
         document_id: UUID,
@@ -395,8 +418,8 @@ class NormalizationService:
                         normalized_text=final_normalized_text,
                         method="hybrid_llm_semantic",
                         extracted_fields=extracted_fields,
-                        entities=extraction_result if extraction_result else None,
-                        relationships=extraction_result if extraction_result else None,
+                        entities=extraction_result.get("entities") if extraction_result else None,
+                        relationships=extraction_result.get("relationships") if extraction_result else None,
                         model_version=self.llm_normalizer.openrouter_model if self.llm_normalizer else None,
                         prompt_version="v1.0",  # TODO: Make this configurable
                         pipeline_run_id=pipeline_run_id,

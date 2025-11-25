@@ -1,10 +1,4 @@
-"""Repository for normalization-related database operations.
-
-This repository handles all data access operations related to document
-normalization, including creating and retrieving normalized chunks.
-"""
-
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 import hashlib
 from datetime import datetime, timezone
@@ -12,20 +6,18 @@ from datetime import datetime, timezone
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import NormalizedChunk
+from app.core.base_repository import BaseRepository
+from app.database.models import NormalizedChunk, DocumentChunk
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class NormalizationRepository:
+class NormalizationRepository(BaseRepository[NormalizedChunk]):
     """Repository for managing normalized chunks.
     
-    This repository provides data access methods for normalized chunk
-    operations, separating database logic from business logic.
-    
-    Attributes:
-        session: SQLAlchemy async session for database operations
+    Inherits from BaseRepository for standard CRUD operations.
+    Provides specialized methods for normalization-specific logic.
     """
 
     def __init__(self, session: AsyncSession):
@@ -34,7 +26,7 @@ class NormalizationRepository:
         Args:
             session: SQLAlchemy async session
         """
-        self.session = session
+        super().__init__(session, NormalizedChunk)
 
     async def create_normalized_chunk(
         self,
@@ -69,24 +61,11 @@ class NormalizationRepository:
             
         Returns:
             NormalizedChunk: The created normalized chunk record
-            
-        Example:
-            >>> repo = NormalizationRepository(session)
-            >>> chunk = await repo.create_normalized_chunk(
-            ...     chunk_id=chunk_uuid,
-            ...     normalized_text="Clean normalized text",
-            ...     method="llm",
-            ...     processing_time_ms=250,
-            ...     extracted_fields={"dates": [], "amounts": []},
-            ...     entities={"entities": [...]},
-            ...     relationships={"relationships": [...]},
-            ...     pipeline_run_id="run_123"
-            ... )
         """
         # Compute content hash for change detection
         content_hash = hashlib.sha256(normalized_text.encode('utf-8')).hexdigest()
         
-        norm_chunk = NormalizedChunk(
+        return await self.create(
             chunk_id=chunk_id,
             normalized_text=normalized_text,
             normalization_method=method,
@@ -102,24 +81,6 @@ class NormalizationRepository:
             quality_score=quality_score,
             extracted_at=datetime.now(timezone.utc),
         )
-        self.session.add(norm_chunk)
-        await self.session.flush()
-        
-        LOGGER.debug(
-            "Normalized chunk created",
-            extra={
-                "chunk_id": str(chunk_id),
-                "method": method,
-                "text_length": len(normalized_text),
-                "content_hash": content_hash[:16],
-                "processing_time_ms": processing_time_ms,
-                "entities_count": len(entities.get("entities", [])) if entities else 0,
-                "relationships_count": len(relationships.get("relationships", [])) if relationships else 0,
-                "pipeline_run_id": pipeline_run_id,
-            }
-        )
-        
-        return norm_chunk
 
     async def get_normalized_chunks_by_document(
         self, 
@@ -132,35 +93,30 @@ class NormalizationRepository:
             
         Returns:
             List[NormalizedChunk]: List of normalized chunks ordered by page and chunk index
-            
-        Example:
-            >>> repo = NormalizationRepository(session)
-            >>> chunks = await repo.get_normalized_chunks_by_document(doc_id)
-            >>> for chunk in chunks:
-            ...     print(chunk.normalized_text)
         """
-        # Join with DocumentChunk to get ordering information
-        from app.database.models import DocumentChunk
-        
-        query = (
-            select(NormalizedChunk)
-            .join(DocumentChunk, NormalizedChunk.chunk_id == DocumentChunk.id)
-            .where(DocumentChunk.document_id == document_id)
-            .order_by(DocumentChunk.page_number, DocumentChunk.chunk_index)
-        )
-        
-        result = await self.session.execute(query)
-        chunks = list(result.scalars().all())
-        
-        LOGGER.debug(
-            "Retrieved normalized chunks",
-            extra={
-                "document_id": str(document_id),
-                "chunk_count": len(chunks),
-            }
-        )
-        
-        return chunks
+        try:
+            query = (
+                select(NormalizedChunk)
+                .join(DocumentChunk, NormalizedChunk.chunk_id == DocumentChunk.id)
+                .where(DocumentChunk.document_id == document_id)
+                .order_by(DocumentChunk.page_number, DocumentChunk.chunk_index)
+            )
+            
+            result = await self.session.execute(query)
+            chunks = list(result.scalars().all())
+            
+            self.logger.debug(
+                "Retrieved normalized chunks",
+                extra={
+                    "document_id": str(document_id),
+                    "chunk_count": len(chunks),
+                }
+            )
+            
+            return chunks
+        except Exception as e:
+            self.logger.error(f"Error retrieving chunks for document {document_id}: {e}")
+            raise
 
     async def get_normalized_chunk_by_id(
         self, 
@@ -174,9 +130,13 @@ class NormalizationRepository:
         Returns:
             Optional[NormalizedChunk]: The normalized chunk if found, None otherwise
         """
-        query = select(NormalizedChunk).where(NormalizedChunk.chunk_id == chunk_id)
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
+        try:
+            query = select(NormalizedChunk).where(NormalizedChunk.chunk_id == chunk_id)
+            result = await self.session.execute(query)
+            return result.scalar_one_or_none()
+        except Exception as e:
+            self.logger.error(f"Error retrieving normalized chunk {chunk_id}: {e}")
+            raise
 
     async def update_normalized_chunk(
         self,
@@ -206,48 +166,51 @@ class NormalizationRepository:
         """
         chunk = await self.get_normalized_chunk_by_id(chunk_id)
         if not chunk:
-            LOGGER.warning(
+            self.logger.warning(
                 "Normalized chunk not found for update",
                 extra={"chunk_id": str(chunk_id)}
             )
             return False
         
+        updates = {}
+        
         if normalized_text is not None:
-            chunk.normalized_text = normalized_text
+            updates["normalized_text"] = normalized_text
             # Recompute hash if text changes
-            chunk.content_hash = hashlib.sha256(normalized_text.encode('utf-8')).hexdigest()
+            updates["content_hash"] = hashlib.sha256(normalized_text.encode('utf-8')).hexdigest()
             
         if processing_time_ms is not None:
-            chunk.processing_time_ms = processing_time_ms
+            updates["processing_time_ms"] = processing_time_ms
             
         if pipeline_run_id is not None:
-            chunk.pipeline_run_id = pipeline_run_id
+            updates["pipeline_run_id"] = pipeline_run_id
             
         if extracted_fields is not None:
-            chunk.extracted_fields = extracted_fields
+            updates["extracted_fields"] = extracted_fields
             
         if entities is not None:
-            chunk.entities = entities
+            updates["entities"] = entities
             
         if relationships is not None:
-            chunk.relationships = relationships
+            updates["relationships"] = relationships
             
         if quality_score is not None:
-            chunk.quality_score = quality_score
+            updates["quality_score"] = quality_score
             
-        chunk.updated_at = datetime.now(timezone.utc)
-        
-        await self.session.flush()
-        
-        LOGGER.info(
-            "Normalized chunk updated",
-            extra={
-                "chunk_id": str(chunk_id),
-                "has_text_update": normalized_text is not None,
-                "pipeline_run_id": pipeline_run_id
-            }
-        )
-        
+        if updates:
+            # Use the base update method (passing the ID of the NormalizedChunk record, not chunk_id)
+            # Wait, get_normalized_chunk_by_id returns the record, so we have its ID
+            await self.update(chunk.id, **updates)
+            
+            self.logger.info(
+                "Normalized chunk updated",
+                extra={
+                    "chunk_id": str(chunk_id),
+                    "updates": list(updates.keys())
+                }
+            )
+            return True
+            
         return True
 
     async def check_content_changed(
@@ -283,29 +246,28 @@ class NormalizationRepository:
         - No normalized chunk exists
         - content_hash is NULL
         
-        Note: This is a helper to find chunks that definitely need processing.
-        For content changes, use check_content_changed during processing.
-        
         Args:
             document_id: Document ID
             
         Returns:
             List[UUID]: List of chunk IDs needing reprocessing
         """
-        from app.database.models import DocumentChunk
-        
-        # Find chunks that don't have a normalized chunk or have null hash
-        query = (
-            select(DocumentChunk.id)
-            .outerjoin(NormalizedChunk, DocumentChunk.id == NormalizedChunk.chunk_id)
-            .where(
-                DocumentChunk.document_id == document_id,
-                (NormalizedChunk.id == None) | (NormalizedChunk.content_hash == None)
+        try:
+            # Find chunks that don't have a normalized chunk or have null hash
+            query = (
+                select(DocumentChunk.id)
+                .outerjoin(NormalizedChunk, DocumentChunk.id == NormalizedChunk.chunk_id)
+                .where(
+                    DocumentChunk.document_id == document_id,
+                    (NormalizedChunk.id == None) | (NormalizedChunk.content_hash == None)
+                )
             )
-        )
-        
-        result = await self.session.execute(query)
-        return list(result.scalars().all())
+            
+            result = await self.session.execute(query)
+            return list(result.scalars().all())
+        except Exception as e:
+            self.logger.error(f"Error finding chunks needing reprocessing: {e}")
+            raise
 
     async def delete_normalized_chunks_by_document(
         self, 
@@ -327,7 +289,7 @@ class NormalizationRepository:
         
         await self.session.flush()
         
-        LOGGER.info(
+        self.logger.info(
             "Deleted normalized chunks",
             extra={
                 "document_id": str(document_id),

@@ -85,8 +85,8 @@ async def get_chunking_service() -> ChunkingService:
         ChunkingService: Service for document chunking
     """
     return ChunkingService(
-        max_tokens_per_chunk=settings.max_tokens_per_chunk,
-        overlap_tokens=settings.overlap_tokens,
+        max_tokens_per_chunk=settings.chunk_max_tokens,
+        overlap_tokens=settings.chunk_overlap_tokens,
         enable_section_chunking=True,
     )
 
