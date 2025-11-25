@@ -81,6 +81,11 @@ class ExtractorFactory:
         from app.services.extraction.policy_extractor import PolicyExtractor
         from app.services.extraction.endorsement_extractor import EndorsementExtractor
         from app.services.extraction.invoice_extractor import InvoiceExtractor
+        from app.services.extraction.conditions_extractor import ConditionsExtractor
+        from app.services.extraction.coverages_extractor import CoveragesExtractor
+        from app.services.extraction.exclusions_extractor import ExclusionsExtractor
+        from app.services.extraction.claims_docs_extractor import ClaimsDocsExtractor
+        from app.services.extraction.kyc_extractor import KYCExtractor
         from app.services.extraction.default_extractor import DefaultExtractor
         
         # Register SOV extractor with multiple aliases
@@ -160,8 +165,85 @@ class ExtractorFactory:
             extractor_class=InvoiceExtractor
         )
         
+        # Register Conditions extractor
+        self.register_extractor(
+            section_types=[
+                "conditions",
+                "policy conditions",
+                "policy_conditions",
+                "general conditions",
+                "general_conditions",
+                "terms and conditions",
+                "terms_and_conditions",
+            ],
+            extractor_class=ConditionsExtractor
+        )
+        
+        # Register Coverages extractor
+        self.register_extractor(
+            section_types=[
+                "coverages",
+                "coverage",
+                "insuring agreement",
+                "insuring_agreement",
+                "covered perils",
+                "covered_perils",
+                "what is covered",
+                "what_is_covered",
+            ],
+            extractor_class=CoveragesExtractor
+        )
+        
+        # Register Exclusions extractor
+        self.register_extractor(
+            section_types=[
+                "exclusions",
+                "exclusion",
+                "what is not covered",
+                "what_is_not_covered",
+                "limitations",
+                "policy exclusions",
+                "policy_exclusions",
+            ],
+            extractor_class=ExclusionsExtractor
+        )
+        
+        # Register Claims Docs extractor
+        self.register_extractor(
+            section_types=[
+                "claims",
+                "claim",
+                "claims docs",
+                "claims_docs",
+                "claim documents",
+                "claim_documents",
+                "claim notice",
+                "claim_notice",
+                "loss notice",
+                "loss_notice",
+            ],
+            extractor_class=ClaimsDocsExtractor
+        )
+        
+        # Register KYC extractor
+        self.register_extractor(
+            section_types=[
+                "kyc",
+                "know your customer",
+                "know_your_customer",
+                "customer information",
+                "customer_information",
+                "insured information",
+                "insured_information",
+                "applicant information",
+                "applicant_information",
+            ],
+            extractor_class=KYCExtractor
+        )
+        
         # Register default extractor as fallback
         self._default_extractor_class = DefaultExtractor
+    
     
     def register_extractor(
         self,

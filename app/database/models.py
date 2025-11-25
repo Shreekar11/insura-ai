@@ -15,6 +15,7 @@ from sqlalchemy import (
     Text,
     TIMESTAMP,
     UniqueConstraint,
+    Boolean,
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
@@ -1104,6 +1105,320 @@ class InvoiceItem(Base):
     )
     payment_method: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Payment method if paid"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class ConditionItem(Base):
+    """Structured extraction of policy conditions."""
+
+    __tablename__ = "condition_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    condition_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type of condition"
+    )
+    title: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Condition title"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Full description"
+    )
+    applies_to: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="What it applies to"
+    )
+    requirements: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="List of requirements"
+    )
+    consequences: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Consequences of non-compliance"
+    )
+    reference: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Section reference"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class CoverageItem(Base):
+    """Structured extraction of coverage information."""
+
+    __tablename__ = "coverage_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    coverage_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Name of coverage"
+    )
+    coverage_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type/category"
+    )
+    limit_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Coverage limit"
+    )
+    deductible_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Deductible amount"
+    )
+    premium_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Premium for this coverage"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Coverage description"
+    )
+    sub_limits: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Sub-limits"
+    )
+    exclusions: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="Specific exclusions"
+    )
+    conditions: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="Specific conditions"
+    )
+    per_occurrence: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, comment="Is per occurrence"
+    )
+    aggregate: Mapped[bool | None] = mapped_column(
+        Boolean, nullable=True, comment="Is aggregate limit"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class ExclusionItem(Base):
+    """Structured extraction of policy exclusions."""
+
+    __tablename__ = "exclusion_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    exclusion_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type of exclusion"
+    )
+    title: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Exclusion title"
+    )
+    description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Full description"
+    )
+    applies_to: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="What it applies to"
+    )
+    scope: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Scope (Total/Partial)"
+    )
+    exceptions: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="Exceptions to exclusion"
+    )
+    rationale: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Reason for exclusion"
+    )
+    reference: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Section reference"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class KYCItem(Base):
+    """Structured extraction of KYC information."""
+
+    __tablename__ = "kyc_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    customer_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Customer/Entity name"
+    )
+    customer_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type (Individual/Entity)"
+    )
+    date_of_birth: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="DOB for individuals"
+    )
+    incorporation_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Incorporation date for entities"
+    )
+    tax_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Tax ID / SSN / EIN"
+    )
+    business_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Business type"
+    )
+    industry: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Industry sector"
+    )
+    address: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Full address"
+    )
+    city: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="City"
+    )
+    state: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="State"
+    )
+    zip_code: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="ZIP code"
+    )
+    country: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Country"
+    )
+    phone: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Phone number"
+    )
+    email: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Email address"
+    )
+    website: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Website URL"
+    )
+    identification_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="ID type"
+    )
+    identification_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="ID number"
+    )
+    identification_issuer: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Issuing authority"
+    )
+    identification_expiry: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="ID expiry date"
+    )
+    authorized_signers: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="List of authorized signers"
+    )
+    ownership_structure: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Ownership details"
+    )
+    annual_revenue: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Annual revenue"
+    )
+    employee_count: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Number of employees"
+    )
+    additional_data: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional fields"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document | None"] = relationship("Document")
+
+
+class ClaimItem(Base):
+    """Structured extraction of claims information from documents."""
+
+    __tablename__ = "claim_items"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    )
+    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    )
+    claim_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Claim identifier"
+    )
+    policy_number: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Associated policy number"
+    )
+    claimant_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Name of claimant"
+    )
+    loss_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Date of loss"
+    )
+    report_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Date claim was reported"
+    )
+    claim_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Type of claim"
+    )
+    loss_description: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Description of loss"
+    )
+    loss_location: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Location of loss"
+    )
+    claim_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Claimed amount"
+    )
+    paid_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Amount paid"
+    )
+    reserve_amount: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Reserve amount"
+    )
+    claim_status: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Status (Open, Closed, etc.)"
+    )
+    adjuster_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Name of adjuster"
+    )
+    denial_reason: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Reason for denial"
     )
     additional_data: Mapped[dict | None] = mapped_column(
         JSONB, nullable=True, comment="Additional fields"
