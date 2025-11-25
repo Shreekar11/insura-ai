@@ -107,9 +107,8 @@ async def get_fallback_classifier() -> FallbackClassifier:
         FallbackClassifier: Fallback classifier for low-confidence cases
     """
     return FallbackClassifier(
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_api_url=settings.openrouter_api_url,
-        openrouter_model=settings.openrouter_model,
+        gemini_api_key=settings.gemini_api_key,
+        gemini_model=settings.gemini_model,
     )
 
 
@@ -121,7 +120,7 @@ async def get_normalization_service(
     chunking_service: Annotated[ChunkingService, Depends(get_chunking_service)],
     classification_service: Annotated[ClassificationService, Depends(get_classification_service)],
     fallback_classifier: Annotated[FallbackClassifier, Depends(get_fallback_classifier)],
-    db_session: Annotated[AsyncSession, Depends(get_db_session)],
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
 ) -> NormalizationService:
     """Get normalization service instance with all dependencies.
     
@@ -139,19 +138,21 @@ async def get_normalization_service(
     """
     # Import here to avoid circular dependency
     from app.services.extraction.extractor_factory import ExtractorFactory
+    from app.services.extraction.entity_resolver import EntityResolver
     
     # Create extractor factory for section-aware extraction
     extractor_factory = ExtractorFactory(
         session=db_session,
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_api_url=settings.openrouter_api_url,
-        openrouter_model=settings.openrouter_model,
+        gemini_api_key=settings.gemini_api_key,
+        gemini_model=settings.gemini_model,
     )
     
+    # Create entity resolver for canonical entity resolution
+    entity_resolver = EntityResolver(session=db_session)
+    
     return NormalizationService(
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_api_url=settings.openrouter_api_url,
-        openrouter_model=settings.openrouter_model,
+        gemini_api_key=settings.gemini_api_key,
+        gemini_model=settings.gemini_model,
         use_hybrid=True,
         chunking_service=chunking_service,
         classification_service=classification_service,
@@ -159,6 +160,7 @@ async def get_normalization_service(
         chunk_repository=chunk_repository,
         normalization_repository=normalization_repository,
         classification_repository=classification_repository,
+        entity_resolver=entity_resolver,
         extractor_factory=extractor_factory,
     )
 
@@ -181,9 +183,8 @@ async def get_ocr_service(
         api_key=settings.mistral_api_key,
         api_url=settings.mistral_api_url,
         model=settings.mistral_model,
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_api_url=settings.openrouter_api_url,
-        openrouter_model=settings.openrouter_model,
+        gemini_api_key=settings.gemini_api_key,
+        gemini_model=settings.gemini_model,
         db_session=db_session,
         normalization_service=normalization_service,
         timeout=settings.ocr_timeout,

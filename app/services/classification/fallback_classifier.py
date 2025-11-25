@@ -6,7 +6,7 @@ fails to reach the acceptance threshold. It uses a summary of the document
 """
 
 import json
-import httpx
+from app.core.gemini_client import GeminiClient
 from typing import Dict, Any, List, Optional
 
 from app.utils.exceptions import APIClientError
@@ -38,15 +38,19 @@ RETURN JSON ONLY:
 
     def __init__(
         self,
-        openrouter_api_key: str,
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
         timeout: int = 30,
+        openrouter_api_url: str = None, # Deprecated
     ):
-        self.api_key = openrouter_api_key
-        self.api_url = openrouter_api_url
-        self.model = openrouter_model
-        self.timeout = timeout
+        self.gemini_model = gemini_model
+        # Initialize GeminiClient
+        self.client = GeminiClient(
+            api_key=gemini_api_key,
+            model=gemini_model,
+            timeout=timeout,
+            max_retries=3
+        )
 
     async def classify(
         self,
@@ -86,21 +90,11 @@ RETURN JSON ONLY:
             }
 
     async def _call_llm(self, prompt: str) -> str:
-        headers = {
-            "Authorization": f"Bearer {self.api_key}",
-            "Content-Type": "application/json",
-        }
-        
-        payload = {
-            "model": self.model,
-            "messages": [{"role": "user", "content": prompt}],
-            "temperature": 0.0,
-        }
-        
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
-            resp = await client.post(self.api_url, json=payload, headers=headers)
-            resp.raise_for_status()
-            return resp.json()["choices"][0]["message"]["content"]
+        # Use GeminiClient
+        return await self.client.generate_content(
+            contents=prompt,
+            generation_config={"response_mime_type": "application/json"}
+        )
 
     def _parse_response(self, text: str) -> Dict[str, Any]:
         try:

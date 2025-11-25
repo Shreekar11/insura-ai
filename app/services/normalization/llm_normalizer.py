@@ -1,7 +1,7 @@
 import json
 from typing import Optional, Dict, Any
 
-from app.core.base_llm_client import BaseLLMClient
+from app.core.gemini_client import GeminiClient
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely, extract_field_from_broken_json
@@ -247,27 +247,25 @@ IMPORTANT:
 
     def __init__(
         self,
-        openrouter_api_key: str,
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
         timeout: int = 60,
         max_retries: int = 3,
     ):
         """Initialize LLM text normalizer.
         
         Args:
-            openrouter_api_key: OpenRouter API key
-            openrouter_api_url: OpenRouter chat completion endpoint
-            openrouter_model: Model name to use
+            gemini_api_key: Gemini API key
+            gemini_model: Model name to use
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
         """
-        self.openrouter_model = openrouter_model
+        self.gemini_model = gemini_model
         
-        # Initialize BaseLLMClient
-        self.client = BaseLLMClient(
-            api_key=openrouter_api_key,
-            base_url=openrouter_api_url,
+        # Initialize GeminiClient
+        self.client = GeminiClient(
+            api_key=gemini_api_key,
+            model=gemini_model,
             timeout=timeout,
             max_retries=max_retries
         )
@@ -275,8 +273,7 @@ IMPORTANT:
         LOGGER.info(
             "Initialized LLM text normalizer",
             extra={
-                "model": self.openrouter_model,
-                "api_url": openrouter_api_url,
+                "model": self.gemini_model,
                 "timeout": timeout,
             }
         )
@@ -384,67 +381,22 @@ IMPORTANT:
     
     async def _call_llm_api(self, text: str) -> str:
         """Call LLM API for text normalization."""
-        payload = {
-            "model": self.openrouter_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": self.NORMALIZATION_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": f"Normalize this OCR text:\n\n{text}"
-                }
-            ],
-            "temperature": 0.0,
-            "max_tokens": len(text) * 2,
-        }
-        
-        # Use BaseLLMClient
-        result = await self.client.call_api(
-            endpoint="",
-            method="POST",
-            payload=payload
+        # Use GeminiClient
+        return await self.client.generate_content(
+            contents=f"Normalize this OCR text:\n\n{text}",
+            system_instruction=self.NORMALIZATION_PROMPT
         )
-        
-        # Extract normalized text
-        try:
-            return result["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError) as e:
-            raise APIClientError(f"Unexpected API response format: {e}")
     
     async def _call_llm_api_with_signals(self, text: str, page_number: int = 1) -> Dict[str, Any]:
         """Call LLM API for normalization with signal extraction."""
         context_hint = f"This chunk is from page {page_number}." if page_number > 1 else ""
         
-        payload = {
-            "model": self.openrouter_model,
-            "messages": [
-                {
-                    "role": "system",
-                    "content": self.NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT
-                },
-                {
-                    "role": "user",
-                    "content": f"{context_hint}\n\nCHUNK:\n{text}"
-                }
-            ],
-            "temperature": 0.0,
-            "max_tokens": len(text) * 3,
-        }
-        
-        # Use BaseLLMClient
-        result = await self.client.call_api(
-            endpoint="",
-            method="POST",
-            payload=payload
+        # Use GeminiClient
+        llm_response = await self.client.generate_content(
+            contents=f"{context_hint}\n\nCHUNK:\n{text}",
+            system_instruction=self.NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT,
+            generation_config={"response_mime_type": "application/json"}
         )
-        
-        # Extract content
-        try:
-            llm_response = result["choices"][0]["message"]["content"].strip()
-        except (KeyError, IndexError) as e:
-            raise APIClientError(f"Unexpected API response format: {e}")
             
         # Parse JSON
         return self._parse_signal_response(llm_response)

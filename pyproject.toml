@@ -22,6 +22,7 @@ dependencies = [
     "psycopg2-binary>=2.9.9",
     "temporalio>=1.7.0",
     "greenlet>=3.2.4",
+    "google-genai>=1.52.0",
 ]
 
 [project.optional-dependencies]

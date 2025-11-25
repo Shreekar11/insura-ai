@@ -14,7 +14,7 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_service import BaseService
-from app.core.base_llm_client import BaseLLMClient
+from app.core.gemini_client import GeminiClient
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
@@ -40,33 +40,31 @@ class BaseExtractor(BaseService):
     def __init__(
         self,
         session: AsyncSession,
-        openrouter_api_key: str,
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
+        openrouter_api_url: str = None, # Deprecated, kept for compatibility if needed but unused
     ):
         """Initialize base extractor.
         
         Args:
             session: SQLAlchemy async session
-            openrouter_api_key: OpenRouter API key
-            openrouter_api_url: OpenRouter API URL
-            openrouter_model: Model to use
+            gemini_api_key: Gemini API key
+            gemini_model: Model to use
         """
         super().__init__(repository=None)
         self.session = session
-        self.openrouter_model = openrouter_model
+        self.gemini_model = gemini_model
         
-        # Initialize BaseLLMClient
-        self.client = BaseLLMClient(
-            api_key=openrouter_api_key,
-            base_url=openrouter_api_url,
+        # Initialize GeminiClient
+        self.client = GeminiClient(
+            api_key=gemini_api_key,
+            model=gemini_model,
             timeout=60,
             max_retries=3
         )
         
         LOGGER.info(f"Initialized {self.__class__.__name__}")
     
-    @abstractmethod
     async def extract(
         self,
         text: str,
@@ -129,28 +127,13 @@ class BaseExtractor(BaseService):
         Raises:
             APIClientError: If API call fails
         """
-        payload = {
-            "model": self.openrouter_model,
-            "messages": [
-                {"role": "system", "content": self.get_extraction_prompt()},
-                {"role": "user", "content": f"Text:\n{text}"}
-            ],
-            "temperature": 0.0,
-            "max_tokens": 4000,
-        }
-        
         try:
-            # Use BaseLLMClient
-            result = await self.client.call_api(
-                endpoint="",
-                method="POST",
-                payload=payload
+            # Use GeminiClient
+            llm_response = await self.client.generate_content(
+                contents=f"Text:\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
             )
-            
-            try:
-                llm_response = result["choices"][0]["message"]["content"].strip()
-            except (KeyError, IndexError) as e:
-                raise APIClientError(f"Unexpected API response format: {e}")
             
             # Parse JSON
             return self._parse_json_response(llm_response)

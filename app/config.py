@@ -26,15 +26,11 @@ class Settings(BaseSettings):
     mistral_api_url: str = "https://api.mistral.ai/v1/ocr"
     mistral_model: str = "mistral-ocr-latest"
 
-    # OpenRouter API Configuration
-    openrouter_api_key: str = Field(..., description="OpenRouter API key for LLM normalization")
-    openrouter_api_url: str = Field(
-        default="https://openrouter.ai/api/v1/chat/completions",
-        description="OpenRouter API endpoint URL"
-    )
-    openrouter_model: str = Field(
-        default="google/gemini-2.0-flash-001",
-        description="OpenRouter model name for normalization"
+    # Gemini API Configuration
+    gemini_api_key: str = Field(..., description="Gemini API key")
+    gemini_model: str = Field(
+        default="gemini-2.0-flash",
+        description="Gemini model name"
     )
 
     # Chunking Configuration

@@ -35,22 +35,22 @@ class ExtractorFactory:
     def __init__(
         self,
         session: AsyncSession,
-        openrouter_api_key: str,
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
+        openrouter_api_key: str = None, # Deprecated
+        openrouter_api_url: str = None, # Deprecated
+        openrouter_model: str = None, # Deprecated
     ):
         """Initialize extractor factory.
         
         Args:
             session: SQLAlchemy async session
-            openrouter_api_key: OpenRouter API key
-            openrouter_api_url: OpenRouter API URL
-            openrouter_model: Model to use
+            gemini_api_key: Gemini API key
+            gemini_model: Model to use
         """
         self.session = session
-        self.openrouter_api_key = openrouter_api_key
-        self.openrouter_api_url = openrouter_api_url
-        self.openrouter_model = openrouter_model
+        self.gemini_api_key = gemini_api_key
+        self.gemini_model = gemini_model
         
         # Registry mapping section types to extractor classes
         self._registry: Dict[str, Type[BaseExtractor]] = {}
@@ -65,7 +65,7 @@ class ExtractorFactory:
             "Initialized ExtractorFactory",
             extra={
                 "registered_types": len(self._registry),
-                "model": openrouter_model
+                "model": gemini_model
             }
         )
     
@@ -301,9 +301,8 @@ class ExtractorFactory:
         # Instantiate and cache the extractor
         extractor = extractor_class(
             session=self.session,
-            openrouter_api_key=self.openrouter_api_key,
-            openrouter_api_url=self.openrouter_api_url,
-            openrouter_model=self.openrouter_model,
+            gemini_api_key=self.gemini_api_key,
+            gemini_model=self.gemini_model,
         )
         
         self._instances[normalized] = extractor
@@ -323,9 +322,8 @@ class ExtractorFactory:
         if "default" not in self._instances:
             self._instances["default"] = self._default_extractor_class(
                 session=self.session,
-                openrouter_api_key=self.openrouter_api_key,
-                openrouter_api_url=self.openrouter_api_url,
-                openrouter_model=self.openrouter_model,
+                gemini_api_key=self.gemini_api_key,
+                gemini_model=self.gemini_model,
             )
         
         return self._instances["default"]
