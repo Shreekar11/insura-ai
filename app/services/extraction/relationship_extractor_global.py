@@ -19,23 +19,12 @@ from app.database.models import (
     EntityRelationship,
     Document
 )
+from app.prompts import RELATIONSHIP_EXTRACTION_PROMPT, VALID_RELATIONSHIP_TYPES
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
-# Valid relationship types
-VALID_RELATIONSHIP_TYPES = {
-    "HAS_INSURED",
-    "HAS_COVERAGE",
-    "HAS_LIMIT",
-    "HAS_DEDUCTIBLE",
-    "HAS_CLAIM",
-    "LOCATED_AT",
-    "EFFECTIVE_FROM",
-    "EXPIRES_ON",
-    "ISSUED_BY",
-    "BROKERED_BY",
-}
+# Valid relationship types imported from centralized prompts
 
 
 class RelationshipExtractorGlobal:
@@ -57,258 +46,8 @@ class RelationshipExtractorGlobal:
         max_retries: Maximum retry attempts
     """
     
-    RELATIONSHIP_EXTRACTION_PROMPT = """
-    You are an advanced global relationship extraction system used in insurance document pipelines.
-
-This is **PASS 2**, which means:
-- All chunks have already been normalized.
-- All entities have already been extracted.
-- All canonical entities have been resolved (deduplicated).
-- Your ONLY job is **document-level relationship inference** across chunks.
-
-You must produce:
-- Deterministic output  
-- Strict JSON  
-- Graph-ready canonical-level relationships  
-- Evidence with character spans  
-- No hallucinations  
-- No commentary outside JSON  
-
-======================================================================
-INPUT PROVIDED TO YOU
-======================================================================
-
-You will receive:
-
-1. `document_id`
-2. `document_type` (policy, claim, SOV, invoice, endorsement, etc.)
-3. `canonical_entities`  
-   - Already deduplicated  
-   - Each has:  
-     - `canonical_id`
-     - `entity_type`
-     - `normalized_value`
-     - `aliases` (optional)
-4. `chunks`  
-   Each chunk has:
-   - `chunk_id`
-   - `section_type`
-   - `page_number`
-   - `normalized_text`
-5. `DOCUMENT_URL` (for audit trace)
-6. `aggregation_metadata` (optional classification signals)
-
-You must use ONLY this information.  
-Do NOT invent data or refer to anything not contained in these inputs.
-
-======================================================================
-RELATIONSHIP ONTOLOGY (Allowed Types)
-======================================================================
-
-You may extract ONLY the following relationships:
-
-### Policy Relationships
-- HAS_INSURED
-- HAS_COVERAGE
-- HAS_LIMIT
-- HAS_DEDUCTIBLE
-- EFFECTIVE_FROM
-- EXPIRES_ON
-- ISSUED_BY
-- BROKERED_BY
-
-### Claim Relationships
-- HAS_CLAIM
-
-### Location Relationships
-- LOCATED_AT
-
-No other relationship types are permitted.
-
-======================================================================
-RULES & CONSTRAINTS (MUST FOLLOW)
-======================================================================
-
-### 🔒 1. ZERO HALLUCINATION
-If there is no clear evidence, NO relationship may be created.
-
-### 🧠 2. MUST USE CANONICAL ENTITIES
-All relationships must be between:
-`source_canonical_id`  
-and  
-`target_canonical_id`.
-
-If an entity is mentioned in text but does NOT map to a canonical entity →  
-Return a **candidate** entry (not a final relationship).
-
-### 🔍 3. EVIDENCE IS MANDATORY
-Each relationship MUST include evidence:
-
-- `chunk_id`
-- `span_start`
-- `span_end`
-- `quote` — the exact substring from the chunk text
-
-Relationships **without evidence MUST NOT be produced.**
-
-### 📏 4. CONFIDENCE SCORING
-Use the following scale:
-
-| Confidence | Meaning |
-|-----------|---------|
-| 0.90–1.00 | Explicit statement |
-| 0.70–0.89 | Strong implicit context |
-| 0.45–0.69 | Weak inference (should be a candidate, not final) |
-| < 0.45 | Do not output even as a candidate |
-
-### 🧭 5. SECTION-AWARE BOOSTING
-If evidence is in these sections:
-
-- `"declarations"` → boost policy relationships by +0.10
-- `"coverage"` → boost HAS_COVERAGE, HAS_LIMIT, HAS_DEDUCTIBLE by +0.10
-- `"loss_run"` or `"claim"` → boost HAS_CLAIM by +0.10
-- `"sov"` → boost LOCATED_AT & HAS_LIMIT by +0.10
-
-Do not exceed confidence 0.99.
-
-### 🔁 6. MERGE DUPLICATE RELATIONSHIPS
-If the same relationship appears across multiple chunks:
-- Merge into one relationship
-- Add multiple evidence items
-
-### 🚫 7. IGNORED TEXT
-Do NOT use the following as evidence:
-- Page numbers  
-- Headers/footers  
-- Table of contents  
-- Regulatory footnotes  
-- Legal boilerplate  
-
-======================================================================
-OUTPUT FORMAT (STRICT JSON ONLY)
-======================================================================
-
-Output EXACTLY this structure:
-
-{
-  "document_id": "string",
-  "document_url": "string",
-  "relationships": [
-    {
-      "relationship_id": "sha1(type + sourceCanonicalId + targetCanonicalId + document_id)",
-      "type": "ISSUED_BY",
-      "source_canonical_id": "c1",
-      "target_canonical_id": "c7",
-      "confidence": 0.92,
-      "evidence": [
-        {
-          "chunk_id": "ch-1",
-          "span_start": 120,
-          "span_end": 180,
-          "quote": "Policy No. POL12345 issued by SBI GENERAL INSURANCE COMPANY LIMITED"
-        }
-      ]
-    }
-  ],
-  "candidates": [
-    {
-      "candidate_id": "sha1(...)",
-      "type": "HAS_INSURED",
-      "source_mention": {
-        "chunk_id": "ch-2",
-        "span_start": 10,
-        "span_end": 20,
-        "quote": "POL12345"
-      },
-      "target_mention": {
-        "chunk_id": "ch-7",
-        "span_start": 5,
-        "span_end": 30,
-        "quote": "John D."
-      },
-      "reason": "Insufficient linking phrase",
-      "confidence": 0.43
-    }
-  ],
-  "stats": {
-    "relationships_found": 3,
-    "candidates_returned": 1,
-    "time_ms": 1234
-  }
-}
-
-NO other text is allowed in output.
-
-======================================================================
-FEW-SHOT EXAMPLES
-======================================================================
-
-### 🧩 Example 1 — Explicit same-chunk match
-
-Chunk:
-"Policy Number: POL12345 issued by SBI General Insurance Company Limited."
-
-→ Output:
-
-- Relationship: ISSUED_BY  
-- Evidence = exact substring from chunk  
-- confidence = 0.95 (explicit)  
-- canonical_id mapping required  
-
----
-
-### 🧩 Example 2 — Cross-chunk relationship
-
-Chunk A:
-"Policy No: POL12345"
-
-Chunk B:
-"Carrier: SBI General Insurance Company Limited"
-
-Chunk C:
-"This policy is issued by SBI General"
-
-→ Relationship:
-ISSUED_BY with 3 evidence entries  
-Confidence: 0.88 (cross-chunk but strong)
-
----
-
-### 🧩 Example 3 — Weak evidence → candidate only
-
-Chunk A:
-"POL12345"
-Chunk B:
-"John Doe"
-
-No explicit linking phrases like “insured”, “policyholder”, etc.
-
-→ Return as candidate only  
-Confidence: ~0.40  
-
----
-
-### 🧩 Example 4 — Section boost
-
-Chunk (section: declarations):
-"Effective date: Jan 1 2024"
-
-→ Relationship:
-EFFECTIVE_FROM
-
-Confidence = base 0.85 → +0.10 boost = 0.95
-
----
-
-======================================================================
-FINAL INSTRUCTION
-======================================================================
-
-Now perform **global cross-chunk relationship extraction** using all provided inputs.
-
-Return JSON ONLY.  
-No comments, no markdown, no prose.
-"""
+    # Relationship extraction prompt is imported from app.prompts
+    # See app/prompts/system_prompts.py for the full prompt definition
     
     def __init__(
         self,
@@ -626,14 +365,14 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         
         try:
             # Use GeminiClient
-            llm_response = await self.client.generate_content(
+            response = await self.client.generate_content(
                 contents=user_message,
-                system_instruction=self.RELATIONSHIP_EXTRACTION_PROMPT,
+                system_instruction=RELATIONSHIP_EXTRACTION_PROMPT,
                 generation_config={"response_mime_type": "application/json"}
             )
             
             # Parse JSON response
-            parsed = self._parse_response(llm_response)
+            parsed = self._parse_response(response)
             
             return parsed.get("relationships", [])
             

@@ -19,6 +19,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.core.base_service import BaseService
 from app.core.unified_llm import UnifiedLLMClient
 from app.services.extraction.batch_processor import BatchProcessor
+from app.prompts import UNIFIED_BATCH_EXTRACTION_PROMPT
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
@@ -44,160 +45,9 @@ class UnifiedBatchExtractor(BaseService):
         timeout: Timeout for LLM API calls in seconds
     """
     
-    # Unified extraction prompt with few-shot examples
-    UNIFIED_EXTRACTION_PROMPT = """You are an expert insurance document processing system that performs three tasks simultaneously:
-1. **Text Normalization**: Clean OCR artifacts and standardize formatting
-2. **Entity Extraction**: Identify insurance entities (policies, carriers, dates, amounts, etc.)
-3. **Section Detection**: Classify document sections (coverages, conditions, exclusions, etc.)
-
-You will receive multiple chunks from an insurance document. Process each chunk independently and return structured results.
-
-## Task Instructions
-
-### 1. Text Normalization
-- Remove OCR artifacts (duplicate spaces, broken words, misread characters)
-- Fix formatting issues (line breaks, punctuation)
-- Standardize dates to YYYY-MM-DD format
-- Standardize currency amounts (e.g., "$5,000.00" → "5000.00 USD")
-- Preserve all meaningful content
-- Do NOT summarize or paraphrase
-
-### 2. Entity Extraction
-Extract ALL entities with these types:
-- **POLICY_NUMBER**: Insurance policy identifiers
-- **CARRIER**: Insurance company names
-- **INSURED_NAME**: Name of insured party/business
-- **INSURED_ADDRESS**: Physical address of insured
-- **EFFECTIVE_DATE**: Policy start date
-- **EXPIRATION_DATE**: Policy end date
-- **PREMIUM_AMOUNT**: Premium/payment amounts
-- **COVERAGE_LIMIT**: Coverage limit amounts
-- **DEDUCTIBLE**: Deductible amounts
-- **AGENT_NAME**: Insurance agent/broker names
-- **COVERAGE_TYPE**: Types of coverage (e.g., "General Liability", "Property")
-
-For each entity, provide:
-- `entity_type`: One of the types above
-- `raw_value`: Exact text as it appears
-- `normalized_value`: Cleaned/standardized value
-- `confidence`: 0.0-1.0 confidence score
-- `span_start`: Character position where entity starts (approximate)
-- `span_end`: Character position where entity ends (approximate)
-
-### 3. Section Detection
-Classify each chunk into ONE of these section types:
-- **coverages**: Coverage descriptions, limits, sub-limits
-- **conditions**: Policy conditions, requirements, duties
-- **exclusions**: What is NOT covered
-- **definitions**: Term definitions
-- **endorsements**: Policy modifications
-- **declarations**: Policy declarations page
-- **general_info**: General policy information
-- **unknown**: Cannot determine section type
-
-### 4. Classification Signals
-Extract signals that indicate document type:
-- `policy_signals`: 0.0-1.0 (policy document indicators)
-- `claim_signals`: 0.0-1.0 (claim document indicators)
-- `invoice_signals`: 0.0-1.0 (invoice/bill indicators)
-- `endorsement_signals`: 0.0-1.0 (endorsement indicators)
-- `certificate_signals`: 0.0-1.0 (certificate of insurance indicators)
-
-## Few-Shot Examples
-
-**Example Input:**
-```json
-{
-  "chunks": [
-    {
-      "chunk_id": "ch_001",
-      "text": "POLICY NUMBER: ABC-123-456\\nEFFECTIVE DATE: 01/15/2024\\nCARRIER: Acme Insurance Co.\\nPREMIUM: $5,500.00"
-    }
-  ]
-}
-```
-
-**Example Output:**
-```json
-{
-  "results": {
-    "ch_001": {
-      "normalized_text": "POLICY NUMBER: ABC-123-456\\nEFFECTIVE DATE: 2024-01-15\\nCARRIER: Acme Insurance Co.\\nPREMIUM: 5500.00 USD",
-      "entities": [
-        {
-          "entity_type": "POLICY_NUMBER",
-          "raw_value": "ABC-123-456",
-          "normalized_value": "ABC-123-456",
-          "confidence": 0.98,
-          "span_start": 15,
-          "span_end": 26
-        },
-        {
-          "entity_type": "EFFECTIVE_DATE",
-          "raw_value": "01/15/2024",
-          "normalized_value": "2024-01-15",
-          "confidence": 0.95,
-          "span_start": 43,
-          "span_end": 53
-        },
-        {
-          "entity_type": "CARRIER",
-          "raw_value": "Acme Insurance Co.",
-          "normalized_value": "Acme Insurance Co.",
-          "confidence": 0.97,
-          "span_start": 63,
-          "span_end": 81
-        },
-        {
-          "entity_type": "PREMIUM_AMOUNT",
-          "raw_value": "$5,500.00",
-          "normalized_value": "5500.00 USD",
-          "confidence": 0.96,
-          "span_start": 92,
-          "span_end": 101
-        }
-      ],
-      "section_type": "declarations",
-      "classification_signals": {
-        "policy_signals": 0.95,
-        "claim_signals": 0.05,
-        "invoice_signals": 0.10,
-        "endorsement_signals": 0.05,
-        "certificate_signals": 0.15
-      }
-    }
-  }
-}
-```
-
-## Response Format
-
-Return ONLY valid JSON (no code fences, no explanations):
-
-```json
-{
-  "results": {
-    "<chunk_id>": {
-      "normalized_text": "...",
-      "entities": [...],
-      "section_type": "...",
-      "classification_signals": {...}
-    }
-  }
-}
-```
-
-## Important Rules
-1. Process ALL chunks provided
-2. Return results for EVERY chunk_id
-3. Extract ALL entities found (be comprehensive)
-4. Use exact entity types listed above
-5. Ensure normalized_value is properly formatted
-6. Section type must be one of the listed types
-7. All confidence scores between 0.0 and 1.0
-8. Preserve original meaning during normalization
-"""
-
+    # Unified extraction prompt is imported from app.prompts
+    # See app/prompts/system_prompts.py for the full prompt definition
+    
     def __init__(
         self,
         session: AsyncSession,
@@ -405,14 +255,15 @@ Return ONLY valid JSON (no code fences, no explanations):
         
         try:
             # Call Gemini API
-            llm_response = await self.client.generate_content(
-                contents=f"Process these chunks:\n\n{input_json}",
-                system_instruction=self.UNIFIED_EXTRACTION_PROMPT,
+            prompt_text = f"Process these chunks:\n\n{input_json}"
+            response = await self.client.generate_content(
+                contents=prompt_text,
+                system_instruction=UNIFIED_BATCH_EXTRACTION_PROMPT,
                 generation_config={"response_mime_type": "application/json"}
             )
             
             # Parse response
-            parsed = self._parse_response(llm_response)
+            parsed = self._parse_response(response)
             
             return parsed.get("results", {})
             

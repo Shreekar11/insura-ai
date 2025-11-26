@@ -2,6 +2,7 @@ import json
 from typing import Optional, Dict, Any
 
 from app.core.unified_llm import UnifiedLLMClient, LLMProvider
+from app.prompts import SINGLE_CHUNK_NORMALIZATION_PROMPT, SIMPLE_NORMALIZATION_PROMPT
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely, extract_field_from_broken_json
@@ -15,236 +16,6 @@ class LLMNormalizer:
     Uses UnifiedLLMClient for provider-agnostic LLM interactions.
     """
     
-    # System prompt for LLM normalization
-    NORMALIZATION_PROMPT = """You are an expert system for Insurance OCR Text Normalization. 
-Your role is to convert raw OCR text into clean, structurally correct, 
-semantically identical normalized markdown.
-
-STRICT RULES:
-- Do NOT change the meaning of the text.
-- Do NOT summarize, rewrite, omit, or invent content.
-- Do NOT hallucinate missing words or rewrite legal/insurance phrases.
-- Output ONLY the cleaned markdown text with no explanations.
-
----------------------------------------
-### NORMALIZATION REQUIREMENTS
----------------------------------------
-
-## 1. Fix OCR text defects (WITHOUT changing meaning)
-Correct only structural and formatting issues:
-- Fix broken words, merged words, and misplaced hyphens.
-  Example: "usefor" → "use for", "purposein" → "purpose in"
-- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
-- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
-
-## 2. Remove OCR artifacts
-Remove:
-- Backslashes (`\`, `\\`)
-- LaTeX fragments (`$...$`, `\%`, `\\%`)
-- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
-- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
-- Page markers like `---`, `===`, page numbers unless part of the text
-
-## 3. Normalize values
-- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
-- Normalize bullets/lists:
-  - 1., 2., 3.
-  - i., ii., iii.
-  - Hyphen/asterisk bullets
-- Ensure consistent spacing and indentation
-
-## 4. Markdown normalization
-- Correct headers (#, ##, ###) and ensure they appear on their own line.
-- Add a blank line after every header.
-- Convert malformed or partial headers into correct markdown headers.
-- Ensure section titles are not merged with following content.
-
-## 5. Paragraph reconstruction
-- Insert missing line breaks between paragraphs.
-- Join lines that were incorrectly split mid-sentence.
-- Do NOT merge paragraphs that should remain separate.
-
-## 6. Table reconstruction (VERY IMPORTANT)
-Reconstruct tables into clean markdown table format:
-
-- Detect multi-line headers and merge them into a single row.
-- Remove fragment / partial header leftovers.
-- Remove blank rows inside tables.
-- Ensure consistent pipe `|` formatting:
-  
-  | Column A | Column B |
-  |----------|----------|
-  | value    | value    |
-
-- Preserve all table data exactly as written.
-
-## 7. Preserve domain-critical semantics
-DO NOT modify:
-- Insurance terms
-- Legal language
-- Policy wordings
-- Clause numbers
-- Definitions
-- Exclusions or inclusions
-- Section titles
-
-The text must remain **legally identical** to the source.
-
-## 8. No additions, no exclusions
-- Do NOT infer missing content.
-- Do NOT rewrite any part of the content.
-- Do NOT guess corrected words unless the OCR error is unambiguous (“usefor”, “6months”).
-- Do NOT add glossaries, summaries, or commentary.
-
----------------------------------------
-### OUTPUT RULES
----------------------------------------
-- Output ONLY the final normalized markdown text.
-- Do NOT wrap output in code fences.
-- Do NOT include explanations.
-- Do NOT include metadata, comments, notes, or system messages.
-
----------------------------------------
-### FINAL GOAL
----------------------------------------
-Produce perfectly structured, clean, readable, 
-and semantically unchanged insurance markdown text suitable for 
-downstream deterministic extraction."""
-
-    # Normalization and signal extraction prompt for classification AND section detection
-    NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT = """You are an OCR normalizer and metadata extractor specialized in insurance documents.
-
-TASK:
-1) Normalize the following OCR chunk according to the STRICT NORMALIZATION REQUIREMENTS below.
-2) Detect the section type and subsection type.
-3) Extract classification signals for document classes.
-4) Return keywords and key entities.
-
----------------------------------------
-### NORMALIZATION REQUIREMENTS
----------------------------------------
-
-## 1. Fix OCR text defects (WITHOUT changing meaning)
-Correct only structural and formatting issues:
-- Fix broken words, merged words, and misplaced hyphens.
-  Example: "usefor" → "use for", "purposein" → "purpose in"
-- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
-- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
-
-## 2. Remove OCR artifacts
-Remove:
-- Backslashes (`\`, `\\`)
-- LaTeX fragments (`$...$`, `\%`, `\\%`)
-- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
-- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
-- Page markers like `---`, `===`, page numbers unless part of the text
-
-## 3. Normalize values
-- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
-- Normalize bullets/lists:
-  - 1., 2., 3.
-  - i., ii., iii.
-  - Hyphen/asterisk bullets
-- Ensure consistent spacing and indentation
-
-## 4. Markdown normalization
-- Correct headers (#, ##, ###) and ensure they appear on their own line.
-- Add a blank line after every header.
-- Convert malformed or partial headers into correct markdown headers.
-- Ensure section titles are not merged with following content.
-
-## 5. Paragraph reconstruction
-- Insert missing line breaks between paragraphs.
-- Join lines that were incorrectly split mid-sentence.
-- Do NOT merge paragraphs that should remain separate.
-
-## 6. Table reconstruction (VERY IMPORTANT)
-Reconstruct tables into clean markdown table format:
-
-- Detect multi-line headers and merge them into a single row.
-- Remove fragment / partial header leftovers.
-- Remove blank rows inside tables.
-- Ensure consistent pipe `|` formatting:
-  
-  | Column A | Column B |
-  |----------|----------|
-  | value    | value    |
-
-- Preserve all table data exactly as written.
-
-## 7. Preserve domain-critical semantics
-DO NOT modify:
-- Insurance terms
-- Legal language
-- Policy wordings
-- Clause numbers
-- Definitions
-- Exclusions or inclusions
-- Section titles
-
-The text must remain **legally identical** to the source.
-
-## 8. No additions, no exclusions
-- Do NOT infer missing content.
-- Do NOT rewrite any part of the content.
-- Do NOT guess corrected words unless the OCR error is unambiguous (“usefor”, “6months”).
-- Do NOT add glossaries, summaries, or commentary.
-
----------------------------------------
-### EXTRACTION GUIDELINES
----------------------------------------
-
-SECTION DETECTION:
-- "Declarations": Policy declarations page, dec page, policy information summary
-- "Coverages": Coverage details, limits of insurance, insuring agreements, coverage sections
-- "Endorsements": Policy endorsements, attached forms, schedule of forms, modifications
-- "SOV": Statement of values, schedule of locations, property schedule, building schedule
-- "Loss Run": Loss history, claims history, loss run report, historical claims
-- "Schedule": Various schedules (equipment, locations, vehicles)
-- "Conditions": Policy conditions, general conditions, terms and conditions
-- "Exclusions": Coverage exclusions, what is not covered
-
-CLASSIFICATION SIGNALS (0.0-1.0):
-- Classes: [policy, claim, submission, quote, proposal, SOV, financials, loss_run, audit, endorsement, invoice, correspondence]
-- "policy": Declarations, coverage details, policy numbers
-- "claim": Loss date, claim number, adjuster info
-- "submission": Application info, agent details
-- "quote": Premium quotes, carrier names
-- "SOV": Schedule of Values, property lists
-- "loss_run": Historical loss data, claims history
-
-ENTITIES TO EXTRACT:
-- policy_number, claim_number, insured_name
-- loss_date (YYYY-MM-DD), effective_date (YYYY-MM-DD)
-- premium_amount (numeric)
-
----------------------------------------
-### OUTPUT FORMAT
----------------------------------------
-
-CRITICAL JSON FORMATTING RULES:
-1. The normalized_text field MUST have all newlines escaped as \\n
-2. ALL quotes inside normalized_text MUST be escaped as \\"
-3. ALL backslashes inside normalized_text MUST be escaped as \\\\
-4. Do NOT include actual newline characters in the JSON
-5. Ensure the JSON is on a SINGLE LINE or properly escaped if multiline
-
-RETURN ONLY VALID JSON with exactly these keys:
-{"normalized_text": "Text with escaped \\n newlines...", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.92, "signals": {"policy": 0.95, ...}, "keywords": ["Policy Number", ...], "entities": {"policy_number": "12345", ...}, "confidence": 0.92}
-
-EXAMPLE VALID OUTPUT:
-{"normalized_text": "Policy Number: 12345\\nInsured: John Doe\\nEffective Date: 2025-01-01", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.95, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
-
-IMPORTANT:
-- All 12 document classes MUST be present in signals with scores 0.0-1.0
-- Scores should sum to approximately 1.0 but don't need to be exact
-- section_type and subsection_type can be null if section is unclear
-- section_confidence should reflect your confidence in section detection
-- Only include entities that are actually present in the text
-- confidence is your overall confidence in the signal extraction (0.0-1.0)
-- ENSURE ALL JSON IS PROPERLY ESCAPED AND VALID
-"""
-
     def __init__(
         self,
         provider: str = "openrouter",
@@ -253,11 +24,9 @@ IMPORTANT:
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "google/gemini-2.0-flash-001",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        timeout: int = 60,
-        max_retries: int = 3,
         enable_fallback: bool = False,
     ):
-        """Initialize LLM text normalizer.
+        """Initialize LLM normalizer.
         
         Args:
             provider: LLM provider to use ("gemini" or "openrouter")
@@ -266,119 +35,111 @@ IMPORTANT:
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
-            timeout: Request timeout in seconds
-            max_retries: Maximum retry attempts
-            enable_fallback: Enable fallback to Gemini if OpenRouter fails
+            enable_fallback: Whether to enable fallback to Gemini if OpenRouter fails
         """
         self.provider = provider
-        
-        # Determine which API key and model to use
-        if provider == "openrouter":
-            if not openrouter_api_key:
-                raise ValueError("openrouter_api_key required when provider='openrouter'")
-            api_key = openrouter_api_key
-            model = openrouter_model
-            base_url = openrouter_api_url
-        else:  # gemini
-            if not gemini_api_key:
-                raise ValueError("gemini_api_key required when provider='gemini'")
-            api_key = gemini_api_key
-            model = gemini_model
-            base_url = None
         
         # Initialize UnifiedLLMClient
         self.client = UnifiedLLMClient(
             provider=provider,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
-            timeout=timeout,
-            max_retries=max_retries,
-            fallback_to_gemini=enable_fallback and provider == "openrouter",
-            gemini_api_key=gemini_api_key if enable_fallback else None,
-            gemini_model=gemini_model if enable_fallback else None,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model,
+            openrouter_api_key=openrouter_api_key,
+            openrouter_model=openrouter_model,
+            openrouter_api_url=openrouter_api_url,
+            enable_fallback=enable_fallback
         )
         
         LOGGER.info(
             "Initialized LLM text normalizer",
             extra={
                 "provider": provider,
-                "model": model,
-                "timeout": timeout,
+                "model": openrouter_model if provider == "openrouter" else gemini_model,
                 "fallback_enabled": enable_fallback and provider == "openrouter",
             }
         )
     
-    async def normalize(self, raw_text: str) -> str:
-        """Normalize OCR text using LLM."""
-        if not raw_text or not raw_text.strip():
+    async def normalize_text(self, text: str) -> str:
+        """Normalize text using LLM.
+        
+        Args:
+            text: Raw OCR text
+            
+        Returns:
+            Normalized text
+        """
+        if not text or not text.strip():
             LOGGER.warning("Empty text provided for LLM normalization")
             return ""
-        
+            
         LOGGER.info(
             "Starting LLM text normalization",
-            extra={"text_length": len(raw_text)}
+            extra={"text_length": len(text)}
         )
         
         try:
-            normalized_text = await self._call_llm_api(raw_text)
+            normalized_text = await self._call_llm_api(text)
             
             LOGGER.info(
                 "LLM normalization completed successfully",
                 extra={
-                    "original_length": len(raw_text),
+                    "original_length": len(text),
                     "normalized_length": len(normalized_text),
                     "reduction_percent": round(
-                        (1 - len(normalized_text) / len(raw_text)) * 100, 2
-                    ) if len(raw_text) > 0 else 0.0,
+                        (1 - len(normalized_text) / len(text)) * 100, 2
+                    ) if len(text) > 0 else 0.0,
                 }
             )
-            
             return normalized_text
-            
         except Exception as e:
             LOGGER.error(
                 "LLM normalization failed, returning original text",
                 exc_info=True,
                 extra={"error": str(e)}
             )
-            # Fallback to original text if LLM fails
-            return raw_text
+            # Return original text on failure
+            return text
     
-    async def normalize_with_signals(self, raw_text: str, page_number: int = 1) -> Dict[str, Any]:
-        """Normalize OCR text and extract classification signals."""
-        if not raw_text or not raw_text.strip():
-            LOGGER.warning("Empty text provided for signal extraction")
-            return self._get_empty_result(raw_text)
+    async def normalize_with_signals(self, text: str, page_number: int = 1) -> Dict[str, Any]:
+        """Normalize text and extract classification signals.
         
+        Args:
+            text: Raw OCR text
+            page_number: Page number for context
+            
+        Returns:
+            Dictionary with normalized_text, section_type, signals, entities
+        """
+        if not text or not text.strip():
+            LOGGER.warning("Empty text provided for signal extraction")
+            return self._get_empty_result(text)
+            
         LOGGER.info(
             "Starting LLM normalization with signal extraction",
-            extra={"text_length": len(raw_text), "page_number": page_number}
+            extra={"text_length": len(text), "page_number": page_number}
         )
         
         try:
-            result = await self._call_llm_api_with_signals(raw_text, page_number)
+            llm_response = await self._call_llm_api_with_signals(text, page_number)
             
             LOGGER.info(
                 "LLM normalization with signals completed successfully",
                 extra={
-                    "original_length": len(raw_text),
-                    "normalized_length": len(result["normalized_text"]),
-                    "section_type": result.get("section_type"),
-                    "section_confidence": result.get("section_confidence", 0.0),
-                    "top_class": max(result["signals"].items(), key=lambda x: x[1])[0] if result["signals"] else "none",
+                    "original_length": len(text),
+                    "normalized_length": len(llm_response["normalized_text"]),
+                    "section_type": llm_response.get("section_type"),
+                    "section_confidence": llm_response.get("section_confidence", 0.0),
+                    "top_class": max(llm_response["signals"].items(), key=lambda x: x[1])[0] if llm_response["signals"] else "none",
                 }
             )
-            
-            return result
-            
+            return llm_response
         except Exception as e:
             LOGGER.error(
                 "LLM signal extraction failed, returning fallback",
                 exc_info=True,
                 extra={"error": str(e)}
             )
-            return self._get_empty_result(raw_text)
+            return self._get_empty_result(text)
     
     def _get_empty_result(self, text: str) -> Dict[str, Any]:
         """Get empty result structure."""
@@ -415,7 +176,7 @@ IMPORTANT:
         # Use GeminiClient
         return await self.client.generate_content(
             contents=f"Normalize this OCR text:\n\n{text}",
-            system_instruction=self.NORMALIZATION_PROMPT
+            system_instruction=SIMPLE_NORMALIZATION_PROMPT
         )
     
     async def _call_llm_api_with_signals(self, text: str, page_number: int = 1) -> Dict[str, Any]:
@@ -425,7 +186,7 @@ IMPORTANT:
         # Use GeminiClient
         llm_response = await self.client.generate_content(
             contents=f"{context_hint}\n\nCHUNK:\n{text}",
-            system_instruction=self.NORMALIZATION_AND_SIGNAL_EXTRACTION_PROMPT,
+            system_instruction=SINGLE_CHUNK_NORMALIZATION_PROMPT,
             generation_config={"response_mime_type": "application/json"}
         )
             
