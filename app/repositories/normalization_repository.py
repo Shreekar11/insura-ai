@@ -298,3 +298,85 @@ class NormalizationRepository(BaseRepository[NormalizedChunk]):
         )
         
         return count
+
+    async def bulk_create_normalized_chunks(
+        self,
+        normalized_chunks_data: List[Dict[str, Any]]
+    ) -> List[NormalizedChunk]:
+        """Bulk create multiple normalized chunks efficiently.
+        
+        This method is optimized for batch processing, creating multiple
+        normalized chunks in a single transaction.
+        
+        Args:
+            normalized_chunks_data: List of dictionaries containing normalized chunk data.
+                                   Each dict should have: chunk_id, normalized_text,
+                                   and optional method, extracted_fields, entities, etc.
+                                   
+        Returns:
+            List[NormalizedChunk]: List of created normalized chunk records
+            
+        Example:
+            >>> chunks_data = [
+            ...     {
+            ...         "chunk_id": chunk_id_1,
+            ...         "normalized_text": "Normalized text 1",
+            ...         "method": "unified_batch",
+            ...         "entities": [...],
+            ...         "quality_score": 0.95
+            ...     },
+            ...     {
+            ...         "chunk_id": chunk_id_2,
+            ...         "normalized_text": "Normalized text 2",
+            ...         "method": "unified_batch",
+            ...         "entities": [...],
+            ...         "quality_score": 0.92
+            ...     }
+            ... ]
+            >>> normalized_chunks = await repo.bulk_create_normalized_chunks(chunks_data)
+        """
+        if not normalized_chunks_data:
+            self.logger.warning("Empty normalized_chunks_data provided to bulk_create")
+            return []
+        
+        created_chunks = []
+        
+        for chunk_data in normalized_chunks_data:
+            # Compute content hash
+            content_hash = hashlib.sha256(
+                chunk_data["normalized_text"].encode('utf-8')
+            ).hexdigest()
+            
+            normalized_chunk = NormalizedChunk(
+                chunk_id=chunk_data["chunk_id"],
+                normalized_text=chunk_data["normalized_text"],
+                normalization_method=chunk_data.get("method", "unified_batch"),
+                processing_time_ms=chunk_data.get("processing_time_ms"),
+                extracted_fields=chunk_data.get("extracted_fields"),
+                entities=chunk_data.get("entities"),
+                relationships=chunk_data.get("relationships"),
+                content_hash=content_hash,
+                model_version=chunk_data.get("model_version"),
+                prompt_version=chunk_data.get("prompt_version"),
+                pipeline_run_id=chunk_data.get("pipeline_run_id"),
+                source_stage=chunk_data.get("source_stage", "batch_normalization"),
+                quality_score=chunk_data.get("quality_score"),
+                extracted_at=datetime.now(timezone.utc),
+            )
+            
+            self.session.add(normalized_chunk)
+            created_chunks.append(normalized_chunk)
+        
+        # Flush to get IDs assigned
+        await self.session.flush()
+        
+        self.logger.info(
+            f"Bulk created {len(created_chunks)} normalized chunks",
+            extra={
+                "chunk_count": len(created_chunks),
+                "method": normalized_chunks_data[0].get("method", "unified_batch") if normalized_chunks_data else None
+            }
+        )
+        
+        return created_chunks
+

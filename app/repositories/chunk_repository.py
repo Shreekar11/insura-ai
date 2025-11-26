@@ -4,7 +4,7 @@ This repository handles CRUD operations for document chunks only.
 Normalization and classification operations have been moved to dedicated repositories.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from uuid import UUID
 
 from sqlalchemy import select
@@ -136,7 +136,81 @@ class ChunkRepository:
         
         return chunks
 
+    async def bulk_create_chunks(
+        self,
+        chunks_data: List[Dict[str, Any]]
+    ) -> List[DocumentChunk]:
+        """Bulk create multiple document chunks efficiently.
+        
+        This method is optimized for batch processing, creating multiple
+        chunks in a single transaction for better performance.
+        
+        Args:
+            chunks_data: List of dictionaries containing chunk data.
+                        Each dict should have: document_id, page_number,
+                        chunk_index, raw_text, token_count, and optional
+                        section_name, stable_chunk_id, section_type, subsection_type
+                        
+        Returns:
+            List[DocumentChunk]: List of created chunk records
+            
+        Example:
+            >>> chunks_data = [
+            ...     {
+            ...         "document_id": doc_id,
+            ...         "page_number": 1,
+            ...         "chunk_index": 0,
+            ...         "raw_text": "text1",
+            ...         "token_count": 100,
+            ...         "stable_chunk_id": "doc_..._p1_c0"
+            ...     },
+            ...     {
+            ...         "document_id": doc_id,
+            ...         "page_number": 1,
+            ...         "chunk_index": 1,
+            ...         "raw_text": "text2",
+            ...         "token_count": 120,
+            ...         "stable_chunk_id": "doc_..._p1_c1"
+            ...     }
+            ... ]
+            >>> chunks = await repo.bulk_create_chunks(chunks_data)
+        """
+        if not chunks_data:
+            LOGGER.warning("Empty chunks_data provided to bulk_create_chunks")
+            return []
+        
+        created_chunks = []
+        
+        for chunk_data in chunks_data:
+            chunk = DocumentChunk(
+                document_id=chunk_data["document_id"],
+                page_number=chunk_data["page_number"],
+                chunk_index=chunk_data["chunk_index"],
+                raw_text=chunk_data["raw_text"],
+                token_count=chunk_data["token_count"],
+                section_name=chunk_data.get("section_name"),
+                stable_chunk_id=chunk_data.get("stable_chunk_id"),
+                section_type=chunk_data.get("section_type"),
+                subsection_type=chunk_data.get("subsection_type"),
+            )
+            self.session.add(chunk)
+            created_chunks.append(chunk)
+        
+        # Flush to get IDs assigned
+        await self.session.flush()
+        
+        LOGGER.info(
+            f"Bulk created {len(created_chunks)} document chunks",
+            extra={
+                "chunk_count": len(created_chunks),
+                "document_id": str(chunks_data[0]["document_id"]) if chunks_data else None
+            }
+        )
+        
+        return created_chunks
+
     async def get_chunk_by_id(
+
         self, 
         chunk_id: UUID
     ) -> Optional[DocumentChunk]:
