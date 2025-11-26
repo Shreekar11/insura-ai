@@ -1,0 +1,468 @@
+"""Unified batch extractor for optimized OCR pipeline.
+
+This service combines normalization, entity extraction, and section detection
+into a single LLM call per batch of chunks, reducing API calls by 75-85%.
+
+Architecture:
+- Processes 3 chunks per batch (configurable)
+- Single unified prompt returns normalized text, entities, section types, and signals
+- Batch-aware response parsing with fallback handling
+- Maintains data quality through few-shot prompting
+"""
+
+import json
+from typing import List, Dict, Any, Optional
+from uuid import UUID
+
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.core.base_service import BaseService
+from app.core.gemini_client import GeminiClient
+from app.services.extraction.batch_processor import BatchProcessor
+from app.utils.exceptions import APIClientError
+from app.utils.logging import get_logger
+from app.utils.json_parser import parse_json_safely
+
+LOGGER = get_logger(__name__)
+
+
+class UnifiedBatchExtractor(BaseService):
+    """Unified extractor that processes multiple chunks in a single LLM call.
+    
+    This service combines three previously separate operations:
+    1. Text normalization (OCR cleanup)
+    2. Entity extraction (insurance entities)
+    3. Section type detection (coverages, conditions, exclusions, etc.)
+    
+    By batching chunks and combining operations, we reduce LLM calls from
+    2-3 per chunk to 1 per batch of 3 chunks (6x reduction).
+    
+    Attributes:
+        session: SQLAlchemy async session
+        client: GeminiClient for LLM API calls
+        batch_size: Number of chunks to process per batch
+        timeout: Timeout for LLM API calls in seconds
+    """
+    
+    # Unified extraction prompt with few-shot examples
+    UNIFIED_EXTRACTION_PROMPT = """You are an expert insurance document processing system that performs three tasks simultaneously:
+1. **Text Normalization**: Clean OCR artifacts and standardize formatting
+2. **Entity Extraction**: Identify insurance entities (policies, carriers, dates, amounts, etc.)
+3. **Section Detection**: Classify document sections (coverages, conditions, exclusions, etc.)
+
+You will receive multiple chunks from an insurance document. Process each chunk independently and return structured results.
+
+## Task Instructions
+
+### 1. Text Normalization
+- Remove OCR artifacts (duplicate spaces, broken words, misread characters)
+- Fix formatting issues (line breaks, punctuation)
+- Standardize dates to YYYY-MM-DD format
+- Standardize currency amounts (e.g., "$5,000.00" → "5000.00 USD")
+- Preserve all meaningful content
+- Do NOT summarize or paraphrase
+
+### 2. Entity Extraction
+Extract ALL entities with these types:
+- **POLICY_NUMBER**: Insurance policy identifiers
+- **CARRIER**: Insurance company names
+- **INSURED_NAME**: Name of insured party/business
+- **INSURED_ADDRESS**: Physical address of insured
+- **EFFECTIVE_DATE**: Policy start date
+- **EXPIRATION_DATE**: Policy end date
+- **PREMIUM_AMOUNT**: Premium/payment amounts
+- **COVERAGE_LIMIT**: Coverage limit amounts
+- **DEDUCTIBLE**: Deductible amounts
+- **AGENT_NAME**: Insurance agent/broker names
+- **COVERAGE_TYPE**: Types of coverage (e.g., "General Liability", "Property")
+
+For each entity, provide:
+- `entity_type`: One of the types above
+- `raw_value`: Exact text as it appears
+- `normalized_value`: Cleaned/standardized value
+- `confidence`: 0.0-1.0 confidence score
+- `span_start`: Character position where entity starts (approximate)
+- `span_end`: Character position where entity ends (approximate)
+
+### 3. Section Detection
+Classify each chunk into ONE of these section types:
+- **coverages**: Coverage descriptions, limits, sub-limits
+- **conditions**: Policy conditions, requirements, duties
+- **exclusions**: What is NOT covered
+- **definitions**: Term definitions
+- **endorsements**: Policy modifications
+- **declarations**: Policy declarations page
+- **general_info**: General policy information
+- **unknown**: Cannot determine section type
+
+### 4. Classification Signals
+Extract signals that indicate document type:
+- `policy_signals`: 0.0-1.0 (policy document indicators)
+- `claim_signals`: 0.0-1.0 (claim document indicators)
+- `invoice_signals`: 0.0-1.0 (invoice/bill indicators)
+- `endorsement_signals`: 0.0-1.0 (endorsement indicators)
+- `certificate_signals`: 0.0-1.0 (certificate of insurance indicators)
+
+## Few-Shot Examples
+
+**Example Input:**
+```json
+{
+  "chunks": [
+    {
+      "chunk_id": "ch_001",
+      "text": "POLICY NUMBER: ABC-123-456\\nEFFECTIVE DATE: 01/15/2024\\nCARRIER: Acme Insurance Co.\\nPREMIUM: $5,500.00"
+    }
+  ]
+}
+```
+
+**Example Output:**
+```json
+{
+  "results": {
+    "ch_001": {
+      "normalized_text": "POLICY NUMBER: ABC-123-456\\nEFFECTIVE DATE: 2024-01-15\\nCARRIER: Acme Insurance Co.\\nPREMIUM: 5500.00 USD",
+      "entities": [
+        {
+          "entity_type": "POLICY_NUMBER",
+          "raw_value": "ABC-123-456",
+          "normalized_value": "ABC-123-456",
+          "confidence": 0.98,
+          "span_start": 15,
+          "span_end": 26
+        },
+        {
+          "entity_type": "EFFECTIVE_DATE",
+          "raw_value": "01/15/2024",
+          "normalized_value": "2024-01-15",
+          "confidence": 0.95,
+          "span_start": 43,
+          "span_end": 53
+        },
+        {
+          "entity_type": "CARRIER",
+          "raw_value": "Acme Insurance Co.",
+          "normalized_value": "Acme Insurance Co.",
+          "confidence": 0.97,
+          "span_start": 63,
+          "span_end": 81
+        },
+        {
+          "entity_type": "PREMIUM_AMOUNT",
+          "raw_value": "$5,500.00",
+          "normalized_value": "5500.00 USD",
+          "confidence": 0.96,
+          "span_start": 92,
+          "span_end": 101
+        }
+      ],
+      "section_type": "declarations",
+      "classification_signals": {
+        "policy_signals": 0.95,
+        "claim_signals": 0.05,
+        "invoice_signals": 0.10,
+        "endorsement_signals": 0.05,
+        "certificate_signals": 0.15
+      }
+    }
+  }
+}
+```
+
+## Response Format
+
+Return ONLY valid JSON (no code fences, no explanations):
+
+```json
+{
+  "results": {
+    "<chunk_id>": {
+      "normalized_text": "...",
+      "entities": [...],
+      "section_type": "...",
+      "classification_signals": {...}
+    }
+  }
+}
+```
+
+## Important Rules
+1. Process ALL chunks provided
+2. Return results for EVERY chunk_id
+3. Extract ALL entities found (be comprehensive)
+4. Use exact entity types listed above
+5. Ensure normalized_value is properly formatted
+6. Section type must be one of the listed types
+7. All confidence scores between 0.0 and 1.0
+8. Preserve original meaning during normalization
+"""
+
+    def __init__(
+        self,
+        session: AsyncSession,
+        gemini_api_key: str,
+        gemini_model: str = "gemini-2.0-flash",
+        batch_size: int = 3,
+        timeout: int = 90,
+        max_retries: int = 3,
+    ):
+        """Initialize unified batch extractor.
+        
+        Args:
+            session: SQLAlchemy async session
+            gemini_api_key: Gemini API key
+            gemini_model: Model to use for extraction
+            batch_size: Number of chunks per batch
+            timeout: Request timeout in seconds
+            max_retries: Maximum retry attempts
+        """
+        super().__init__(repository=None)
+        self.session = session
+        self.gemini_model = gemini_model
+        self.batch_size = batch_size
+        self.timeout = timeout
+        self.max_retries = max_retries
+        
+        # Initialize Gemini client
+        self.client = GeminiClient(
+            api_key=gemini_api_key,
+            model=gemini_model,
+            timeout=timeout,
+            max_retries=max_retries
+        )
+        
+        LOGGER.info(
+            f"Initialized UnifiedBatchExtractor with batch_size={batch_size}, "
+            f"model={gemini_model}"
+        )
+    
+    async def extract_batch(
+        self,
+        chunks: List[Dict[str, Any]],
+        document_id: UUID
+    ) -> Dict[str, Dict[str, Any]]:
+        """Extract normalized text, entities, and section types from a batch of chunks.
+        
+        This is the main entry point for batch processing. It takes a list of
+        chunks and returns unified extraction results for all chunks.
+        
+        Args:
+            chunks: List of chunk dictionaries with 'chunk_id' and 'text' keys
+            document_id: Document UUID for logging/tracking
+            
+        Returns:
+            Dictionary mapping chunk_id to extraction results:
+            {
+                "ch_001": {
+                    "normalized_text": "...",
+                    "entities": [...],
+                    "section_type": "coverages",
+                    "classification_signals": {...}
+                },
+                ...
+            }
+            
+        Raises:
+            APIClientError: If LLM API call fails after retries
+            ValueError: If chunks list is empty or invalid
+            
+        Example:
+            >>> chunks = [
+            ...     {"chunk_id": "ch_001", "text": "Policy Number: ABC123..."},
+            ...     {"chunk_id": "ch_002", "text": "Coverage: Property..."}
+            ... ]
+            >>> results = await extractor.extract_batch(chunks, document_id)
+            >>> results["ch_001"]["normalized_text"]
+            'Policy Number: ABC123...'
+        """
+        if not chunks:
+            raise ValueError("Chunks list cannot be empty")
+        
+        chunk_ids = [chunk["chunk_id"] for chunk in chunks]
+        
+        LOGGER.info(
+            f"Starting unified batch extraction for {len(chunks)} chunks",
+            extra={
+                "document_id": str(document_id),
+                "chunk_ids": chunk_ids,
+                "batch_size": len(chunks)
+            }
+        )
+        
+        try:
+            # Call LLM API with batch
+            results = await self._call_llm_api(chunks)
+            
+            # Validate response
+            is_valid, missing_chunks = BatchProcessor.validate_batch_response(
+                results, chunk_ids
+            )
+            
+            if not is_valid:
+                LOGGER.warning(
+                    f"Batch response missing {len(missing_chunks)} chunks, "
+                    "attempting fallback processing",
+                    extra={"missing_chunks": missing_chunks}
+                )
+                
+                # Handle partial failures with fallback
+                fallback_results = await self._handle_missing_chunks(
+                    chunks, missing_chunks, document_id
+                )
+                results.update(fallback_results)
+            
+            LOGGER.info(
+                f"Unified batch extraction completed for {len(results)} chunks",
+                extra={
+                    "document_id": str(document_id),
+                    "success_count": len(results)
+                }
+            )
+            
+            return results
+            
+        except Exception as e:
+            LOGGER.error(
+                f"Unified batch extraction failed: {e}",
+                exc_info=True,
+                extra={"document_id": str(document_id), "chunk_count": len(chunks)}
+            )
+            raise
+    
+    async def run(
+        self,
+        chunks: List[Dict[str, Any]],
+        document_id: UUID
+    ) -> Dict[str, Dict[str, Any]]:
+        """Execute batch extraction (BaseService compatibility).
+        
+        This method provides compatibility with BaseService.execute() pattern.
+        
+        Args:
+            chunks: List of chunk dictionaries
+            document_id: Document UUID
+            
+        Returns:
+            Extraction results dictionary
+        """
+        return await self.extract_batch(chunks, document_id)
+    
+    async def _call_llm_api(
+        self,
+        chunks: List[Dict[str, Any]]
+    ) -> Dict[str, Dict[str, Any]]:
+        """Call LLM API for batch extraction.
+        
+        Args:
+            chunks: List of chunk dictionaries
+            
+        Returns:
+            Parsed extraction results
+            
+        Raises:
+            APIClientError: If API call fails
+        """
+        # Prepare batch input
+        batch_input = {
+            "chunks": chunks
+        }
+        
+        input_json = json.dumps(batch_input, indent=2)
+        
+        LOGGER.debug(
+            f"Calling LLM API with {len(chunks)} chunks",
+            extra={"chunk_count": len(chunks)}
+        )
+        
+        try:
+            # Call Gemini API
+            llm_response = await self.client.generate_content(
+                contents=f"Process these chunks:\n\n{input_json}",
+                system_instruction=self.UNIFIED_EXTRACTION_PROMPT,
+                generation_config={"response_mime_type": "application/json"}
+            )
+            
+            # Parse response
+            parsed = self._parse_response(llm_response)
+            
+            return parsed.get("results", {})
+            
+        except Exception as e:
+            LOGGER.error(f"LLM API call failed: {e}", exc_info=True)
+            raise APIClientError(f"Unified batch extraction API call failed: {e}")
+    
+    def _parse_response(self, response_text: str) -> Dict[str, Any]:
+        """Parse and validate LLM response.
+        
+        Args:
+            response_text: Raw LLM response
+            
+        Returns:
+            Parsed response dictionary
+        """
+        parsed = parse_json_safely(response_text)
+        
+        if parsed is None:
+            LOGGER.error(
+                "Failed to parse LLM response as JSON",
+                extra={"response_preview": response_text[:500]}
+            )
+            return {"results": {}}
+        
+        if not isinstance(parsed, dict):
+            LOGGER.warning("LLM response is not a dictionary")
+            return {"results": {}}
+        
+        return parsed
+    
+    async def _handle_missing_chunks(
+        self,
+        original_chunks: List[Dict[str, Any]],
+        missing_chunk_ids: List[str],
+        document_id: UUID
+    ) -> Dict[str, Dict[str, Any]]:
+        """Handle chunks that were missing from batch response.
+        
+        Attempts to process missing chunks individually as fallback.
+        
+        Args:
+            original_chunks: Original chunk list
+            missing_chunk_ids: List of chunk IDs that failed
+            document_id: Document UUID
+            
+        Returns:
+            Dictionary of fallback results
+        """
+        fallback_results = {}
+        
+        for chunk_id in missing_chunk_ids:
+            # Find the chunk
+            chunk = next(
+                (c for c in original_chunks if c["chunk_id"] == chunk_id),
+                None
+            )
+            
+            if not chunk:
+                LOGGER.error(f"Chunk {chunk_id} not found in original batch")
+                continue
+            
+            try:
+                # Process single chunk as fallback
+                LOGGER.info(f"Attempting fallback processing for {chunk_id}")
+                
+                single_result = await self._call_llm_api([chunk])
+                
+                if chunk_id in single_result:
+                    fallback_results[chunk_id] = single_result[chunk_id]
+                    LOGGER.info(f"Fallback processing succeeded for {chunk_id}")
+                else:
+                    LOGGER.error(f"Fallback processing failed for {chunk_id}")
+                    
+            except Exception as e:
+                LOGGER.error(
+                    f"Fallback processing error for {chunk_id}: {e}",
+                    exc_info=True
+                )
+        
+        return fallback_results

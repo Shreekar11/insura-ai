@@ -51,6 +51,33 @@ class Settings(BaseSettings):
         description="Enable automatic chunking for large documents"
     )
 
+    # Batch Processing Configuration (Pipeline Optimization)
+    enable_unified_batch_processing: bool = Field(
+        default=False,
+        description="Enable unified batch extraction pipeline (reduces LLM calls by 75-85%)"
+    )
+    batch_size: int = Field(
+        default=3,
+        description="Number of chunks to process per batch in unified extraction"
+    )
+    max_batch_retries: int = Field(
+        default=2,
+        description="Maximum retries for failed batch processing"
+    )
+    batch_timeout_seconds: int = Field(
+        default=90,
+        description="Timeout for batch LLM calls in seconds"
+    )
+    enable_parallel_quality_check: bool = Field(
+        default=False,
+        description="Run both old and new pipelines for quality comparison (testing only)"
+    )
+    quality_comparison_sample_rate: float = Field(
+        default=0.1,
+        description="Percentage of documents to run through both pipelines (0.0-1.0)"
+    )
+
+
     # Timeout Settings (in seconds)
     ocr_timeout: int = 120
     http_timeout: int = 60
