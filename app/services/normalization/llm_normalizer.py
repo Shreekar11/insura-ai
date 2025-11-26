@@ -1,7 +1,7 @@
 import json
 from typing import Optional, Dict, Any
 
-from app.core.gemini_client import GeminiClient
+from app.core.unified_llm import UnifiedLLMClient, LLMProvider
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely, extract_field_from_broken_json
@@ -12,7 +12,7 @@ LOGGER = get_logger(__name__)
 class LLMNormalizer:
     """LLM-based text normalizer for OCR cleanup.
     
-    Uses BaseLLMClient for API interactions and centralized JSON parsing.
+    Uses UnifiedLLMClient for provider-agnostic LLM interactions.
     """
     
     # System prompt for LLM normalization
@@ -247,34 +247,65 @@ IMPORTANT:
 
     def __init__(
         self,
-        gemini_api_key: str,
+        provider: str = "openrouter",
+        gemini_api_key: Optional[str] = None,
         gemini_model: str = "gemini-2.0-flash",
+        openrouter_api_key: Optional[str] = None,
+        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         timeout: int = 60,
         max_retries: int = 3,
+        enable_fallback: bool = False,
     ):
         """Initialize LLM text normalizer.
         
         Args:
+            provider: LLM provider to use ("gemini" or "openrouter")
             gemini_api_key: Gemini API key
-            gemini_model: Model name to use
+            gemini_model: Gemini model name
+            openrouter_api_key: OpenRouter API key
+            openrouter_model: OpenRouter model name
+            openrouter_api_url: OpenRouter API URL
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
+            enable_fallback: Enable fallback to Gemini if OpenRouter fails
         """
-        self.gemini_model = gemini_model
+        self.provider = provider
         
-        # Initialize GeminiClient
-        self.client = GeminiClient(
-            api_key=gemini_api_key,
-            model=gemini_model,
+        # Determine which API key and model to use
+        if provider == "openrouter":
+            if not openrouter_api_key:
+                raise ValueError("openrouter_api_key required when provider='openrouter'")
+            api_key = openrouter_api_key
+            model = openrouter_model
+            base_url = openrouter_api_url
+        else:  # gemini
+            if not gemini_api_key:
+                raise ValueError("gemini_api_key required when provider='gemini'")
+            api_key = gemini_api_key
+            model = gemini_model
+            base_url = None
+        
+        # Initialize UnifiedLLMClient
+        self.client = UnifiedLLMClient(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
+            fallback_to_gemini=enable_fallback and provider == "openrouter",
+            gemini_api_key=gemini_api_key if enable_fallback else None,
+            gemini_model=gemini_model if enable_fallback else None,
         )
         
         LOGGER.info(
             "Initialized LLM text normalizer",
             extra={
-                "model": self.gemini_model,
+                "provider": provider,
+                "model": model,
                 "timeout": timeout,
+                "fallback_enabled": enable_fallback and provider == "openrouter",
             }
         )
     

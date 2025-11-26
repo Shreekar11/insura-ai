@@ -56,11 +56,13 @@ class NormalizationService(BaseService):
     
     def __init__(
         self,
+        provider: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
         gemini_model: Optional[str] = None,
-        openrouter_api_key: Optional[str] = None, # Deprecated
-        openrouter_api_url: Optional[str] = None, # Deprecated
-        openrouter_model: Optional[str] = None, # Deprecated
+        openrouter_api_key: Optional[str] = None,
+        openrouter_api_url: Optional[str] = None,
+        openrouter_model: Optional[str] = None,
+        enable_llm_fallback: bool = False,
         use_hybrid: bool = True,
         chunking_service: Optional[ChunkingService] = None,
         classification_service: Optional[ClassificationService] = None,
@@ -75,8 +77,13 @@ class NormalizationService(BaseService):
         """Initialize OCR normalization service.
         
         Args:
+            provider: LLM provider to use ("gemini" or "openrouter")
             gemini_api_key: Gemini API key for LLM normalization
-            gemini_model: LLM model to use
+            gemini_model: Gemini model to use
+            openrouter_api_key: OpenRouter API key
+            openrouter_api_url: OpenRouter API URL
+            openrouter_model: OpenRouter model to use
+            enable_llm_fallback: Enable fallback to Gemini if OpenRouter fails
             use_hybrid: Whether to use hybrid LLM + code approach (default: True)
             chunking_service: Service for chunking large documents
             classification_service: Service for aggregating classification signals
@@ -104,36 +111,98 @@ class NormalizationService(BaseService):
         self.entity_resolver = entity_resolver
         self.extractor_factory = extractor_factory
         
+        # Default provider to gemini if not specified
+        if not provider:
+            provider = "gemini"
+        
         # Initialize LLM normalizer if using hybrid approach
         self.llm_normalizer = None
         if use_hybrid:
-            if not gemini_api_key:
+            # Check if we have the required API key for the selected provider
+            if provider == "openrouter" and not openrouter_api_key:
                 LOGGER.warning(
-                    "Hybrid normalization enabled but no API key provided. "
+                    "OpenRouter provider selected but no API key provided. "
+                    "Falling back to rule-based normalization."
+                )
+                self.use_hybrid = False
+            elif provider == "gemini" and not gemini_api_key:
+                LOGGER.warning(
+                    "Gemini provider selected but no API key provided. "
                     "Falling back to rule-based normalization."
                 )
                 self.use_hybrid = False
             else:
                 self.llm_normalizer = LLMNormalizer(
+                    provider=provider,
                     gemini_api_key=gemini_api_key,
-                    gemini_model=gemini_model,
+                    gemini_model=gemini_model or "gemini-2.0-flash",
+                    openrouter_api_key=openrouter_api_key,
+                    openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+                    openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
+                    enable_fallback=enable_llm_fallback,
                 )
                 
                 # Initialize entity extractor if not provided
                 if not self.entity_extractor:
                     self.entity_extractor = EntityRelationshipExtractor(
+                        provider=provider,
                         gemini_api_key=gemini_api_key,
-                        gemini_model=gemini_model,
+                        gemini_model=gemini_model or "gemini-2.0-flash",
+                        openrouter_api_key=openrouter_api_key,
+                        openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+                        openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
                     )
+        
+        # Initialize batch processing components (if enabled via config)
+        self.batch_processor = None
+        self.unified_extractor = None
+        
+        if use_hybrid and (gemini_api_key or openrouter_api_key):
+            from app.services.extraction.unified_batch_extractor import UnifiedBatchExtractor
+            from app.services.normalization.batch_normalization_processor import BatchNormalizationProcessor
+            from app.config import settings
+            
+            # Initialize unified batch extractor with provider config
+            self.unified_extractor = UnifiedBatchExtractor(
+                session=normalization_repository.session if normalization_repository else None,
+                provider=provider,
+                gemini_api_key=gemini_api_key,
+                gemini_model=gemini_model or "gemini-2.0-flash",
+                openrouter_api_key=openrouter_api_key,
+                openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+                openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
+                batch_size=settings.batch_size,
+                timeout=settings.batch_timeout_seconds,
+            )
+            
+            # Initialize batch processor
+            if all([chunk_repository, normalization_repository, classification_repository]):
+                self.batch_processor = BatchNormalizationProcessor(
+                    unified_extractor=self.unified_extractor,
+                    semantic_normalizer=self.semantic_normalizer,
+                    chunking_service=self.chunking_service,
+                    entity_resolver=entity_resolver,
+                    chunk_repository=chunk_repository,
+                    normalization_repository=normalization_repository,
+                    classification_repository=classification_repository,
+                )
+                
+                LOGGER.info(
+                    "Batch processing components initialized",
+                    extra={"batch_size": settings.batch_size}
+                )
         
         LOGGER.info(
             "Initialized OCR normalization service",
             extra={
                 "use_hybrid": self.use_hybrid,
-                "llm_model": gemini_model if self.use_hybrid else None,
+                "llm_provider": provider if self.use_hybrid else None,
+                "llm_model": (gemini_model if provider == "gemini" else openrouter_model) if self.use_hybrid else None,
                 "has_classification": classification_service is not None,
                 "has_chunk_repo": chunk_repository is not None,
                 "has_extractor_factory": extractor_factory is not None,
+                "batch_processing_enabled": self.batch_processor is not None,
+                "fallback_enabled": enable_llm_fallback,
             }
         )
     
@@ -190,6 +259,55 @@ class NormalizationService(BaseService):
         if not pages:
             LOGGER.warning("Empty pages list provided")
             return "", None
+        
+        # Feature flag: Use batch processing if enabled
+        from app.config import settings
+        
+        if settings.enable_unified_batch_processing and self.batch_processor:
+            LOGGER.info(
+                "Using unified batch processing (optimized pipeline)",
+                extra={
+                    "document_id": str(document_id),
+                    "batch_size": settings.batch_size
+                }
+            )
+            
+            try:
+                # Use optimized batch processing
+                merged_text, classification_result = await self.batch_processor.process_pages_in_batches(
+                    pages=pages,
+                    document_id=document_id,
+                    batch_size=settings.batch_size
+                )
+                
+                # Persist final classification
+                if self.classification_repository and classification_result:
+                    await self.classification_repository.create_document_classification(
+                        document_id=document_id,
+                        classified_type=classification_result["classified_type"],
+                        confidence=classification_result["confidence"],
+                        classifier_model=classification_result.get("method", "batch_aggregate"),
+                        decision_details=classification_result,
+                    )
+                
+                # Perform document-level extraction (Pass 2)
+                await self._process_document_level_extraction(document_id)
+                
+                return merged_text, classification_result
+                
+            except Exception as e:
+                LOGGER.error(
+                    f"Batch processing failed, falling back to sequential: {e}",
+                    exc_info=True,
+                    extra={"document_id": str(document_id)}
+                )
+                # Fall through to sequential processing
+        
+        # Sequential processing (original implementation)
+        LOGGER.info(
+            "Using sequential processing (original pipeline)",
+            extra={"document_id": str(document_id)}
+        )
         
         if not self.classification_service or not self.chunk_repository:
             LOGGER.warning("Classification not configured, falling back to normalization only")
@@ -715,8 +833,11 @@ class NormalizationService(BaseService):
             if self.llm_normalizer:  # Only if LLM is available
                 relationship_extractor = RelationshipExtractorGlobal(
                     session=self.repository.session,
-                    gemini_api_key=self.llm_normalizer.client.api_key,
-                    gemini_model=self.llm_normalizer.client.model
+                    provider=self.llm_normalizer.provider,
+                    gemini_api_key=self.llm_normalizer.client.api_key if self.llm_normalizer.provider == "gemini" else None,
+                    gemini_model=self.llm_normalizer.client.model if self.llm_normalizer.provider == "gemini" else "gemini-2.0-flash",
+                    openrouter_api_key=self.llm_normalizer.client.api_key if self.llm_normalizer.provider == "openrouter" else None,
+                    openrouter_model=self.llm_normalizer.client.model if self.llm_normalizer.provider == "openrouter" else "google/gemini-2.0-flash-001",
                 )
                 
                 relationships = await relationship_extractor.extract_relationships(document_id)

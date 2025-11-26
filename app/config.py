@@ -33,6 +33,32 @@ class Settings(BaseSettings):
         description="Gemini model name"
     )
 
+    # LLM Provider Configuration
+    llm_provider: str = Field(
+        default="gemini",
+        description="LLM provider to use: 'gemini' or 'openrouter'"
+    )
+    
+    # OpenRouter API Configuration
+    openrouter_api_key: str = Field(
+        default="",
+        description="OpenRouter API key (required if llm_provider='openrouter')"
+    )
+    openrouter_api_url: str = Field(
+        default="https://openrouter.ai/api/v1/chat/completions",
+        description="OpenRouter API base URL"
+    )
+    openrouter_model: str = Field(
+        default="google/gemini-2.0-flash-001",
+        description="OpenRouter model name"
+    )
+    
+    # LLM Fallback Configuration
+    enable_llm_fallback: bool = Field(
+        default=False,
+        description="Enable automatic fallback to Gemini if OpenRouter fails"
+    )
+
     # Chunking Configuration
     chunk_max_tokens: int = Field(
         default=1500,
@@ -53,7 +79,7 @@ class Settings(BaseSettings):
 
     # Batch Processing Configuration (Pipeline Optimization)
     enable_unified_batch_processing: bool = Field(
-        default=False,
+        default=True,
         description="Enable unified batch extraction pipeline (reduces LLM calls by 75-85%)"
     )
     batch_size: int = Field(

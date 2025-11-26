@@ -4,7 +4,7 @@ This service extracts relationships between entities using full document context
 after canonical entity resolution. This is Pass 2 of the two-pass extraction strategy.
 """
 
-from app.core.gemini_client import GeminiClient
+from app.core.unified_llm import UnifiedLLMClient
 import json
 import asyncio
 from typing import List, Dict, Any, Optional
@@ -313,35 +313,63 @@ No comments, no markdown, no prose.
     def __init__(
         self,
         session: AsyncSession,
-        gemini_api_key: str,
+        provider: str = "gemini",
+        gemini_api_key: Optional[str] = None,
         gemini_model: str = "gemini-2.0-flash",
+        openrouter_api_key: Optional[str] = None,
+        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         timeout: int = 90,
         max_retries: int = 3,
-        openrouter_api_url: str = None, # Deprecated
     ):
         """Initialize global relationship extractor.
         
         Args:
             session: Database session
+            provider: LLM provider to use ("gemini" or "openrouter")
             gemini_api_key: Gemini API key
-            gemini_model: Model to use
+            gemini_model: Gemini model to use
+            openrouter_api_key: OpenRouter API key
+            openrouter_model: OpenRouter model to use
+            openrouter_api_url: OpenRouter API URL
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
         """
         self.session = session
-        self.gemini_model = gemini_model
+        self.provider = provider
         
-        # Initialize GeminiClient
-        self.client = GeminiClient(
-            api_key=gemini_api_key,
-            model=gemini_model,
+        # Determine which API key and model to use
+        if provider == "openrouter":
+            if not openrouter_api_key:
+                raise ValueError("openrouter_api_key required when provider='openrouter'")
+            api_key = openrouter_api_key
+            model = openrouter_model
+            base_url = openrouter_api_url
+        else:  # gemini
+            if not gemini_api_key:
+                raise ValueError("gemini_api_key required when provider='gemini'")
+            api_key = gemini_api_key
+            model = gemini_model
+            base_url = None
+        
+        
+        # Store model for external access
+        self.model = model
+        
+        # Initialize UnifiedLLMClient
+        self.client = UnifiedLLMClient(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
             timeout=timeout,
-            max_retries=max_retries
+            max_retries=max_retries,
+            fallback_to_gemini=False,
         )
         
         LOGGER.info(
             "Initialized RelationshipExtractorGlobal",
-            extra={"model": self.gemini_model}
+            extra={"model": model}
         )
     
     async def extract_relationships(

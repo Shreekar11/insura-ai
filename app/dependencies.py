@@ -107,8 +107,12 @@ async def get_fallback_classifier() -> FallbackClassifier:
         FallbackClassifier: Fallback classifier for low-confidence cases
     """
     return FallbackClassifier(
+        provider=settings.llm_provider,
         gemini_api_key=settings.gemini_api_key,
         gemini_model=settings.gemini_model,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_model=settings.openrouter_model,
+        openrouter_api_url=settings.openrouter_api_url,
     )
 
 
@@ -143,16 +147,25 @@ async def get_normalization_service(
     # Create extractor factory for section-aware extraction
     extractor_factory = ExtractorFactory(
         session=db_session,
+        provider=settings.llm_provider,
         gemini_api_key=settings.gemini_api_key,
         gemini_model=settings.gemini_model,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_model=settings.openrouter_model,
+        openrouter_api_url=settings.openrouter_api_url,
     )
     
     # Create entity resolver for canonical entity resolution
     entity_resolver = EntityResolver(session=db_session)
     
     return NormalizationService(
+        provider=settings.llm_provider,
         gemini_api_key=settings.gemini_api_key,
         gemini_model=settings.gemini_model,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_model=settings.openrouter_model,
+        openrouter_api_url=settings.openrouter_api_url,
+        enable_llm_fallback=settings.enable_llm_fallback,
         use_hybrid=True,
         chunking_service=chunking_service,
         classification_service=classification_service,
@@ -190,4 +203,8 @@ async def get_ocr_service(
         timeout=settings.ocr_timeout,
         max_retries=settings.max_retries,
         retry_delay=settings.retry_delay,
+        provider=settings.llm_provider,
+        openrouter_api_key=settings.openrouter_api_key,
+        openrouter_model=settings.openrouter_model,
+        openrouter_api_url=settings.openrouter_api_url,
     )

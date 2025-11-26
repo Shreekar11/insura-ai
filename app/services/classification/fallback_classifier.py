@@ -6,7 +6,7 @@ fails to reach the acceptance threshold. It uses a summary of the document
 """
 
 import json
-from app.core.gemini_client import GeminiClient
+from app.core.unified_llm import UnifiedLLMClient
 from typing import Dict, Any, List, Optional
 
 from app.utils.exceptions import APIClientError
@@ -38,18 +38,50 @@ RETURN JSON ONLY:
 
     def __init__(
         self,
-        gemini_api_key: str,
+        provider: str = "openrouter",
+        gemini_api_key: Optional[str] = None,
         gemini_model: str = "gemini-2.0-flash",
+        openrouter_api_key: Optional[str] = None,
+        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         timeout: int = 30,
-        openrouter_api_url: str = None, # Deprecated
     ):
-        self.gemini_model = gemini_model
-        # Initialize GeminiClient
-        self.client = GeminiClient(
-            api_key=gemini_api_key,
-            model=gemini_model,
+        """Initialize fallback classifier.
+        
+        Args:
+            provider: LLM provider to use ("gemini" or "openrouter")
+            gemini_api_key: Gemini API key
+            gemini_model: Gemini model to use
+            openrouter_api_key: OpenRouter API key
+            openrouter_model: OpenRouter model to use
+            openrouter_api_url: OpenRouter API URL
+            timeout: Request timeout in seconds
+        """
+        self.provider = provider
+        
+        # Determine which API key and model to use
+        if provider == "openrouter":
+            if not openrouter_api_key:
+                raise ValueError("openrouter_api_key required when provider='openrouter'")
+            api_key = openrouter_api_key
+            model = openrouter_model
+            base_url = openrouter_api_url
+        else:  # gemini
+            if not gemini_api_key:
+                raise ValueError("gemini_api_key required when provider='gemini'")
+            api_key = gemini_api_key
+            model = gemini_model
+            base_url = None
+        
+        # Initialize UnifiedLLMClient
+        self.client = UnifiedLLMClient(
+            provider=provider,
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
             timeout=timeout,
-            max_retries=3
+            max_retries=3,
+            fallback_to_gemini=False,
         )
 
     async def classify(
