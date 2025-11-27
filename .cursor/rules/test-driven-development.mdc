@@ -1,7 +1,6 @@
 ---
-alwaysApply: true
+alwaysApply: false
 ---
-
 # Python Testing Rules - Expert TDD Strategy
 
 ## ROLE & PHILOSOPHY

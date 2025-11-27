@@ -1,0 +1,172 @@
+# OCR Chunking & Normalization Pipeline — Context Module
+# Insurance Document Automation Workflow
+
+## Overview
+This module defines the **complete chunking + normalization pipeline** for processing OCR output from insurance documents before classification and database insertion.
+
+This includes:
+1. Page-level chunking  
+2. Section-aware chunking  
+3. LLM-based normalization (per chunk)  
+4. Post-processing & merging  
+5. Classification readiness  
+6. Integration with database schema  
+7. Integration with Temporal workflow  
+
+This file is intended as AI context for Cursor to support code generation and workflow orchestration.
+
+---
+
+# 1. END-TO-END PIPELINE (HIGH-LEVEL)
+Insurance Document
+↓
+OCR (Mistral OCR)
+↓
+Raw Extracted OCR Text
+↓
+Chunking Layer
+	•	Page-Level Chunking
+	•	Section-Aware Chunking
+↓
+Normalization Layer (LLM)
+↓
+Normalized Document (clean & structured)
+
+This pipeline solves token-limit issues and produces clean, LLM-ready text for structured extraction.
+
+---
+
+# 2. WHY CHUNKING IS REQUIRED
+
+Raw OCR output often ranges from **20,000 to 200,000+ tokens** — too large for LLMs.
+
+Chunking ensures:
+- No token-limit failures  
+- Higher normalization accuracy  
+- Cost-efficiency  
+- Avoids hallucinations  
+- Enables parallel processing  
+- LLM receives manageable sections  
+
+Modern document-AI systems (Further AI, Hyperscience, Instabase) all use chunking.
+
+---
+
+# 3. CHUNKING STRATEGY (DUAL-LAYER)
+
+### The system uses **two levels of chunking**:
+
+## **3.1 Page-Level Chunking (Base Layer)**
+Insurance PDFs are page-oriented.
+
+Each page is processed independently.
+
+Reasons:
+- Natural boundaries  
+- Avoids cross-page interference  
+- Classification-independent  
+- Page OCR quality varies  
+- Easy parallelization  
+- Aligns with your DB tables (`document_pages`, `document_raw_text`)  
+
+Each page becomes a chunk.
+
+---
+
+## **3.2 Section-Aware Chunking (Semantic Layer)**
+
+Inside each page, the system further detects **sections**, such as:
+
+- Declarations  
+- Insuring Agreement  
+- Coverage Summary  
+- Endorsements  
+- SOV Tables  
+- Loss Run Entries  
+- Claim Summaries  
+- Financial Statements  
+- Emails / Correspondence  
+
+**Section splitting rules:**
+- Detect headings via regex:
+```
+^(Declarations|Insuring Agreement|Endorsements|Exclusions|Coverage|Policy Number|Loss History|Schedule of Values|TIV|Financial Statement)
+```
+
+- Detect blocks with:
+- ALL CAPS headings  
+- Underlines (“_____”)  
+- Table-like text  
+- Bullet-pointed lists  
+
+Each section becomes its own chunk.
+
+---
+
+# 4. CHUNK FORMAT
+
+Each chunk includes metadata:
+```
+{
+“document_id”: “…”,
+“page_number”: 3,
+“section_name”: “Endorsements”,
+“raw_text”: “…”,
+“chunk_index”: 12
+}
+```
+
+Chunks should be **under 1500 tokens** for best LLM performance.
+
+---
+
+# 5. LLM-BASED NORMALIZATION
+
+Each chunk is normalized independently.
+
+## 5.1 Normalization Prompt
+
+The LLM receives:
+
+- The chunk text  
+- Instructions to clean, structure, merge broken words  
+- Insurance-specific corrections  
+- No need for full-document context  
+
+### Prompt Template:
+You are an OCR normalization engine specialized in insurance documents.
+
+Normalize the following OCR text:
+- Fix broken words and hyphenation
+- Remove artifacts (|, ¬, ~, etc.)
+- Remove repeated headers/footers
+- Combine broken lines into proper paragraphs
+- Standardize insurance terms (policy, claim, endorsement, premium)
+- Preserve section meaning and table readability
+- Do NOT summarize or omit information
+
+Return clean, readable text.
+
+OCR CHUNK:
+{{chunk_text}}
+
+---
+
+# 6. MERGING NORMALIZED CHUNKS
+
+After all chunks are normalized:
+
+1. Restore order:  
+   - by page_number  
+   - then by chunk_index  
+2. Concatenate with section markers:
+
+=== PAGE 3 - ENDORSEMENTS ===
+normalized text…
+
+3. Collapse extra whitespace  
+4. Store the final merged text in:
+- `ocr_results.raw_text` (cleaned)
+- `document_raw_text` (per-page cleaned raw)
+5. Update document status:
+- `documents.status = ‘ocr_processed’`

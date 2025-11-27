@@ -1,7 +1,5 @@
 ---
-description: Use these guidelines during PR reviews
-globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Python Guidelines for Marketplace Scripts
 
