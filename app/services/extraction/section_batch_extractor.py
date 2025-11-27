@@ -1,8 +1,10 @@
-"""Unified section extractor for optimized section-specific extraction.
+"""Section batch extractor for optimized multi-section extraction.
 
-This service replaces separate ConditionsExtractor, CoveragesExtractor, and
-ExclusionsExtractor with a single multi-section extractor, reducing LLM calls
-from 3-4 to 1 per document.
+This service processes Conditions, Coverages, and Exclusions sections in a
+single LLM call instead of 3 separate calls, reducing API calls by 67% for
+section-heavy documents.
+
+Status: Production-ready optimization integrated into the main pipeline.
 """
 
 import json
@@ -21,8 +23,8 @@ from app.utils.json_parser import parse_json_safely
 LOGGER = get_logger(__name__)
 
 
-class UnifiedSectionExtractor(BaseService):
-    """Unified extractor for all section types.
+class SectionBatchExtractor(BaseService):
+    """Section batch extractor for all section types.
     
     This service processes all detected sections (coverages, conditions,
     exclusions) in a single LLM call, reducing API calls and improving
@@ -153,7 +155,7 @@ Extract exclusions including:
         timeout: int = 90,
         max_retries: int = 3,
     ):
-        """Initialize unified section extractor.
+        """Initialize section batch extractor.
         
         Args:
             session: SQLAlchemy async session
@@ -199,7 +201,7 @@ Extract exclusions including:
             fallback_to_gemini=False,
         )
         
-        LOGGER.info(f"Initialized UnifiedSectionExtractor with provider={provider}, model={model}")
+        LOGGER.info(f"Initialized SectionBatchExtractor with provider={provider}, model={model}")
     
     async def extract_all_sections(
         self,

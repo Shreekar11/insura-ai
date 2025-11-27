@@ -1,4 +1,4 @@
-"""Unified batch extractor for optimized OCR pipeline.
+"""Batch extractor for optimized OCR pipeline.
 
 This service combines normalization, entity extraction, and section detection
 into a single LLM call per batch of chunks, reducing API calls by 75-85%.
@@ -27,8 +27,8 @@ from app.utils.json_parser import parse_json_safely
 LOGGER = get_logger(__name__)
 
 
-class UnifiedBatchExtractor(BaseService):
-    """Unified extractor that processes multiple chunks in a single LLM call.
+class BatchExtractor(BaseService):
+    """Batch extractor that processes multiple chunks in a single LLM call.
     
     This service combines three previously separate operations:
     1. Text normalization (OCR cleanup)
@@ -61,7 +61,7 @@ class UnifiedBatchExtractor(BaseService):
         timeout: int = 90,
         max_retries: int = 3,
     ):
-        """Initialize unified batch extractor.
+        """Initialize batch extractor.
         
         Args:
             session: SQLAlchemy async session
@@ -110,10 +110,7 @@ class UnifiedBatchExtractor(BaseService):
             fallback_to_gemini=False,
         )
         
-        LOGGER.info(
-            f"Initialized UnifiedBatchExtractor with batch_size={batch_size}, "
-            f"provider={provider}, model={model}"
-        )
+        LOGGER.info(f"Initialized BatchExtractor with provider={provider}, model={model}, batch_size={batch_size}")
     
     async def extract_batch(
         self,

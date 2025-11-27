@@ -1,6 +1,6 @@
 """Batch processing integration for normalization service.
 
-This module provides batch processing methods that integrate the UnifiedBatchExtractor
+This module provides batch processing methods that integrate the BatchExtractor
 with the normalization service, enabling optimized pipeline execution.
 """
 
@@ -9,7 +9,7 @@ from uuid import UUID, uuid4
 import hashlib
 
 from app.models.page_data import PageData
-from app.services.extraction.unified_batch_extractor import UnifiedBatchExtractor
+from app.services.extraction.batch_extractor import BatchExtractor
 from app.services.extraction.batch_processor import BatchProcessor
 from app.services.normalization.semantic_normalizer import SemanticNormalizer
 from app.services.chunking.chunking_service import ChunkingService
@@ -33,7 +33,7 @@ class BatchNormalizationProcessor:
     
     def __init__(
         self,
-        unified_extractor: UnifiedBatchExtractor,
+        unified_extractor: BatchExtractor,
         semantic_normalizer: SemanticNormalizer,
         chunking_service: ChunkingService,
         entity_resolver: Optional[EntityResolver],
@@ -44,7 +44,7 @@ class BatchNormalizationProcessor:
         """Initialize batch normalization processor.
         
         Args:
-            unified_extractor: Unified batch extractor instance
+            unified_extractor: Batch extractor instance
             semantic_normalizer: Semantic normalizer for field-level accuracy
             chunking_service: Service for chunking documents
             entity_resolver: Entity resolver for canonical entity mapping
