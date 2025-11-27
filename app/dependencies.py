@@ -166,7 +166,6 @@ async def get_normalization_service(
         openrouter_model=settings.openrouter_model,
         openrouter_api_url=settings.openrouter_api_url,
         enable_llm_fallback=settings.enable_llm_fallback,
-        use_hybrid=True,
         chunking_service=chunking_service,
         classification_service=classification_service,
         fallback_classifier=fallback_classifier,

@@ -62,9 +62,7 @@ class NormalizationService(BaseService):
         openrouter_api_key: Optional[str] = None,
         openrouter_api_url: Optional[str] = None,
         openrouter_model: Optional[str] = None,
-        enable_llm_fallback: bool = False,
-        use_hybrid: bool = True,
-        chunking_service: Optional[ChunkingService] = None,
+        enable_llm_fallback: bool = False,        chunking_service: Optional[ChunkingService] = None,
         classification_service: Optional[ClassificationService] = None,
         fallback_classifier: Optional[FallbackClassifier] = None,
         chunk_repository: Optional[ChunkRepository] = None,
@@ -83,9 +81,7 @@ class NormalizationService(BaseService):
             openrouter_api_key: OpenRouter API key
             openrouter_api_url: OpenRouter API URL
             openrouter_model: OpenRouter model to use
-            enable_llm_fallback: Enable fallback to Gemini if OpenRouter fails
-            use_hybrid: Whether to use hybrid LLM + code approach (default: True)
-            chunking_service: Service for chunking large documents
+            enable_llm_fallback: Enable fallback to Gemini if OpenRouter fails            chunking_service: Service for chunking large documents
             classification_service: Service for aggregating classification signals
             fallback_classifier: Fallback classifier for low-confidence cases
             chunk_repository: Repository for chunk CRUD operations
@@ -96,10 +92,10 @@ class NormalizationService(BaseService):
             extractor_factory: Factory for section-specific extractors
         """
 
+
         # Initialize BaseService with the primary repository
         super().__init__(repository=normalization_repository)
         
-        self.use_hybrid = use_hybrid
         self.semantic_normalizer = SemanticNormalizer()
         self.chunking_service = chunking_service or ChunkingService()
         self.classification_service = classification_service
@@ -115,89 +111,96 @@ class NormalizationService(BaseService):
         if not provider:
             provider = "gemini"
         
-        # Initialize LLM normalizer if using hybrid approach
-        self.llm_normalizer = None
-        if use_hybrid:
-            # Check if we have the required API key for the selected provider
-            if provider == "openrouter" and not openrouter_api_key:
-                LOGGER.warning(
-                    "OpenRouter provider selected but no API key provided. "
-                    "Falling back to rule-based normalization."
-                )
-                self.use_hybrid = False
-            elif provider == "gemini" and not gemini_api_key:
-                LOGGER.warning(
-                    "Gemini provider selected but no API key provided. "
-                    "Falling back to rule-based normalization."
-                )
-                self.use_hybrid = False
-            else:
-                self.llm_normalizer = LLMNormalizer(
-                    provider=provider,
-                    gemini_api_key=gemini_api_key,
-                    gemini_model=gemini_model or "gemini-2.0-flash",
-                    openrouter_api_key=openrouter_api_key,
-                    openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
-                    openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
-                    enable_fallback=enable_llm_fallback,
-                )
-                
-                # Initialize entity extractor if not provided
-                if not self.entity_extractor:
-                    self.entity_extractor = EntityRelationshipExtractor(
-                        provider=provider,
-                        gemini_api_key=gemini_api_key,
-                        gemini_model=gemini_model or "gemini-2.0-flash",
-                        openrouter_api_key=openrouter_api_key,
-                        openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
-                        openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
-                    )
+        # Validate API keys
+        if provider == "openrouter" and not openrouter_api_key:
+            raise ValueError("OpenRouter provider selected but no API key provided")
+        elif provider == "gemini" and not gemini_api_key:
+            raise ValueError("Gemini provider selected but no API key provided")
         
-        # Initialize batch processing components (if enabled via config)
-        self.batch_processor = None
-        self.unified_extractor = None
+        # Initialize LLM normalizer (always required for batch processing)
+        self.llm_normalizer = LLMNormalizer(
+            provider=provider,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model or "gemini-2.0-flash",
+            openrouter_api_key=openrouter_api_key,
+            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
+            enable_fallback=enable_llm_fallback,
+        )
         
-        if use_hybrid and (gemini_api_key or openrouter_api_key):
-            from app.services.extraction.unified_batch_extractor import UnifiedBatchExtractor
-            from app.services.normalization.batch_normalization_processor import BatchNormalizationProcessor
-            from app.config import settings
-            
-            # Initialize unified batch extractor with provider config
-            self.unified_extractor = UnifiedBatchExtractor(
-                session=normalization_repository.session if normalization_repository else None,
+        # Initialize entity extractor if not provided
+        if not self.entity_extractor:
+            self.entity_extractor = EntityRelationshipExtractor(
                 provider=provider,
                 gemini_api_key=gemini_api_key,
                 gemini_model=gemini_model or "gemini-2.0-flash",
                 openrouter_api_key=openrouter_api_key,
                 openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
                 openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
-                batch_size=settings.batch_size,
-                timeout=settings.batch_timeout_seconds,
+            )
+        
+        # Initialize batch processing components
+        from app.services.extraction.batch_extractor import BatchExtractor
+        from app.services.normalization.batch_normalization_processor import BatchNormalizationProcessor
+        from app.config import settings
+        
+        # Initialize batch extractor with provider config
+        self.unified_extractor = BatchExtractor(
+            session=normalization_repository.session if normalization_repository else None,
+            provider=provider,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model or "gemini-2.0-flash",
+            openrouter_api_key=openrouter_api_key,
+            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
+            batch_size=settings.batch_size,
+            timeout=settings.batch_timeout_seconds,
+        )
+        
+        # Initialize batch processor
+        if all([chunk_repository, normalization_repository, classification_repository]):
+            self.batch_processor = BatchNormalizationProcessor(
+                unified_extractor=self.unified_extractor,
+                semantic_normalizer=self.semantic_normalizer,
+                chunking_service=self.chunking_service,
+                entity_resolver=entity_resolver,
+                chunk_repository=chunk_repository,
+                normalization_repository=normalization_repository,
+                classification_repository=classification_repository,
             )
             
-            # Initialize batch processor
-            if all([chunk_repository, normalization_repository, classification_repository]):
-                self.batch_processor = BatchNormalizationProcessor(
-                    unified_extractor=self.unified_extractor,
-                    semantic_normalizer=self.semantic_normalizer,
-                    chunking_service=self.chunking_service,
-                    entity_resolver=entity_resolver,
-                    chunk_repository=chunk_repository,
-                    normalization_repository=normalization_repository,
-                    classification_repository=classification_repository,
-                )
-                
-                LOGGER.info(
-                    "Batch processing components initialized",
-                    extra={"batch_size": settings.batch_size}
-                )
+            LOGGER.info(
+                "Batch processing components initialized",
+                extra={"batch_size": settings.batch_size}
+            )
+        else:
+            self.batch_processor = None
+        
+        # Initialize section batch extractor for optimized section extraction
+        from app.services.extraction.section_batch_extractor import SectionBatchExtractor
+        
+        self.section_batch_extractor = SectionBatchExtractor(
+            session=normalization_repository.session if normalization_repository else None,
+            provider=provider,
+            gemini_api_key=gemini_api_key,
+            gemini_model=gemini_model or "gemini-2.0-flash",
+            openrouter_api_key=openrouter_api_key,
+            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
+            timeout=90,
+            max_retries=3,
+        )
         
         LOGGER.info(
-            "Initialized OCR normalization service",
+            "Section batch extractor initialized (reduces 3 LLM calls → 1 for sections)",
+            extra={"provider": provider}
+        )
+        
+        LOGGER.info(
+            "Initialized OCR normalization service with batch processing pipeline",
             extra={
-                "use_hybrid": self.use_hybrid,
-                "llm_provider": provider if self.use_hybrid else None,
-                "llm_model": (gemini_model if provider == "gemini" else openrouter_model) if self.use_hybrid else None,
+                "llm_provider": provider,
+                "llm_model": gemini_model if provider == "gemini" else openrouter_model,
                 "has_classification": classification_service is not None,
                 "has_chunk_repo": chunk_repository is not None,
                 "has_extractor_factory": extractor_factory is not None,
@@ -211,7 +214,6 @@ class NormalizationService(BaseService):
         self,
         pages: List[PageData],
         document_id: UUID,
-        use_chunking: bool = True,
         max_tokens: int = 1500,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Wrapper for run() to maintain backward compatibility.
@@ -221,7 +223,6 @@ class NormalizationService(BaseService):
         return await self.execute(
             pages=pages,
             document_id=document_id,
-            use_chunking=use_chunking,
             max_tokens=max_tokens
         )
 
@@ -229,7 +230,6 @@ class NormalizationService(BaseService):
         self,
         pages: List[PageData],
         document_id: UUID,
-        use_chunking: bool = True,
         max_tokens: int = 1500,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         """Normalize pages and perform document classification.
@@ -243,9 +243,7 @@ class NormalizationService(BaseService):
         
         Args:
             pages: List of PageData objects
-            document_id: UUID of the document being processed
-            use_chunking: Whether to use chunking (default: True)
-            max_tokens: Maximum tokens per chunk (default: 1500)
+            document_id: UUID of the document being processed            max_tokens: Maximum tokens per chunk (default: 1500)
             
         Returns:
             Tuple of (normalized_text, classification_result)
@@ -263,443 +261,46 @@ class NormalizationService(BaseService):
         # Feature flag: Use batch processing if enabled
         from app.config import settings
         
-        if settings.enable_unified_batch_processing and self.batch_processor:
-            LOGGER.info(
-                "Using unified batch processing (optimized pipeline)",
-                extra={
-                    "document_id": str(document_id),
-                    "batch_size": settings.batch_size
-                }
-            )
-            
-            try:
-                # Use optimized batch processing
-                merged_text, classification_result = await self.batch_processor.process_pages_in_batches(
-                    pages=pages,
-                    document_id=document_id,
-                    batch_size=settings.batch_size
-                )
-                
-                # Persist final classification
-                if self.classification_repository and classification_result:
-                    await self.classification_repository.create_document_classification(
-                        document_id=document_id,
-                        classified_type=classification_result["classified_type"],
-                        confidence=classification_result["confidence"],
-                        classifier_model=classification_result.get("method", "batch_aggregate"),
-                        decision_details=classification_result,
-                    )
-                
-                # Perform document-level extraction (Pass 2)
-                await self._process_document_level_extraction(document_id)
-                
-                return merged_text, classification_result
-                
-            except Exception as e:
-                LOGGER.error(
-                    f"Batch processing failed, falling back to sequential: {e}",
-                    exc_info=True,
-                    extra={"document_id": str(document_id)}
-                )
-                # Fall through to sequential processing
-        
-        # Sequential processing (original implementation)
+        if not self.batch_processor:
+             raise ValueError("Batch processor not initialized. Check configuration.")
+
         LOGGER.info(
-            "Using sequential processing (original pipeline)",
-            extra={"document_id": str(document_id)}
-        )
-        
-        if not self.classification_service or not self.chunk_repository:
-            LOGGER.warning("Classification not configured, falling back to normalization only")
-            normalized_text = await self.normalize_pages(pages, use_chunking, max_tokens)
-            return normalized_text, None
-        
-        LOGGER.info(
-            "Starting normalization with classification",
+            "Starting batch processing pipeline",
             extra={
                 "document_id": str(document_id),
                 "total_pages": len(pages),
-                "use_chunking": use_chunking,
+                "batch_size": settings.batch_size
             }
         )
         
-        # Generate pipeline run ID for provenance tracking
-        pipeline_run_id = str(uuid4())
-        LOGGER.info(
-            "Generated pipeline run ID",
-            extra={"pipeline_run_id": pipeline_run_id, "document_id": str(document_id)}
+        # Use optimized batch processing
+        merged_text, classification_result = await self.batch_processor.process_pages_in_batches(
+            pages=pages,
+            document_id=document_id,
+            batch_size=settings.batch_size
         )
         
-        # Chunk pages
-        all_chunks = []
-        chunk_metadata = []
-        
-        for page in pages:
-            page_text = page.get_content(prefer_markdown=True)
-            
-            if not page_text or not page_text.strip():
-                continue
-            
-            # Chunk this page
-            page_chunks = self.chunking_service.chunk_document(
-                text=page_text,
+        # Persist final classification
+        if self.classification_repository and classification_result:
+            await self.classification_repository.create_document_classification(
                 document_id=document_id,
-                initial_page_number=page.page_number
-            )
-            
-            for chunk in page_chunks:
-                # Update chunk metadata with page number
-                chunk.metadata.page_number = page.page_number
-                
-                # Generate stable chunk ID
-                chunk.metadata.stable_chunk_id = self._generate_stable_chunk_id(
-                    document_id=document_id,
-                    page_number=page.page_number,
-                    chunk_index=chunk.metadata.chunk_index
-                )
-                
-                all_chunks.append(chunk)
-                chunk_metadata.append({
-                    "page_number": page.page_number,
-                    "chunk_index": chunk.metadata.chunk_index,
-                })
-        
-        LOGGER.info(f"Created {len(all_chunks)} chunks from {len(pages)} pages")
-        
-        # Normalize chunks and extract signals
-        normalized_chunks = []
-        chunk_signals = []
-        all_extracted_fields = []
-        
-        for i, chunk in enumerate(all_chunks):
-            page_num = chunk.metadata.page_number or 1
-            
-            # Stage 1: LLM normalization with signal extraction AND section detection
-            llm_result = await self.llm_normalizer.normalize_with_signals(
-                chunk.text,
-                page_number=page_num
-            )
-            
-            # Extract section information from LLM result
-            section_type = llm_result.get("section_type")
-            subsection_type = llm_result.get("subsection_type")
-            section_confidence = llm_result.get("section_confidence", 0.0)
-            
-            # Update chunk metadata with section information
-            chunk.metadata.section_type = section_type
-            chunk.metadata.subsection_type = subsection_type
-            
-            # Log section detection
-            if section_type:
-                LOGGER.info(
-                    f"Detected section for chunk {i}",
-                    extra={
-                        "chunk_index": chunk.metadata.chunk_index,
-                        "section_type": section_type,
-                        "subsection_type": subsection_type,
-                        "confidence": section_confidence,
-                    }
-                )
-            
-            # Stage 2: Semantic normalization for field-level accuracy
-            semantic_result = self.semantic_normalizer.normalize_text_with_fields(
-                llm_result["normalized_text"]
-            )
-            
-            # Use the semantically normalized text as the final output
-            final_normalized_text = semantic_result["normalized_text"]
-            extracted_fields = semantic_result["extracted_fields"]
-            
-            normalized_chunks.append(final_normalized_text)
-            chunk_signals.append(llm_result)
-            all_extracted_fields.append(extracted_fields)
-            
-            # Persist chunk to database with stable ID and section info
-            db_chunk = await self.chunk_repository.create_chunk(
-                document_id=document_id,
-                page_number=page_num,
-                chunk_index=chunk.metadata.chunk_index,
-                raw_text=chunk.text,
-                token_count=chunk.metadata.token_count,
-                section_name=chunk.metadata.section_name,
-                stable_chunk_id=chunk.metadata.stable_chunk_id,
-                section_type=chunk.metadata.section_type,
-                subsection_type=chunk.metadata.subsection_type,
-            )
-            
-            # Compute content hash
-            content_hash = hashlib.sha256(final_normalized_text.encode('utf-8')).hexdigest()
-            
-            # Check if content changed
-            content_changed = await self.normalization_repository.check_content_changed(
-                chunk_id=db_chunk.id,
-                new_content_hash=content_hash
-            )
-            
-            extraction_result = None
-            
-            if not content_changed:
-                LOGGER.info(
-                    f"Chunk {chunk.metadata.chunk_index} unchanged (hash: {content_hash[:16]}), skipping entity extraction",
-                    extra={"chunk_id": str(db_chunk.id), "content_hash": content_hash[:16]}
-                )
-                
-                # Update existing chunk metadata (pipeline_run_id) without changing content
-                await self.normalization_repository.update_normalized_chunk(
-                    chunk_id=db_chunk.id,
-                    pipeline_run_id=pipeline_run_id,
-                )
-                
-            else:
-                LOGGER.info(
-                    f"Chunk {chunk.metadata.chunk_index} content changed, proceeding with extraction",
-                    extra={"chunk_id": str(db_chunk.id), "content_hash": content_hash[:16]}
-                )
-                
-                # Persist normalized chunk FIRST (create or update) so it exists for entity resolution
-                existing_chunk = await self.normalization_repository.get_normalized_chunk_by_id(db_chunk.id)
-                
-                normalized_chunk_id = None
-                if existing_chunk:
-                    await self.normalization_repository.update_normalized_chunk(
-                        chunk_id=db_chunk.id,
-                        normalized_text=final_normalized_text,
-                        extracted_fields=extracted_fields,
-                        entities=extraction_result if extraction_result else None,
-                        relationships=extraction_result if extraction_result else None,
-                        pipeline_run_id=pipeline_run_id,
-                        quality_score=llm_result.get("confidence", 0.8),
-                    )
-                    normalized_chunk_id = existing_chunk.id
-                else:
-                    new_normalized_chunk = await self.normalization_repository.create_normalized_chunk(
-                        chunk_id=db_chunk.id,
-                        normalized_text=final_normalized_text,
-                        method="hybrid_llm_semantic",
-                        extracted_fields=extracted_fields,
-                        entities=extraction_result.get("entities") if extraction_result else None,
-                        relationships=extraction_result.get("relationships") if extraction_result else None,
-                        model_version=self.llm_normalizer.client.model if self.llm_normalizer else None,
-                        prompt_version="v1.0",  # TODO: Make this configurable
-                        pipeline_run_id=pipeline_run_id,
-                        source_stage="normalization",
-                        quality_score=llm_result.get("confidence", 0.8),
-                    )
-                    normalized_chunk_id = new_normalized_chunk.id
-                
-                # Stage 3: Entity and relationship extraction (if enabled)
-                if self.entity_extractor:
-                    try:
-                        extraction_result = await self.entity_extractor.extract(
-                            text=final_normalized_text,
-                            chunk_id=db_chunk.id
-                        )
-                        
-                        # Stage 4: Entity resolution (if enabled)
-                        # IMPORTANT: Use normalized_chunk_id, not db_chunk.id
-                        if self.entity_resolver and extraction_result.get("entities"):
-                            try:
-                                await self.entity_resolver.resolve_entities_batch(
-                                    entities=extraction_result["entities"],
-                                    chunk_id=normalized_chunk_id,  # Use normalized chunk ID!
-                                    document_id=document_id
-                                )
-                                LOGGER.info(
-                                    f"Resolved {len(extraction_result['entities'])} entities for chunk {chunk.metadata.chunk_index}",
-                                    extra={"normalized_chunk_id": str(normalized_chunk_id)}
-                                )
-                            except Exception as e:
-                                LOGGER.error(
-                                    f"Entity resolution failed for chunk {chunk.metadata.chunk_index}: {e}",
-                                    exc_info=True
-                                )
-                    except Exception as e:
-                        LOGGER.error(
-                            f"Entity extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
-                            exc_info=True
-                        )
-                
-                # Update normalized chunk with extraction results if extraction happened
-                if extraction_result and normalized_chunk_id:
-                    await self.normalization_repository.update_normalized_chunk(
-                        chunk_id=db_chunk.id,
-                        entities=extraction_result.get("entities"),
-                        relationships=extraction_result.get("relationships"),
-                    )
-                
-                # Section-aware routing using factory pattern
-                # Debug logging for section-aware extraction
-                LOGGER.info(
-                    f"Section-aware extraction check for chunk {chunk.metadata.chunk_index}",
-                    extra={
-                        "chunk_id": str(db_chunk.id),
-                        "section_type": chunk.metadata.section_type,
-                        "content_changed": content_changed,
-                        "extractor_factory_available": self.extractor_factory is not None,
-                        "will_attempt_extraction": bool(chunk.metadata.section_type and content_changed and self.extractor_factory)
-                    }
-                )
-                
-                if chunk.metadata.section_type and content_changed and self.extractor_factory:
-                    try:
-                        LOGGER.info(
-                            f"Attempting to get extractor for section type: {chunk.metadata.section_type}",
-                            extra={
-                                "chunk_id": str(db_chunk.id),
-                                "section_type": chunk.metadata.section_type
-                            }
-                        )
-                        
-                        extractor = self.extractor_factory.get_extractor(
-                            chunk.metadata.section_type
-                        )
-                        
-                        LOGGER.info(
-                            f"Got extractor: {extractor.__class__.__name__} for section: {chunk.metadata.section_type}",
-                            extra={
-                                "chunk_id": str(db_chunk.id),
-                                "extractor_class": extractor.__class__.__name__
-                            }
-                        )
-                        
-                        extracted_items = await extractor.extract(
-                            text=final_normalized_text,
-                            document_id=document_id,
-                            chunk_id=db_chunk.id
-                        )
-                        
-                        LOGGER.info(
-                            f"Extracted {len(extracted_items)} items using {extractor.__class__.__name__}",
-                            extra={
-                                "chunk_id": str(db_chunk.id),
-                                "section_type": chunk.metadata.section_type,
-                                "extractor": extractor.__class__.__name__,
-                                "items_count": len(extracted_items)
-                            }
-                        )
-                    except Exception as e:
-                        LOGGER.error(
-                            f"Extraction failed for chunk {chunk.metadata.chunk_index}: {e}",
-                            exc_info=True,
-                            extra={
-                                "section_type": chunk.metadata.section_type,
-                                "chunk_id": str(db_chunk.id)
-                            }
-                        )
-                else:
-                    # Log why section-aware extraction was skipped
-                    skip_reasons = []
-                    if not chunk.metadata.section_type:
-                        skip_reasons.append("no section_type detected")
-                    if not content_changed:
-                        skip_reasons.append("content unchanged")
-                    if not self.extractor_factory:
-                        skip_reasons.append("extractor_factory not available")
-                    
-                    LOGGER.info(
-                        f"Skipping section-aware extraction for chunk {chunk.metadata.chunk_index}: {', '.join(skip_reasons)}",
-                        extra={
-                            "chunk_id": str(db_chunk.id),
-                            "skip_reasons": skip_reasons
-                        }
-                    )
-                
-            
-            # Log extracted fields for monitoring
-            if extracted_fields:
-                LOGGER.info(
-                    f"Extracted fields from chunk {chunk.metadata.chunk_index}",
-                    extra={
-                        "chunk_id": str(db_chunk.id),
-                        "dates_count": len(extracted_fields.get("dates", [])),
-                        "amounts_count": len(extracted_fields.get("amounts", [])),
-                        "emails_count": len(extracted_fields.get("emails", [])),
-                        "extracted_fields": extracted_fields,
-                    }
-                )
-            
-            # Persist classification signals using classification repository
-            await self.classification_repository.create_classification_signal(
-                chunk_id=db_chunk.id,
-                signals=llm_result["signals"],
-                model_name=self.llm_normalizer.client.model,
-                keywords=llm_result.get("keywords", []),
-                entities=llm_result.get("entities", {}),
-                confidence=llm_result.get("confidence"),
+                classified_type=classification_result["classified_type"],
+                confidence=classification_result["confidence"],
+                classifier_model=classification_result.get("method", "batch_aggregate"),
+                decision_details=classification_result,
             )
         
-        # Log summary of semantic normalization
-        total_dates = sum(len(fields.get("dates", [])) for fields in all_extracted_fields)
-        total_amounts = sum(len(fields.get("amounts", [])) for fields in all_extracted_fields)
-        total_emails = sum(len(fields.get("emails", [])) for fields in all_extracted_fields)
-        
-        LOGGER.info(
-            f"Normalized and persisted {len(normalized_chunks)} chunks with semantic field extraction",
-            extra={
-                "total_chunks": len(normalized_chunks),
-                "total_dates_extracted": total_dates,
-                "total_amounts_extracted": total_amounts,
-                "total_emails_extracted": total_emails,
-            }
-        )
-        
-        # Aggregate signals
-        classification_result = self.classification_service.aggregate_signals(
-            chunk_signals=chunk_signals,
-            chunk_metadata=chunk_metadata,
-        )
-        
-        # Check if fallback is needed
-        if self.fallback_classifier and self.classification_service.needs_fallback(classification_result):
-            LOGGER.info("Low confidence, triggering fallback classification")
-            
-            # Collect keywords and top chunks
-            all_keywords = classification_result["decision_details"].get("keywords", [])
-            top_chunks_text = [nc for nc in normalized_chunks[:5]]  # Top 5 chunks
-            
-            fallback_result = await self.fallback_classifier.classify(
-                keywords=all_keywords,
-                top_chunks_text=top_chunks_text,
-                aggregated_scores=classification_result["all_scores"],
-            )
-            
-            # Update classification result
-            classification_result["classified_type"] = fallback_result["classified_type"]
-            classification_result["confidence"] = fallback_result["confidence"]
-            classification_result["method"] = "fallback"
-            classification_result["fallback_used"] = True
-            classification_result["decision_details"]["fallback_reasoning"] = fallback_result.get("reasoning")
-        
-        # Persist final classification to database
-        if self.classification_repository:
-            try:
-                await self.classification_repository.create_document_classification(
-                    document_id=document_id,
-                    classified_type=classification_result["classified_type"],
-                    confidence=classification_result["confidence"],
-                    classifier_model=classification_result.get("method", "aggregate"),
-                    decision_details=classification_result.get("decision_details"),
-                )
-                LOGGER.info("Classification result persisted to database")
-            except Exception as e:
-                LOGGER.error(f"Failed to persist classification: {e}", exc_info=True)
-                # Don't fail the entire operation if classification persistence fails
-        
-        # Merge normalized chunks
-        merged_text = "\n\n".join(normalized_chunks)
-        
-        LOGGER.info(
-            "Normalization and classification completed",
-            extra={
-                "classified_type": classification_result["classified_type"],
-                "confidence": classification_result["confidence"],
-                "method": classification_result["method"],
-                "chunks_processed": len(normalized_chunks),
-            }
-        )
-        
-        # Perform document-level extraction (Pass 2: Global entity aggregation and relationship extraction)
+        # Perform document-level extraction (Pass 2)
         await self._process_document_level_extraction(document_id)
+        
+        LOGGER.info(
+            "Batch processing pipeline completed",
+            extra={
+                "document_id": str(document_id),
+                "classified_type": classification_result.get("classified_type") if classification_result else None,
+                "confidence": classification_result.get("confidence") if classification_result else None
+            }
+        )
         
         return merged_text, classification_result
     

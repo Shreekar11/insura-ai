@@ -48,7 +48,6 @@ class OCRService(BaseOCRService):
         timeout: int = 120,
         max_retries: int = 3,
         retry_delay: int = 2,
-        use_hybrid_normalization: bool = True,
         enable_classification: bool = True,
         normalization_service: Optional[NormalizationService] = None,
         provider: str = "gemini",
@@ -68,7 +67,6 @@ class OCRService(BaseOCRService):
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
             retry_delay: Delay between retries in seconds
-            use_hybrid_normalization: Use hybrid LLM + code normalization (default: True)
             enable_classification: Enable document classification (default: True)
             normalization_service: Optional injected NormalizationService
             provider: LLM provider to use ("gemini" or "openrouter")
@@ -129,7 +127,6 @@ class OCRService(BaseOCRService):
                 openrouter_api_key=openrouter_api_key,
                 openrouter_model=openrouter_model,
                 openrouter_api_url=openrouter_api_url,
-                use_hybrid=use_hybrid_normalization,
                 classification_service=classification_service,
                 fallback_classifier=fallback_classifier,
                 chunk_repository=chunk_repository,
@@ -138,11 +135,10 @@ class OCRService(BaseOCRService):
             )
 
         LOGGER.info(
-            "Initialized OCR service",
+            "Initialized OCR service with batch processing pipeline",
             extra={
                 "model": self.model,
                 "service_name": self.get_service_name(),
-                "use_hybrid_normalization": use_hybrid_normalization,
             },
         )
 
