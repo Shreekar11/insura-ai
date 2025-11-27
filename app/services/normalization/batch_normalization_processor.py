@@ -19,6 +19,7 @@ from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.classification_repository import ClassificationRepository
 from app.utils.logging import get_logger
 from app.config import settings
+from app.services.classification.constants import DOCUMENT_TYPES
 
 LOGGER = get_logger(__name__)
 
@@ -184,9 +185,11 @@ class BatchNormalizationProcessor:
             
             # Extract classification signals
             for chunk_id, result in batch_results.items():
+                signals_payload = self._extract_signals(result)
                 all_classification_signals.append({
-                    "signals": result.get("classification_signals", {}),
+                    "signals": signals_payload,
                     "section_type": result.get("section_type"),
+                    "weight": result.get("section_confidence", 1.0) or 1.0,
                 })
         
         # Step 4: Apply semantic normalization and persist results
@@ -235,13 +238,14 @@ class BatchNormalizationProcessor:
             })
             
             # Persist classification signals
+            signals_payload = self._extract_signals(batch_result)
             await self.classification_repository.create_classification_signal(
                 chunk_id=db_chunk.id,
-                signals=batch_result.get("classification_signals", {}),
+                signals=signals_payload,
                 model_name=self.unified_extractor.model,
                 keywords=[],
-                entities={},
-                confidence=batch_result.get("classification_signals", {}).get("policy_signals", 0.5),
+                entities=batch_result.get("entities", []),
+                confidence=self._get_signal_confidence(signals_payload),
             )
         
         # Bulk create normalized chunks
@@ -322,36 +326,94 @@ class BatchNormalizationProcessor:
             return {
                 "classified_type": "unknown",
                 "confidence": 0.0,
-                "method": "batch_aggregate"
+                "method": "batch_aggregate",
+                "all_scores": {doc_type: 0.0 for doc_type in DOCUMENT_TYPES},
             }
         
-        # Aggregate signal scores
-        aggregated_scores = {
-            "policy_signals": 0.0,
-            "claim_signals": 0.0,
-            "invoice_signals": 0.0,
-            "endorsement_signals": 0.0,
-            "certificate_signals": 0.0,
-        }
+        aggregated_scores = {doc_type: 0.0 for doc_type in DOCUMENT_TYPES}
+        total_weight = 0.0
         
         for signal_data in signals_list:
             signals = signal_data.get("signals", {})
-            for key in aggregated_scores:
-                aggregated_scores[key] += signals.get(key, 0.0)
+            if not signals:
+                continue
+            weight = signal_data.get("weight", 1.0) or 1.0
+            for doc_type in DOCUMENT_TYPES:
+                aggregated_scores[doc_type] += signals.get(doc_type, 0.0) * weight
+            total_weight += weight
         
-        # Average scores
-        count = len(signals_list)
-        for key in aggregated_scores:
-            aggregated_scores[key] /= count
+        if total_weight == 0:
+            return {
+                "classified_type": "unknown",
+                "confidence": 0.0,
+                "method": "batch_aggregate",
+                "all_scores": aggregated_scores,
+            }
         
-        # Determine classified type
-        classified_type = max(aggregated_scores, key=aggregated_scores.get)
-        classified_type = classified_type.replace("_signals", "")
-        confidence = aggregated_scores[max(aggregated_scores, key=aggregated_scores.get)]
+        normalized_scores = {
+            doc_type: score / total_weight for doc_type, score in aggregated_scores.items()
+        }
+        classified_type = max(normalized_scores, key=normalized_scores.get)
+        confidence = normalized_scores[classified_type]
         
         return {
             "classified_type": classified_type,
             "confidence": confidence,
             "method": "batch_aggregate",
-            "all_scores": aggregated_scores,
+            "all_scores": normalized_scores,
+            "chunks_used": len(signals_list),
         }
+
+    def _extract_signals(self, batch_result: Dict[str, Any]) -> Dict[str, float]:
+        """Normalize signal payloads from different prompt versions."""
+        raw_signals = batch_result.get("signals") or batch_result.get("classification_signals") or {}
+        normalized = {}
+        for doc_type in DOCUMENT_TYPES:
+            value = None
+            for key in (
+                doc_type,
+                doc_type.lower(),
+                f"{doc_type}_signals",
+                f"{doc_type.lower()}_signals",
+            ):
+                if key in raw_signals:
+                    value = raw_signals[key]
+                    break
+            normalized[doc_type] = self._sanitize_signal_value(value)
+        return normalized
+
+    @staticmethod
+    def _sanitize_signal_value(value: Any) -> float:
+        """Coerce LLM signal outputs into a normalized float."""
+        if isinstance(value, (int, float)):
+            numeric = float(value)
+        elif isinstance(value, str):
+            cleaned = value.strip()
+            percent = False
+
+            if cleaned.endswith("%"):
+                cleaned = cleaned[:-1]
+                percent = True
+
+            cleaned = cleaned.replace(",", "")
+
+            try:
+                numeric = float(cleaned)
+            except ValueError:
+                return 0.0
+
+            if percent:
+                numeric /= 100.0
+        else:
+            return 0.0
+
+        # Clamp to [0.0, 1.0]
+        if numeric < 0:
+            return 0.0
+        if numeric > 1:
+            return 1.0
+        return numeric
+
+    def _get_signal_confidence(self, signals: Dict[str, float]) -> float:
+        """Return the strongest class score for a chunk."""
+        return max(signals.values()) if signals else 0.0

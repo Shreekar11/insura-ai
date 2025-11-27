@@ -37,26 +37,41 @@ class LLMNormalizer:
             openrouter_api_url: OpenRouter API URL
             enable_fallback: Whether to enable fallback to Gemini if OpenRouter fails
         """
+
         self.provider = provider
+
+        # Determine which API key and model to use
+        if provider == "openrouter":
+            if not openrouter_api_key:
+                raise ValueError("openrouter_api_key required when provider='openrouter'")
+            api_key = openrouter_api_key
+            model = openrouter_model
+            base_url = openrouter_api_url
+        else:  # gemini
+            if not gemini_api_key:
+                raise ValueError("gemini_api_key required when provider='gemini'")
+            api_key = gemini_api_key
+            model = gemini_model
+            base_url = None
+        
+        
+        # Store model for external access
+        self.model = model
         
         # Initialize UnifiedLLMClient
         self.client = UnifiedLLMClient(
             provider=provider,
-            gemini_api_key=gemini_api_key,
-            gemini_model=gemini_model,
-            openrouter_api_key=openrouter_api_key,
-            openrouter_model=openrouter_model,
-            openrouter_api_url=openrouter_api_url,
-            enable_fallback=enable_fallback
+            api_key=api_key,
+            model=model,
+            base_url=base_url,
+            timeout=60,
+            max_retries=3,
+            fallback_to_gemini=False,
         )
         
         LOGGER.info(
-            "Initialized LLM text normalizer",
-            extra={
-                "provider": provider,
-                "model": openrouter_model if provider == "openrouter" else gemini_model,
-                "fallback_enabled": enable_fallback and provider == "openrouter",
-            }
+            f"Initialized {self.__class__.__name__}",
+            extra={"provider": provider, "model": model}
         )
     
     async def normalize_text(self, text: str) -> str:
