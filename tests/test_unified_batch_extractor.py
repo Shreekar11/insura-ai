@@ -65,12 +65,19 @@ class TestUnifiedBatchExtractor:
                         }
                     ],
                     "section_type": "declarations",
-                    "classification_signals": {
-                        "policy_signals": 0.95,
-                        "claim_signals": 0.05,
-                        "invoice_signals": 0.10,
-                        "endorsement_signals": 0.05,
-                        "certificate_signals": 0.15
+                    "signals": {
+                        "policy": 0.95,
+                        "claim": 0.05,
+                        "submission": 0.0,
+                        "quote": 0.0,
+                        "proposal": 0.0,
+                        "SOV": 0.0,
+                        "financials": 0.0,
+                        "loss_run": 0.0,
+                        "audit": 0.0,
+                        "endorsement": 0.05,
+                        "invoice": 0.10,
+                        "correspondence": 0.0,
                     }
                 },
                 "ch_002": {
@@ -86,24 +93,38 @@ class TestUnifiedBatchExtractor:
                         }
                     ],
                     "section_type": "coverages",
-                    "classification_signals": {
-                        "policy_signals": 0.90,
-                        "claim_signals": 0.05,
-                        "invoice_signals": 0.05,
-                        "endorsement_signals": 0.05,
-                        "certificate_signals": 0.10
+                    "signals": {
+                        "policy": 0.90,
+                        "claim": 0.05,
+                        "submission": 0.0,
+                        "quote": 0.0,
+                        "proposal": 0.0,
+                        "SOV": 0.0,
+                        "financials": 0.0,
+                        "loss_run": 0.0,
+                        "audit": 0.0,
+                        "endorsement": 0.05,
+                        "invoice": 0.05,
+                        "correspondence": 0.0,
                     }
                 },
                 "ch_003": {
                     "normalized_text": "EXCLUSIONS: We do not cover wear and tear or intentional damage",
                     "entities": [],
                     "section_type": "exclusions",
-                    "classification_signals": {
-                        "policy_signals": 0.85,
-                        "claim_signals": 0.05,
-                        "invoice_signals": 0.05,
-                        "endorsement_signals": 0.05,
-                        "certificate_signals": 0.05
+                    "signals": {
+                        "policy": 0.85,
+                        "claim": 0.05,
+                        "submission": 0.0,
+                        "quote": 0.0,
+                        "proposal": 0.0,
+                        "SOV": 0.0,
+                        "financials": 0.0,
+                        "loss_run": 0.0,
+                        "audit": 0.0,
+                        "endorsement": 0.05,
+                        "invoice": 0.05,
+                        "correspondence": 0.0,
                     }
                 }
             }
@@ -183,13 +204,13 @@ class TestUnifiedBatchExtractor:
                 "normalized_text": "text",
                 "entities": [],
                 "section_type": "unknown",
-                "classification_signals": {}
+                "signals": {}
             },
             "ch_002": {
                 "normalized_text": "text",
                 "entities": [],
                 "section_type": "unknown",
-                "classification_signals": {}
+                "signals": {}
             }
             # ch_003 is missing!
         }
@@ -200,7 +221,7 @@ class TestUnifiedBatchExtractor:
                 "normalized_text": "fallback text",
                 "entities": [],
                 "section_type": "unknown",
-                "classification_signals": {}
+                "signals": {}
             }
         }
         
@@ -351,7 +372,7 @@ class TestUnifiedBatchExtractor:
             results = await extractor.extract_batch(sample_chunks, document_id)
             
             # Verify signals
-            ch1_signals = results["ch_001"]["classification_signals"]
-            assert ch1_signals["policy_signals"] == 0.95
-            assert ch1_signals["claim_signals"] == 0.05
+            ch1_signals = results["ch_001"]["signals"]
+            assert ch1_signals["policy"] == 0.95
+            assert ch1_signals["claim"] == 0.05
             assert all(0.0 <= v <= 1.0 for v in ch1_signals.values())
