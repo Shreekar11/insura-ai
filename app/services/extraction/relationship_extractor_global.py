@@ -138,6 +138,18 @@ class RelationshipExtractorGlobal:
             )
             return []
         
+        # Check if canonical entities are sparse (< 3 entities)
+        is_sparse = len(canonical_entities) < 3
+        
+        if is_sparse:
+            LOGGER.warning(
+                f"Sparse canonical entities ({len(canonical_entities)}), will use chunk-level candidates",
+                extra={
+                    "document_id": str(document_id),
+                    "canonical_count": len(canonical_entities)
+                }
+            )
+        
         # Fetch document and chunks
         document = await self._fetch_document(document_id)
         chunks = await self._fetch_normalized_chunks(document_id)
@@ -149,11 +161,12 @@ class RelationshipExtractorGlobal:
             )
             return []
         
-        # Build global context
+        # Build global context (includes chunk candidates if sparse)
         context = self._build_global_context(
             document=document,
             canonical_entities=canonical_entities,
-            chunks=chunks
+            chunks=chunks,
+            include_chunk_candidates=is_sparse
         )
         
         # Call LLM for relationship extraction
@@ -166,7 +179,8 @@ class RelationshipExtractorGlobal:
                 relationship = await self._create_relationship(
                     document_id=document_id,
                     relationship_data=rel_data,
-                    canonical_entities=canonical_entities
+                    canonical_entities=canonical_entities,
+                    chunks=chunks if is_sparse else None  # Pass chunks for temp entity reconciliation
                 )
                 if relationship:
                     relationships.append(relationship)
@@ -286,7 +300,8 @@ class RelationshipExtractorGlobal:
         self,
         document: Optional[Document],
         canonical_entities: List[CanonicalEntity],
-        chunks: List[NormalizedChunk]
+        chunks: List[NormalizedChunk],
+        include_chunk_candidates: bool = False
     ) -> Dict[str, Any]:
         """Build global context for LLM.
         
@@ -294,6 +309,7 @@ class RelationshipExtractorGlobal:
             document: Document record
             canonical_entities: List of canonical entities
             chunks: List of normalized chunks
+            include_chunk_candidates: Whether to include chunk-level entity candidates
             
         Returns:
             Context dictionary
@@ -309,8 +325,23 @@ class RelationshipExtractorGlobal:
                 "entity_id": entity.canonical_key,  # Use canonical_key as entity_id
                 "entity_type": entity.entity_type,
                 "value": value,
-                "confidence": confidence
+                "confidence": confidence,
+                "source": "canonical"
             })
+        
+        # Add chunk-level candidates if canonical entities are sparse
+        chunk_candidates = []
+        if include_chunk_candidates:
+            chunk_candidates = self._build_chunk_entity_candidates(chunks)
+            entities_list.extend(chunk_candidates)
+            
+            LOGGER.info(
+                f"Added {len(chunk_candidates)} chunk-level entity candidates",
+                extra={
+                    "canonical_count": len(canonical_entities),
+                    "candidate_count": len(chunk_candidates)
+                }
+            )
         
         # Build chunks by section
         chunks_by_section = {}
@@ -333,8 +364,45 @@ class RelationshipExtractorGlobal:
             "document_type": document.classifications[0].classified_type if document and document.classifications else "unknown",
             "section_types": list(chunks_by_section.keys()),
             "entities_json": json.dumps(entities_list, indent=2),
-            "chunks_by_section": chunks_text
+            "chunks_by_section": chunks_text,
+            "has_chunk_candidates": include_chunk_candidates,
+            "candidate_count": len(chunk_candidates) if include_chunk_candidates else 0
         }
+    
+    def _build_chunk_entity_candidates(self, chunks: List[NormalizedChunk]) -> List[Dict[str, Any]]:
+        """Build candidate entities from chunk-level mentions when canonical sparse.
+        
+        Args:
+            chunks: List of normalized chunks
+            
+        Returns:
+            List of chunk-level entity candidates with temporary IDs
+        """
+        candidates = []
+        
+        for chunk in chunks:
+            if not chunk.entities:
+                continue
+            
+            for entity in chunk.entities:
+                # Assign temporary ID
+                temp_id = f"temp_{chunk.id}_{entity.get('entity_type')}_{hash(entity.get('normalized_value', ''))}"[:64]
+                
+                candidates.append({
+                    "entity_id": temp_id,
+                    "entity_type": entity.get("entity_type"),
+                    "value": entity.get("normalized_value"),
+                    "confidence": entity.get("confidence", 0.5),
+                    "source": "chunk_level",
+                    "chunk_id": str(chunk.id)
+                })
+        
+        LOGGER.debug(
+            f"Built {len(candidates)} chunk-level entity candidates",
+            extra={"candidate_count": len(candidates)}
+        )
+        
+        return candidates
     
     async def _call_llm_api(self, context: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Call LLM API for relationship extraction.
@@ -353,13 +421,15 @@ Please extract relationships from the following document data:
 
 **Section Types**: {', '.join(context['section_types'])}
 
-**Canonical Entities**:
+**Entities** (Canonical + Chunk-level Candidates):
 {context['entities_json']}
+
+{"**Note**: Some entities are chunk-level candidates (source='chunk_level') because canonical entities are sparse. Prefer canonical entities but use candidates when needed." if context.get('has_chunk_candidates') else ""}
 
 **Document Chunks by Section**:
 {context['chunks_by_section']}
 
-Extract all relationships between these canonical entities based on the evidence in the chunks.
+Extract all relationships between these entities based on the evidence in the chunks.
 Return ONLY valid JSON following the schema defined in the system instructions.
 """
         
@@ -405,7 +475,8 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         self,
         document_id: UUID,
         relationship_data: Dict[str, Any],
-        canonical_entities: List[CanonicalEntity]
+        canonical_entities: List[CanonicalEntity],
+        chunks: Optional[List[NormalizedChunk]] = None
     ) -> Optional[EntityRelationship]:
         """Create EntityRelationship record with flexible entity matching.
         
@@ -413,6 +484,7 @@ Return ONLY valid JSON following the schema defined in the system instructions.
             document_id: Document ID
             relationship_data: Relationship data from LLM
             canonical_entities: List of canonical entities
+            chunks: Optional chunks for temp entity reconciliation
             
         Returns:
             Created relationship or None if invalid
@@ -435,8 +507,8 @@ Return ONLY valid JSON following the schema defined in the system instructions.
             return None
         
         # Try multiple matching strategies
-        source_entity = self._find_entity(source_id, canonical_entities)
-        target_entity = self._find_entity(target_id, canonical_entities)
+        source_entity = self._find_entity(source_id, canonical_entities, chunks)
+        target_entity = self._find_entity(target_id, canonical_entities, chunks)
         
         if not source_entity or not target_entity:
             LOGGER.warning(
@@ -472,7 +544,8 @@ Return ONLY valid JSON following the schema defined in the system instructions.
     def _find_entity(
         self,
         entity_identifier: str,
-        canonical_entities: List[CanonicalEntity]
+        canonical_entities: List[CanonicalEntity],
+        chunks: Optional[List[NormalizedChunk]] = None
     ) -> Optional[CanonicalEntity]:
         """Find entity using flexible matching strategies.
         
@@ -480,10 +553,12 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         1. Exact canonical_key match
         2. Match by entity_type:normalized_value format
         3. Fuzzy match by normalized value (case-insensitive)
+        4. If chunks provided and identifier starts with 'temp_', reconcile to canonical
         
         Args:
             entity_identifier: Entity ID from LLM (could be canonical_key, value, or type:value)
             canonical_entities: List of canonical entities
+            chunks: Optional chunks for temp entity reconciliation
             
         Returns:
             Matched entity or None
@@ -521,5 +596,63 @@ Return ONLY valid JSON following the schema defined in the system instructions.
                     (entity_identifier_lower in entity_value_lower or 
                      entity_value_lower in entity_identifier_lower)):
                     return entity
+        
+        # Strategy 5: Reconcile temporary chunk-level entity to canonical
+        if chunks and entity_identifier.startswith('temp_'):
+            reconciled = self._reconcile_temp_entity(entity_identifier, canonical_entities, chunks)
+            if reconciled:
+                LOGGER.debug(
+                    f"Reconciled temp entity {entity_identifier[:32]}... to canonical",
+                    extra={"canonical_id": reconciled.canonical_key[:16]}
+                )
+                return reconciled
+        
+        return None
+    
+    def _reconcile_temp_entity(
+        self,
+        temp_id: str,
+        canonical_entities: List[CanonicalEntity],
+        chunks: List[NormalizedChunk]
+    ) -> Optional[CanonicalEntity]:
+        """Reconcile temporary chunk-level entity to canonical entity.
+        
+        Args:
+            temp_id: Temporary entity ID (format: temp_{chunk_id}_{type}_{hash})
+            canonical_entities: List of canonical entities
+            chunks: List of chunks
+            
+        Returns:
+            Matched canonical entity or None
+        """
+        # Extract chunk_id from temp_id
+        try:
+            parts = temp_id.split('_')
+            if len(parts) < 3:
+                return None
+            
+            chunk_id_str = parts[1]
+            entity_type = parts[2] if len(parts) > 2 else None
+            
+            # Find the chunk
+            chunk = next((c for c in chunks if str(c.id) == chunk_id_str), None)
+            if not chunk or not chunk.entities:
+                return None
+            
+            # Find the entity in chunk by type and hash match
+            for chunk_entity in chunk.entities:
+                if chunk_entity.get('entity_type') == entity_type:
+                    # Try to match to canonical by normalized value
+                    normalized_value = chunk_entity.get('normalized_value', '')
+                    
+                    for canonical in canonical_entities:
+                        canonical_value = canonical.attributes.get('normalized_value', '') if canonical.attributes else ''
+                        
+                        if (canonical.entity_type == entity_type and
+                            canonical_value.lower().strip() == normalized_value.lower().strip()):
+                            return canonical
+            
+        except Exception as e:
+            LOGGER.warning(f"Failed to reconcile temp entity: {e}")
         
         return None
