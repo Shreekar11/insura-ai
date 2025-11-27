@@ -8,7 +8,7 @@ starts from an empty set.
 from typing import List, Dict, Any
 from uuid import UUID
 
-from app.services.extraction.deterministic_parser import InsuranceEntityParser
+from app.services.pipeline.deterministic_parser import InsuranceEntityParser
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

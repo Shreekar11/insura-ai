@@ -9,11 +9,11 @@ from uuid import UUID, uuid4
 import hashlib
 
 from app.models.page_data import PageData
-from app.services.extraction.batch_extractor import BatchExtractor
-from app.services.extraction.batch_processor import BatchProcessor
+from app.services.pipeline.batch_extractor import BatchExtractor
+from app.services.pipeline.batch_processor import BatchProcessor
 from app.services.normalization.semantic_normalizer import SemanticNormalizer
 from app.services.chunking.chunking_service import ChunkingService
-from app.services.extraction.entity_resolver import EntityResolver
+from app.services.entity.resolver import EntityResolver
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.classification_repository import ClassificationRepository

@@ -142,7 +142,7 @@ async def get_normalization_service(
     """
     # Import here to avoid circular dependency
     from app.services.extraction.extractor_factory import ExtractorFactory
-    from app.services.extraction.entity_resolver import EntityResolver
+    from app.services.entity.resolver import EntityResolver
     
     # Create extractor factory for section-aware extraction
     extractor_factory = ExtractorFactory(

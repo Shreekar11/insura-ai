@@ -18,7 +18,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_service import BaseService
 from app.core.unified_llm import UnifiedLLMClient
-from app.services.extraction.batch_processor import BatchProcessor
+from app.services.pipeline.batch_processor import BatchProcessor
 from app.prompts import UNIFIED_BATCH_EXTRACTION_PROMPT
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger

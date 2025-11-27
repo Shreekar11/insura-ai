@@ -19,10 +19,10 @@ from app.services.normalization.semantic_normalizer import SemanticNormalizer
 from app.services.chunking.chunking_service import ChunkingService
 from app.services.classification.classification_service import ClassificationService
 from app.services.classification.fallback_classifier import FallbackClassifier
-from app.services.extraction.entity_relationship_extractor import EntityRelationshipExtractor
-from app.services.extraction.entity_resolver import EntityResolver
-from app.services.extraction.document_entity_aggregator import DocumentEntityAggregator
-from app.services.extraction.relationship_extractor_global import RelationshipExtractorGlobal
+from app.services.entity.relationship_extractor import EntityRelationshipExtractor
+from app.services.entity.resolver import EntityResolver
+from app.services.pipeline.document_entity_aggregator import DocumentEntityAggregator
+from app.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.normalization_repository import NormalizationRepository
 from app.repositories.classification_repository import ClassificationRepository
@@ -140,7 +140,7 @@ class NormalizationService(BaseService):
             )
         
         # Initialize batch processing components
-        from app.services.extraction.batch_extractor import BatchExtractor
+        from app.services.pipeline.batch_extractor import BatchExtractor
         from app.services.normalization.batch_normalization_processor import BatchNormalizationProcessor
         from app.config import settings
         
@@ -177,7 +177,7 @@ class NormalizationService(BaseService):
             self.batch_processor = None
         
         # Initialize section batch extractor for optimized section extraction
-        from app.services.extraction.section_batch_extractor import SectionBatchExtractor
+        from app.services.pipeline.section_batch_extractor import SectionBatchExtractor
         
         self.section_batch_extractor = SectionBatchExtractor(
             session=normalization_repository.session if normalization_repository else None,
