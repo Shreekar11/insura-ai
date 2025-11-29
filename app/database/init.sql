@@ -201,8 +201,13 @@ CREATE TABLE IF NOT EXISTS normalized_chunks (
     extracted_fields JSONB,
     entities JSONB,
     relationships JSONB,
+    content_hash VARCHAR(64),
     model_version VARCHAR,
+    prompt_version VARCHAR,
+    pipeline_run_id VARCHAR,
+    source_stage VARCHAR,
     quality_score NUMERIC,
+    extracted_at TIMESTAMP WITH TIME ZONE,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
@@ -240,7 +245,7 @@ CREATE TABLE IF NOT EXISTS canonical_entities (
     attributes JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
     updated_at TIMESTAMP WITH TIME ZONE DEFAULT NOW(),
-    UNIQUE(entity_type, canonical_key)
+    CONSTRAINT uq_entity_type_canonical_key UNIQUE(entity_type, canonical_key)
 );
 
 -- Chunk Entity Mentions table
@@ -311,15 +316,19 @@ CREATE TABLE IF NOT EXISTS embedding_sync_state (
 CREATE TABLE IF NOT EXISTS sov_items (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
     location_number VARCHAR,
     building_number VARCHAR,
     description TEXT,
+    address TEXT,
     construction_type VARCHAR,
     occupancy VARCHAR,
     year_built INTEGER,
     square_footage INTEGER,
-    limit NUMERIC,
-    deductible NUMERIC,
+    building_limit NUMERIC,
+    contents_limit NUMERIC,
+    bi_limit NUMERIC,
+    total_insured_value NUMERIC,
     additional_data JSONB,
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
@@ -328,10 +337,14 @@ CREATE TABLE IF NOT EXISTS sov_items (
 CREATE TABLE IF NOT EXISTS loss_run_claims (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
     claim_number VARCHAR,
+    policy_number VARCHAR,
     insured_name VARCHAR,
     loss_date DATE,
+    report_date DATE,
     cause_of_loss VARCHAR,
+    description TEXT,
     incurred_amount NUMERIC,
     paid_amount NUMERIC,
     reserve_amount NUMERIC,
@@ -340,7 +353,171 @@ CREATE TABLE IF NOT EXISTS loss_run_claims (
     created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
 );
 
+-- Policy Items table
+CREATE TABLE IF NOT EXISTS policy_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    policy_number VARCHAR,
+    policy_type VARCHAR,
+    insured_name VARCHAR,
+    effective_date DATE,
+    expiration_date DATE,
+    premium_amount NUMERIC,
+    coverage_limits JSONB,
+    deductibles JSONB,
+    carrier_name VARCHAR,
+    agent_name VARCHAR,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Endorsement Items table
+CREATE TABLE IF NOT EXISTS endorsement_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    endorsement_number VARCHAR,
+    policy_number VARCHAR,
+    effective_date DATE,
+    change_type VARCHAR,
+    description TEXT,
+    premium_change NUMERIC,
+    coverage_changes JSONB,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Invoice Items table
+CREATE TABLE IF NOT EXISTS invoice_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    invoice_number VARCHAR,
+    policy_number VARCHAR,
+    invoice_date DATE,
+    due_date DATE,
+    total_amount NUMERIC,
+    amount_paid NUMERIC,
+    balance_due NUMERIC,
+    payment_status VARCHAR,
+    payment_method VARCHAR,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Condition Items table
+CREATE TABLE IF NOT EXISTS condition_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    condition_type VARCHAR,
+    title VARCHAR,
+    description TEXT,
+    applies_to VARCHAR,
+    requirements JSONB,
+    consequences TEXT,
+    reference VARCHAR,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Coverage Items table
+CREATE TABLE IF NOT EXISTS coverage_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    coverage_name VARCHAR,
+    coverage_type VARCHAR,
+    limit_amount NUMERIC,
+    deductible_amount NUMERIC,
+    premium_amount NUMERIC,
+    description TEXT,
+    sub_limits JSONB,
+    exclusions JSONB,
+    conditions JSONB,
+    per_occurrence BOOLEAN,
+    aggregate BOOLEAN,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Exclusion Items table
+CREATE TABLE IF NOT EXISTS exclusion_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    exclusion_type VARCHAR,
+    title VARCHAR,
+    description TEXT,
+    applies_to VARCHAR,
+    scope VARCHAR,
+    exceptions JSONB,
+    rationale TEXT,
+    reference VARCHAR,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- KYC Items table
+CREATE TABLE IF NOT EXISTS kyc_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    customer_name VARCHAR,
+    customer_type VARCHAR,
+    date_of_birth DATE,
+    incorporation_date DATE,
+    tax_id VARCHAR,
+    business_type VARCHAR,
+    industry VARCHAR,
+    address TEXT,
+    city VARCHAR,
+    state VARCHAR,
+    zip_code VARCHAR,
+    country VARCHAR,
+    phone VARCHAR,
+    email VARCHAR,
+    website VARCHAR,
+    identification_type VARCHAR,
+    identification_number VARCHAR,
+    identification_issuer VARCHAR,
+    identification_expiry DATE,
+    authorized_signers JSONB,
+    ownership_structure TEXT,
+    annual_revenue NUMERIC,
+    employee_count INTEGER,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Claim Items table
+CREATE TABLE IF NOT EXISTS claim_items (
+    id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
+    document_id UUID REFERENCES documents(id),
+    chunk_id UUID REFERENCES document_chunks(id),
+    claim_number VARCHAR,
+    policy_number VARCHAR,
+    claimant_name VARCHAR,
+    loss_date DATE,
+    report_date DATE,
+    claim_type VARCHAR,
+    loss_description TEXT,
+    loss_location TEXT,
+    claim_amount NUMERIC,
+    paid_amount NUMERIC,
+    reserve_amount NUMERIC,
+    claim_status VARCHAR,
+    adjuster_name VARCHAR,
+    denial_reason TEXT,
+    additional_data JSONB,
+    created_at TIMESTAMP WITH TIME ZONE DEFAULT NOW()
+);
+
+-- Indexes
 CREATE INDEX IF NOT EXISTS idx_chunk_entity_chunk ON chunk_entity_mentions(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_chunk_embeddings_chunk ON chunk_embeddings(chunk_id);
 CREATE INDEX IF NOT EXISTS idx_document_entity_document ON document_entity_links(document_id);
 CREATE INDEX IF NOT EXISTS idx_canonical_entities_key ON canonical_entities(entity_type, canonical_key);
+CREATE INDEX IF NOT EXISTS idx_normalized_chunks_content_hash ON normalized_chunks(content_hash);
+CREATE INDEX IF NOT EXISTS idx_normalized_chunks_pipeline_run ON normalized_chunks(pipeline_run_id);
