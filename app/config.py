@@ -10,7 +10,7 @@ class Settings(BaseSettings):
     """Application settings loaded from environment variables."""
 
     # Application Settings
-    app_name: str = "Insurance AI - OCR Service"
+    app_name: str = "Insura AI - AI-powered workspace and assistant designed specifically for insurance operations"
     app_version: str = "0.1.0"
     environment: str = "development"
     debug: bool = True

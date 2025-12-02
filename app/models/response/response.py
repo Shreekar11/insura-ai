@@ -22,7 +22,7 @@ class HealthCheckResponse(BaseModel):
     service: str = Field(
         ...,
         description="Service name",
-        examples=["Insurance AI - OCR Service"],
+        examples=["Insura AI - AI-powered workspace and assistant designed specifically for insurance operations"],
     )
 
     model_config = {
@@ -31,7 +31,7 @@ class HealthCheckResponse(BaseModel):
                 {
                     "status": "healthy",
                     "version": "0.1.0",
-                    "service": "Insurance AI - OCR Service",
+                    "service": "Insura AI - AI-powered workspace and assistant designed specifically for insurance operations",
                 }
             ]
         }
