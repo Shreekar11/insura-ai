@@ -243,7 +243,8 @@ class NormalizationService(BaseService):
         
         Args:
             pages: List of PageData objects
-            document_id: UUID of the document being processed            max_tokens: Maximum tokens per chunk (default: 1500)
+            document_id: UUID of the document being processed            
+            max_tokens: Maximum tokens per chunk (default: 1500)
             
         Returns:
             Tuple of (normalized_text, classification_result)

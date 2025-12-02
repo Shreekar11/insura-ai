@@ -1,4 +1,4 @@
-"""OCR extraction API endpoints."""
+"""Workflow orchestration API endpoints."""
 
 from typing import Annotated
 
@@ -47,7 +47,7 @@ router = APIRouter()
     },
     summary="Extract text from PDF document",
     description="Extract text content from a PDF document using OCR. Accepts a public URL to the PDF document.",
-    operation_id="extract_pdf_text_with_mistral_ocr_service",
+    operation_id="extract_document_workflow",
 )
 async def extract_ocr(
     request: OCRExtractionRequest,
