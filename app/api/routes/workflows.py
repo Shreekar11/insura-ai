@@ -1,6 +1,7 @@
 """Workflow orchestration API endpoints."""
 
 from typing import Annotated
+from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,6 +12,7 @@ from app.config import settings
 from app.database import get_async_session
 from app.services.ocr.ocr_service import OCRService
 from app.dependencies import get_ocr_service
+from app.repositories.document_repository import DocumentRepository
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -75,8 +77,43 @@ async def extract_ocr(
     LOGGER.info("Received OCR extraction request", extra={"pdf_url": pdf_url})
 
     try:
-        # Extract text using service
-        result = await ocr_service.extract_text_from_url(pdf_url)
+        # Create document repository
+        document_repository = DocumentRepository(db_session)
+
+        # TODO: Get user_id from auth / middleware
+        DEFAULT_TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
+        
+        document = await document_repository.create_document(
+            file_path=pdf_url,
+            page_count=0,
+            user_id=DEFAULT_TEST_USER_ID,
+        )
+        document_id = document.id
+        
+        LOGGER.info(
+            "Document record created before OCR",
+            extra={"document_id": str(document_id), "pdf_url": pdf_url}
+        )
+        
+        # Extract text using service with document_id
+        result = await ocr_service.extract_text_from_url(
+            pdf_url,
+            document_id=document_id
+        )
+        
+        # Update document with actual page count
+        if result.metadata.get("pages_count"):
+            await document_repository.update(
+                document_id,
+                page_count=result.metadata["pages_count"]
+            )
+            LOGGER.info(
+                "Document page count updated",
+                extra={
+                    "document_id": str(document_id),
+                    "page_count": result.metadata["pages_count"]
+                }
+            )
 
         response = OCRExtractionResponse(
             document_id=result.document_id,

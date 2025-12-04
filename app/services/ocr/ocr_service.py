@@ -145,7 +145,7 @@ class OCRService(BaseOCRService):
     async def extract_text_from_url(
         self,
         document_url: str,
-        document_id: Optional[UUID] = None,
+        document_id: UUID,  # Now required, not Optional
     ) -> OCRResult:
         """Wrapper for run() to maintain backward compatibility.
         
@@ -159,7 +159,7 @@ class OCRService(BaseOCRService):
     async def run(
         self,
         document_url: str,
-        document_id: Optional[UUID] = None,
+        document_id: UUID,
     ) -> OCRResult:
         """Extract text from a document URL using Mistral OCR API.
         
@@ -167,7 +167,7 @@ class OCRService(BaseOCRService):
 
         Args:
             document_url: Public URL to the document (PDF or image)
-            document_id: Optional document ID for database tracking
+            document_id: Document ID (REQUIRED - must be created before calling this method)
 
         Returns:
             OCRResult: Extraction result with normalized text and classification
@@ -176,11 +176,21 @@ class OCRService(BaseOCRService):
             OCRExtractionError: If extraction fails
             OCRTimeoutError: If processing times out
             InvalidDocumentError: If document is invalid
+            ValueError: If document_id is not provided
         """
-        LOGGER.info("Starting OCR extraction", extra={"document_url": document_url})
+        LOGGER.info(
+            "Starting OCR extraction",
+            extra={"document_url": document_url, "document_id": str(document_id)}
+        )
         start_time = time.time()
 
         try:
+            # Validate document_id is provided
+            if document_id is None:
+                raise ValueError(
+                    "document_id is required - document must be persisted before OCR extraction"
+                )
+            
             # Validate document URL
             self._validate_document_url(document_url)
 
@@ -192,22 +202,6 @@ class OCRService(BaseOCRService):
                 document_url=document_url,
                 model=self.model,
             )
-            
-            # Create document record if not provided and repository is available
-            if document_id is None and self.document_repository:
-                # Default test user UUID (same as before)
-                DEFAULT_TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-                
-                document = await self.document_repository.create_document(
-                    file_path=document_url,
-                    page_count=len(pages),
-                    user_id=DEFAULT_TEST_USER_ID,
-                )
-                document_id = document.id
-                LOGGER.info(
-                    "Document record created via repository",
-                    extra={"document_id": str(document_id)}
-                )
 
             # Validate extraction result
             self._validate_extraction_result(pages, document_url)

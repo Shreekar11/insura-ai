@@ -78,11 +78,16 @@ class BaseOCRService(BaseService):
     """
 
     @abstractmethod
-    async def extract_text_from_url(self, document_url: str) -> OCRResult:
+    async def extract_text_from_url(
+        self,
+        document_url: str,
+        document_id: UUID,
+    ) -> OCRResult:
         """Extract text from a document URL.
 
         Args:
             document_url: Public URL of the document to process
+            document_id: Document ID (REQUIRED - must be created before calling this method)
 
         Returns:
             OCRResult: Extracted text and metadata
@@ -91,6 +96,7 @@ class BaseOCRService(BaseService):
             OCRExtractionError: If extraction fails
             OCRTimeoutError: If processing times out
             InvalidDocumentError: If document is invalid
+            ValueError: If document_id is not provided
         """
         pass
 
