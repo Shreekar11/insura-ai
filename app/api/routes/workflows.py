@@ -7,12 +7,12 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.request.ocr import OCRExtractionRequest
-from app.models.response.ocr import OCRExtractionResponse, ErrorResponse
+from app.models.response.ocr import ErrorResponse
 from app.config import settings
 from app.database import get_async_session
-from app.services.ocr.ocr_service import OCRService
-from app.dependencies import get_ocr_service
 from app.repositories.document_repository import DocumentRepository
+from app.temporal_client import get_temporal_client
+from app.temporal.workflows.process_document import ProcessDocumentWorkflow
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -27,19 +27,13 @@ router = APIRouter()
 
 @router.post(
     "/extract",
-    response_model=OCRExtractionResponse,
-    status_code=status.HTTP_200_OK,
+    status_code=status.HTTP_202_ACCEPTED,
     responses={
-        200: {
-            "description": "OCR extraction completed successfully",
-            "model": OCRExtractionResponse,
+        202: {
+            "description": "Workflow started successfully",
         },
         400: {
-            "description": "Invalid request or document",
-            "model": ErrorResponse,
-        },
-        408: {
-            "description": "OCR processing timeout",
+            "description": "Invalid request",
             "model": ErrorResponse,
         },
         500: {
@@ -47,34 +41,33 @@ router = APIRouter()
             "model": ErrorResponse,
         },
     },
-    summary="Extract text from PDF document",
-    description="Extract text content from a PDF document using OCR. Accepts a public URL to the PDF document.",
-    operation_id="extract_document_workflow",
+    summary="Start document processing workflow",
+    description="Create a document record and start async Temporal workflow for OCR extraction, normalization, and entity resolution.",
+    operation_id="start_document_workflow",
 )
 async def extract_ocr(
     request: OCRExtractionRequest,
-    ocr_service: Annotated[OCRService, Depends(get_ocr_service)],
     db_session: Annotated[AsyncSession, Depends(get_async_session)],
-) -> OCRExtractionResponse:
-    """Extract text from a PDF document using OCR.
+) -> dict:
+    """Start async document processing workflow.
 
-    This endpoint accepts a public URL to a PDF document and returns the extracted
-    text content along with confidence scores and metadata.
+    This endpoint creates a document record and triggers the Temporal workflow
+    for asynchronous processing. The workflow handles OCR extraction, normalization,
+    classification, and entity resolution.
 
     Args:
         request: OCR extraction request containing the PDF URL
-        ocr_service: Injected OCR service instance
-        db_session: Database session for committing changes
+        db_session: Database session for document creation
 
     Returns:
-        OCRExtractionResponse: Extracted text and metadata
+        dict: Workflow start response with document_id and workflow_id
 
     Raises:
-        HTTPException: If extraction fails or times out
+        HTTPException: If workflow start fails
     """
     pdf_url = str(request.pdf_url)
 
-    LOGGER.info("Received OCR extraction request", extra={"pdf_url": pdf_url})
+    LOGGER.info("Received workflow start request", extra={"pdf_url": pdf_url})
 
     try:
         # Create document repository
@@ -83,6 +76,7 @@ async def extract_ocr(
         # TODO: Get user_id from auth / middleware
         DEFAULT_TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
         
+        # Create document record FIRST (before starting workflow)
         document = await document_repository.create_document(
             file_path=pdf_url,
             page_count=0,
@@ -90,113 +84,136 @@ async def extract_ocr(
         )
         document_id = document.id
         
+        # Commit document creation before starting workflow
+        await db_session.commit()
+        
         LOGGER.info(
-            "Document record created before OCR",
+            "Document created, starting workflow",
             extra={"document_id": str(document_id), "pdf_url": pdf_url}
         )
         
-        # Extract text using service with document_id
-        result = await ocr_service.extract_text_from_url(
-            pdf_url,
-            document_id=document_id
-        )
+        # Get Temporal client
+        temporal_client = await get_temporal_client()
         
-        # Update document with actual page count
-        if result.metadata.get("pages_count"):
-            await document_repository.update(
-                document_id,
-                page_count=result.metadata["pages_count"]
-            )
-            LOGGER.info(
-                "Document page count updated",
-                extra={
-                    "document_id": str(document_id),
-                    "page_count": result.metadata["pages_count"]
-                }
-            )
-
-        response = OCRExtractionResponse(
-            document_id=result.document_id,
-            status="Completed" if result.success else "Failed",
-            metadata=result.metadata,
-            layout=result.layout,
+        # Start ProcessDocumentWorkflow asynchronously
+        workflow_handle = await temporal_client.start_workflow(
+            ProcessDocumentWorkflow.run,
+            str(document_id),  # Pass document_id as string
+            id=f"process-doc-{document_id}",
+            task_queue="documents-queue",
         )
-        
-        try:
-            await db_session.commit()
-            LOGGER.info("Database changes committed successfully")
-        except Exception as commit_error:
-            LOGGER.error(f"Failed to commit database changes: {commit_error}")
-            await db_session.rollback()
         
         LOGGER.info(
-            "OCR extraction completed successfully",
+            "Workflow started successfully",
             extra={
+                "document_id": str(document_id),
+                "workflow_id": workflow_handle.id,
                 "pdf_url": pdf_url,
-                "document_id": str(result.document_id) if result.document_id else None,
-                "text_length": len(result.text),
-                "classification": result.metadata.get("classification"),
-            },
+            }
         )
-
-        return response
-
-    except InvalidDocumentError as e:
-        LOGGER.error(
-            "Invalid document error",
-            exc_info=True,
-            extra={"pdf_url": pdf_url, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_400_BAD_REQUEST,
-            detail={
-                "error": "InvalidDocumentError",
-                "message": "Invalid or inaccessible document",
-                "detail": str(e),
-            },
-        ) from e
-
-    except OCRTimeoutError as e:
-        LOGGER.error(
-            "OCR timeout error",
-            exc_info=True,
-            extra={"pdf_url": pdf_url, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_408_REQUEST_TIMEOUT,
-            detail={
-                "error": "OCRTimeoutError",
-                "message": "OCR processing timed out",
-                "detail": str(e),
-            },
-        ) from e
-
-    except (OCRExtractionError, APIClientError) as e:
-        LOGGER.error(
-            "OCR extraction error",
-            exc_info=True,
-            extra={"pdf_url": pdf_url, "error": str(e)},
-        )
-        raise HTTPException(
-            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-            detail={
-                "error": type(e).__name__,
-                "message": "Failed to extract text from document",
-                "detail": str(e),
-            },
-        ) from e
+        
+        # Return immediately with workflow ID
+        return {
+            "document_id": str(document_id),
+            "workflow_id": workflow_handle.id,
+            "status": "processing",
+            "message": "Document processing started. Use workflow_id to check status.",
+        }
 
     except Exception as e:
         LOGGER.error(
-            "Unexpected error during OCR extraction",
+            "Failed to start workflow",
             exc_info=True,
             extra={"pdf_url": pdf_url, "error": str(e)},
         )
+        
+        # Rollback document creation if workflow start fails
+        try:
+            await db_session.rollback()
+        except Exception:
+            pass
+        
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
             detail={
-                "error": "InternalServerError",
-                "message": "An unexpected error occurred",
+                "error": "WorkflowStartError",
+                "message": "Failed to start document processing workflow",
+                "detail": str(e),
+            },
+        ) from e
+
+
+@router.get(
+    "/status/{workflow_id}",
+    status_code=status.HTTP_200_OK,
+    responses={
+        200: {
+            "description": "Workflow status retrieved successfully",
+        },
+        404: {
+            "description": "Workflow not found",
+            "model": ErrorResponse,
+        },
+        500: {
+            "description": "Internal server error",
+            "model": ErrorResponse,
+        },
+    },
+    summary="Get workflow status",
+    description="Query the current status and progress of a document processing workflow.",
+    operation_id="get_workflow_status",
+)
+async def get_workflow_status(workflow_id: str) -> dict:
+    """Get workflow execution status and progress.
+
+    Args:
+        workflow_id: Workflow execution ID returned from /extract endpoint
+
+    Returns:
+        dict: Workflow status with current phase and progress
+
+    Raises:
+        HTTPException: If workflow not found or query fails
+    """
+    LOGGER.info("Querying workflow status", extra={"workflow_id": workflow_id})
+
+    try:
+        # Get Temporal client
+        temporal_client = await get_temporal_client()
+        
+        # Get workflow handle
+        handle = temporal_client.get_workflow_handle(workflow_id)
+        
+        # Query workflow status
+        status_data = await handle.query("get_status")
+        
+        LOGGER.info(
+            "Workflow status retrieved",
+            extra={
+                "workflow_id": workflow_id,
+                "status": status_data.get("status"),
+                "progress": status_data.get("progress"),
+            }
+        )
+        
+        return {
+            "workflow_id": workflow_id,
+            "status": status_data.get("status", "unknown"),
+            "current_phase": status_data.get("current_phase"),
+            "progress": status_data.get("progress", 0.0),
+        }
+
+    except Exception as e:
+        LOGGER.error(
+            "Failed to query workflow status",
+            exc_info=True,
+            extra={"workflow_id": workflow_id, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail={
+                "error": "WorkflowNotFound",
+                "message": "Workflow not found or query failed",
                 "detail": str(e),
             },
         ) from e
