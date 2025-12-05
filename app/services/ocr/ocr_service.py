@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.ocr_repository import OCRRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.normalization_repository import NormalizationRepository
+from app.repositories.classification_repository import ClassificationRepository
 from app.services.ocr.ocr_base import BaseOCRService, OCRResult
 from app.services.normalization.normalization_service import NormalizationService
 from app.services.classification.classification_service import ClassificationService
@@ -19,6 +21,7 @@ from app.utils.exceptions import (
     APIClientError,
 )
 from app.utils.logging import get_logger
+from app.models.page_data import PageData
 
 LOGGER = get_logger(__name__)
 
@@ -155,6 +158,72 @@ class OCRService(BaseOCRService):
             document_url=document_url,
             document_id=document_id
         )
+
+    async def extract_text_only(
+        self,
+        document_url: str,
+        document_id: UUID,
+    ) -> List[PageData]:
+        """Extract raw text from document using Mistral OCR API.
+        
+        Does NOT perform normalization, classification, or entity extraction.
+        This method is used by the OCR workflow to extract and store raw pages.
+        
+        Args:
+            document_url: Public URL to the document (PDF or image)
+            document_id: Document ID for logging
+            
+        Returns:
+            List[PageData]: Raw OCR pages with text and markdown
+            
+        Raises:
+            OCRExtractionError: If extraction fails
+            OCRTimeoutError: If processing times out
+            InvalidDocumentError: If document is invalid
+        """
+        LOGGER.info(
+            "Starting raw OCR extraction (no normalization)",
+            extra={"document_url": document_url, "document_id": str(document_id)}
+        )
+        start_time = time.time()
+
+        try:
+            # Validate document URL
+            self._validate_document_url(document_url)
+
+            # Download document
+            await self.ocr_client.download_document(document_url)
+
+            # Extract text using Mistral API
+            pages = await self.ocr_client.call_mistral_ocr_api(
+                document_url=document_url,
+                model=self.model,
+            )
+
+            # Validate extraction result
+            self._validate_extraction_result(pages, document_url)
+
+            processing_time = time.time() - start_time
+            LOGGER.info(
+                "Raw OCR extraction completed successfully",
+                extra={
+                    "document_id": str(document_id),
+                    "page_count": len(pages),
+                    "processing_time": f"{processing_time:.2f}s"
+                }
+            )
+
+            return pages
+
+        except (OCRExtractionError, OCRTimeoutError, InvalidDocumentError):
+            raise
+        except Exception as e:
+            LOGGER.error(
+                f"Unexpected error during raw OCR extraction: {e}",
+                extra={"document_id": str(document_id)},
+                exc_info=True
+            )
+            raise OCRExtractionError(f"OCR extraction failed: {str(e)}") from e
 
     async def run(
         self,

@@ -38,6 +38,6 @@ class OCRExtractionWorkflow:
         )
         
         return {
-            "text_length": len(ocr_data.get('text', '')),
-            "metadata": ocr_data.get('metadata', {}),
+            "document_id": ocr_data.get('document_id'),
+            "page_count": ocr_data.get('page_count', 0),
         }

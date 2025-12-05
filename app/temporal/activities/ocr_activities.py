@@ -18,13 +18,16 @@ logger = get_logger(__name__)
 @activity.defn
 async def extract_ocr(document_id: str) -> Dict:
     """
-    Extract OCR data from document using existing OCRService.
+    Extract OCR text from document and persist pages to database.
+    
+    This activity only performs OCR extraction using Mistral API.
+    It does NOT perform normalization, classification, or entity extraction.
     
     Args:
         document_id: UUID of the document to process
         
     Returns:
-        Dictionary with OCR extraction results including pages
+        Dictionary with document_id and page_count
     """
     start = time.time()
     
@@ -35,6 +38,7 @@ async def extract_ocr(document_id: str) -> Dict:
         from app.database.base import async_session_maker
         from app.repositories.document_repository import DocumentRepository
         from app.services.ocr.ocr_service import OCRService
+        from app.config import settings
         
         # Get document URL from database
         async with async_session_maker() as session:
@@ -45,8 +49,9 @@ async def extract_ocr(document_id: str) -> Dict:
                 raise ValueError(f"Document {document_id} not found or has no file path")
             
             document_url = document.file_path
+            activity.logger.info(f"Retrieved document URL for {document_id}")
         
-        # Use existing OCR service with required API keys
+        # Extract raw text using OCR service
         async with async_session_maker() as session:
             ocr_service = OCRService(
                 api_key=settings.mistral_api_key,
@@ -54,24 +59,31 @@ async def extract_ocr(document_id: str) -> Dict:
                 gemini_model=settings.gemini_model,
                 db_session=session,
                 provider=settings.llm_provider,
-                openrouter_api_key=settings.openrouter_api_key,
+                openrouter_api_key=settings.openrouter_api_key if settings.llm_provider == "openrouter" else None,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
             )
-            result = await ocr_service.run(
+            
+            # Extract raw text only
+            pages = await ocr_service.extract_text_only(
                 document_url=document_url,
                 document_id=UUID(document_id)
             )
             
-            # Convert OCRResult object to dict for serialization
-            result_dict = result.to_dict()
+            activity.logger.info(f"OCR extraction complete: {len(pages)} pages extracted")
         
-        activity.logger.info(
-            f"OCR extraction complete for {document_id}: "
-            f"text length = {len(result_dict.get('text', ''))}"
-        )
+        # Store pages in database using DocumentRepository
+        async with async_session_maker() as session:
+            doc_repo = DocumentRepository(session)
+            await doc_repo.store_pages(UUID(document_id), pages)
+            await session.commit()
+            
+            activity.logger.info(f"Stored {len(pages)} pages for document {document_id}")
         
-        return result_dict
+        return {
+            "document_id": document_id,
+            "page_count": len(pages),
+        }
         
     except Exception as e:
         activity.logger.error(f"OCR extraction failed for {document_id}: {e}")

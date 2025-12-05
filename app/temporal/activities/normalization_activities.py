@@ -26,13 +26,14 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
     """
     Normalize document, extract classification signals, and extract entities.
     
-    This wraps the existing NormalizationService.run() method which performs:
+    Fetches OCR pages from database and performs:
     1. Chunking pages using ChunkingService
     2. Processing chunks in parallel batches using BatchNormalizationProcessor
     3. Extracting classification signals per chunk
     4. Extracting entities per chunk using LLM
-    5. Reconciling entities with deterministic parser (backstop)
-    6. Persisting chunks, normalized text, entities, and classification
+    5. Detecting section types (COVERAGE, EXCLUSION, CONDITION, etc.)
+    6. Reconciling entities with deterministic parser (backstop)
+    7. Persisting chunks, normalized text, entities, and classification
     
     Args:
         document_id: UUID of the document to process
@@ -43,6 +44,7 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
         - normalized_count: Number of normalized chunks
         - entity_count: Number of entities extracted
         - classification: Document classification results
+        - section_types: Section type detection statistics
     """
     try:
         activity.logger.info(f"Starting normalization for document: {document_id}")
@@ -59,20 +61,20 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
         from app.services.entity.resolver import EntityResolver
         from app.services.normalization.normalization_service import NormalizationService
         
-        # Get document from database to verify it exists
+        # Fetch OCR pages from database using document_id
         async with async_session_maker() as session:
             doc_repo = DocumentRepository(session)
-            document = await doc_repo.get_by_id(UUID(document_id))
+            pages = await doc_repo.get_pages_by_document(UUID(document_id))
             
-            if not document:
-                raise ValueError(f"Document {document_id} not found")
+            if not pages:
+                raise ValueError(f"No OCR pages found for document {document_id}")
             
-            activity.logger.info(f"Retrieved document {document_id} for normalization")
+            activity.logger.info(f"Retrieved {len(pages)} pages for normalization")
         
         # Heartbeat before processing
-        activity.heartbeat(f"Starting normalization for document {document_id}")
+        activity.heartbeat(f"Processing {len(pages)} pages")
         
-        # Use existing normalization service with correct dependencies
+        # Run normalization
         async with async_session_maker() as session:
             # Initialize repositories
             chunk_repo = ChunkRepository(session)
@@ -95,7 +97,9 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
                 entity_resolver=entity_resolver,
             )
             
-            # Run normalization (this handles everything)
+            activity.logger.info("Starting batch normalization and section-type detection")
+            
+            # Run normalization
             result, classification = await norm_service.run(
                 pages=pages,
                 document_id=UUID(document_id)
@@ -108,16 +112,31 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
         entity_count = 0  # Will be computed from chunks
         classification_dict = classification or {}
         
+        # Get section type statistics
+        section_types = {}
+        if isinstance(result, list):
+            for chunk in result:
+                section_type = chunk.get('section_type', 'UNKNOWN')
+                section_types[section_type] = section_types.get(section_type, 0) + 1
+        
         activity.logger.info(
             f"Normalization complete for {document_id}: "
             f"classified as {classification_dict.get('classified_type', 'unknown')}"
         )
+        
+        # Log section-type detection statistics
+        activity.logger.info(
+            f"Section-type detection complete: {len(section_types)} unique types detected"
+        )
+        for section_type, count in section_types.items():
+            activity.logger.info(f"  - {section_type}: {count} chunks")
         
         return {
             "chunk_count": chunk_count,
             "normalized_count": chunk_count,
             "entity_count": entity_count,
             "classification": classification_dict,
+            "section_types": section_types,
         }
         
     except Exception as e:
