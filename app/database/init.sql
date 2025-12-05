@@ -27,6 +27,9 @@ CREATE TABLE IF NOT EXISTS documents (
 CREATE TABLE IF NOT EXISTS document_pages (
     id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
     document_id UUID NOT NULL REFERENCES documents(id) ON DELETE CASCADE,
+    text NOT NULL,
+    markdown NOT NULL,
+    additional_metadata JSONB NOT NULL,
     page_number INTEGER NOT NULL,
     image_path VARCHAR,
     width INTEGER,
