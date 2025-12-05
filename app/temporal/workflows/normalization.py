@@ -5,6 +5,7 @@ to avoid importing non-deterministic modules.
 """
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 from datetime import timedelta
 
 
@@ -28,7 +29,7 @@ class NormalizationWorkflow:
             "normalize_and_classify_document",
             document_id,
             start_to_close_timeout=timedelta(minutes=20),
-            retry_policy=workflow.RetryPolicy(
+            retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),
                 maximum_attempts=3,
             ),

@@ -38,7 +38,7 @@ class EntityResolutionWorkflow:
             # Resolve to canonical entities
             entity_ids = await workflow.execute_activity(
                 "resolve_canonical_entities",
-                aggregated,
+                args=[document_id, aggregated],
                 start_to_close_timeout=timedelta(minutes=3),
             )
             
@@ -60,7 +60,7 @@ class EntityResolutionWorkflow:
                 workflow.logger.warning(f"Rolling back {len(entity_ids)} entities due to error: {e}")
                 await workflow.execute_activity(
                     "rollback_entities",
-                    entity_ids,
+                    args=[entity_ids],
                     start_to_close_timeout=timedelta(minutes=1),
                 )
             raise

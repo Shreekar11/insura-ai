@@ -61,7 +61,7 @@ class ProcessDocumentWorkflow:
             id=f"ocr-{document_id}",
             task_queue="documents-queue",
         )
-        workflow.logger.info(f"OCR complete: {ocr_result['page_count']} pages")
+        workflow.logger.info(f"OCR complete: {ocr_result.get('text_length', 0)} characters extracted")
         
         # Phase 2: Normalization (40% progress)
         # This includes chunking, classification, and entity extraction
@@ -105,7 +105,7 @@ class ProcessDocumentWorkflow:
         return {
             "status": "completed",
             "document_id": document_id,
-            "ocr_pages": ocr_result['page_count'],
+            "text_length": ocr_result.get('text_length', 0),
             "chunks": norm_result['chunk_count'],
             "entities": entity_result['entity_count'],
             "relationships": entity_result['relationship_count'],

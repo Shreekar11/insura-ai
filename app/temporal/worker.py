@@ -21,7 +21,6 @@ from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
 # Import all activities
 from app.temporal.activities.ocr_activities import (
     extract_ocr,
-    store_ocr_results,
 )
 from app.temporal.activities.normalization_activities import (
     normalize_and_classify_document,
@@ -65,7 +64,6 @@ async def main():
         ],
         activities=[
             extract_ocr,
-            store_ocr_results,
             normalize_and_classify_document,
             aggregate_document_entities,
             resolve_canonical_entities,
@@ -83,8 +81,8 @@ async def main():
     logger.info(f"Task Queue: documents-queue")
     logger.info(f"Max Concurrent Activities: 5")
     logger.info(f"Max Concurrent Workflow Tasks: 10")
-    logger.info(f"Registered Workflows: {len(worker._config.workflows)}")
-    logger.info(f"Registered Activities: {len(worker._config.activities)}")
+    logger.info(f"Registered Workflows: 4")
+    logger.info(f"Registered Activities: 7")
     logger.info("=" * 60)
     logger.info("Worker is now polling for tasks...")
     logger.info("Press Ctrl+C to stop")

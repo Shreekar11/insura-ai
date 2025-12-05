@@ -9,8 +9,7 @@ from typing import Dict
 from uuid import UUID
 import time
 
-from app.services.ocr.ocr_service import OCRService
-from app.repositories.ocr_repository import OCRRepository
+from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -32,32 +31,47 @@ async def extract_ocr(document_id: str) -> Dict:
     try:
         activity.logger.info(f"Starting OCR extraction for document: {document_id}")
         
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from app.repositories.document_repository import DocumentRepository
+        from app.services.ocr.ocr_service import OCRService
+        
         # Get document URL from database
-        from app.database.session import get_session
-        async with get_session() as session:
-            from app.repositories.document_repository import DocumentRepository
+        async with async_session_maker() as session:
             doc_repo = DocumentRepository(session)
             document = await doc_repo.get_by_id(UUID(document_id))
             
-            if not document or not document.file_url:
-                raise ValueError(f"Document {document_id} not found or has no file URL")
+            if not document or not document.file_path:
+                raise ValueError(f"Document {document_id} not found or has no file path")
             
-            document_url = document.file_url
+            document_url = document.file_path
         
-        # Use existing OCR service
-        async with get_session() as session:
-            ocr_service = OCRService(db_session=session)
+        # Use existing OCR service with required API keys
+        async with async_session_maker() as session:
+            ocr_service = OCRService(
+                api_key=settings.mistral_api_key,
+                gemini_api_key=settings.gemini_api_key,
+                gemini_model=settings.gemini_model,
+                db_session=session,
+                provider=settings.llm_provider,
+                openrouter_api_key=settings.openrouter_api_key,
+                openrouter_api_url=settings.openrouter_api_url,
+                openrouter_model=settings.openrouter_model,
+            )
             result = await ocr_service.run(
                 document_url=document_url,
                 document_id=UUID(document_id)
             )
+            
+            # Convert OCRResult object to dict for serialization
+            result_dict = result.to_dict()
         
         activity.logger.info(
             f"OCR extraction complete for {document_id}: "
-            f"{len(result.get('pages', []))} pages extracted"
+            f"text length = {len(result_dict.get('text', ''))}"
         )
         
-        return result
+        return result_dict
         
     except Exception as e:
         activity.logger.error(f"OCR extraction failed for {document_id}: {e}")
@@ -65,32 +79,3 @@ async def extract_ocr(document_id: str) -> Dict:
     finally:
         duration = time.time() - start
         activity.logger.info(f"OCR extraction duration: {duration:.2f}s")
-
-
-@activity.defn
-async def store_ocr_results(document_id: str, ocr_data: Dict) -> None:
-    """
-    Store OCR results in database.
-    
-    Args:
-        document_id: UUID of the document
-        ocr_data: OCR extraction results with pages
-    """
-    try:
-        activity.logger.info(f"Storing OCR results for document: {document_id}")
-        
-        from app.database.session import get_session
-        async with get_session() as session:
-            ocr_repo = OCRRepository(session)
-            
-            # Store OCR pages
-            pages = ocr_data.get('pages', [])
-            if pages:
-                await ocr_repo.store_ocr_pages(UUID(document_id), pages)
-                activity.logger.info(f"Stored {len(pages)} OCR pages for {document_id}")
-            else:
-                activity.logger.warning(f"No pages to store for {document_id}")
-        
-    except Exception as e:
-        activity.logger.error(f"Failed to store OCR results for {document_id}: {e}")
-        raise

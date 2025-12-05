@@ -10,9 +10,7 @@ from temporalio import activity
 from typing import Dict, List
 from uuid import UUID
 
-from app.services.pipeline.document_entity_aggregator import DocumentEntityAggregator
-from app.services.entity.resolver import EntityResolver
-from app.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
+from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -34,16 +32,28 @@ async def aggregate_document_entities(document_id: str) -> Dict:
     try:
         activity.logger.info(f"Aggregating entities for document: {document_id}")
         
-        from app.database.session import get_session
-        async with get_session() as session:
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from app.services.pipeline.document_entity_aggregator import DocumentEntityAggregator
+        
+        async with async_session_maker() as session:
             aggregator = DocumentEntityAggregator(session)
             
             # Aggregate entities from all chunks
-            result = await aggregator.aggregate_entities(UUID(document_id))
+            aggregated = await aggregator.aggregate_entities(UUID(document_id))
+            
+            # Convert to serializable format
+            result = {
+                "entities": aggregated.entities,
+                "total_chunks": aggregated.total_chunks,
+                "total_entities": aggregated.total_entities,
+                "unique_entities": aggregated.unique_entities,
+                "document_id": document_id,
+            }
             
             activity.logger.info(
                 f"Entity aggregation complete for {document_id}: "
-                f"{len(result.get('entities', []))} entities aggregated"
+                f"{aggregated.unique_entities} unique entities from {aggregated.total_chunks} chunks"
             )
             
             return result
@@ -54,13 +64,14 @@ async def aggregate_document_entities(document_id: str) -> Dict:
 
 
 @activity.defn
-async def resolve_canonical_entities(aggregated_data: Dict) -> List[str]:
+async def resolve_canonical_entities(document_id: str, aggregated_data: Dict) -> List[str]:
     """
     Resolve aggregated entities to canonical forms.
     
     Uses existing EntityResolver service.
     
     Args:
+        document_id: UUID of the document
         aggregated_data: Aggregated entity data from previous activity
         
     Returns:
@@ -70,18 +81,30 @@ async def resolve_canonical_entities(aggregated_data: Dict) -> List[str]:
         entities = aggregated_data.get('entities', [])
         activity.logger.info(f"Resolving {len(entities)} entities to canonical forms")
         
-        from app.database.session import get_session
-        async with get_session() as session:
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from app.services.entity.resolver import EntityResolver
+        
+        async with async_session_maker() as session:
             resolver = EntityResolver(session)
             
             # Resolve to canonical entities
-            canonical_ids = await resolver.resolve_entities(entities)
-            
-            activity.logger.info(
-                f"Canonical resolution complete: {len(canonical_ids)} canonical entities"
+            canonical_ids = await resolver.resolve_entities_batch(
+                entities=entities,
+                chunk_id=None,  # Document-level, not chunk-specific
+                document_id=UUID(document_id)
             )
             
-            return canonical_ids
+            await session.commit()
+            
+            # Convert UUIDs to strings for serialization
+            canonical_id_strings = [str(id) for id in canonical_ids]
+            
+            activity.logger.info(
+                f"Canonical resolution complete: {len(canonical_id_strings)} canonical entities"
+            )
+            
+            return canonical_id_strings
         
     except Exception as e:
         activity.logger.error(f"Canonical entity resolution failed: {e}")
@@ -107,12 +130,37 @@ async def extract_relationships(document_id: str) -> List[Dict]:
         # Heartbeat for long-running operation
         activity.heartbeat("Starting relationship extraction")
         
-        from app.database.session import get_session
-        async with get_session() as session:
-            extractor = RelationshipExtractorGlobal(session)
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from app.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
+        
+        async with async_session_maker() as session:
+            extractor = RelationshipExtractorGlobal(
+                session=session,
+                provider=settings.llm_provider,
+                gemini_api_key=settings.gemini_api_key,
+                gemini_model=settings.gemini_model,
+                openrouter_api_key=settings.openrouter_api_key if settings.llm_provider == "openrouter" else None,
+                openrouter_model=settings.openrouter_model,
+                openrouter_api_url=settings.openrouter_api_url,
+            )
             
             # Extract relationships
-            relationships = await extractor.extract_relationships(UUID(document_id))
+            relationship_records = await extractor.extract_relationships(UUID(document_id))
+            
+            await session.commit()
+            
+            # Convert to serializable format
+            relationships = []
+            for rel in relationship_records:
+                relationships.append({
+                    "id": str(rel.id),
+                    "source_entity_id": str(rel.source_entity_id) if rel.source_entity_id else None,
+                    "target_entity_id": str(rel.target_entity_id) if rel.target_entity_id else None,
+                    "relationship_type": rel.relationship_type,
+                    "attributes": rel.attributes,
+                    "confidence": float(rel.confidence) if rel.confidence else None,
+                })
             
             activity.logger.info(
                 f"Relationship extraction complete for {document_id}: "
@@ -137,19 +185,27 @@ async def rollback_entities(entity_ids: List[str]) -> None:
         entity_ids: List of entity IDs to delete
     """
     try:
+        if not entity_ids:
+            activity.logger.info("No entities to rollback")
+            return
+            
         activity.logger.warning(
             f"SAGA ROLLBACK: Deleting {len(entity_ids)} entities due to workflow failure"
         )
         
-        from app.database.session import get_session
-        from app.repositories.entity_repository import EntityRepository
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from sqlalchemy import delete
+        from app.database.models import CanonicalEntity
         
-        async with get_session() as session:
-            entity_repo = EntityRepository(session)
-            
-            # Delete entities
+        async with async_session_maker() as session:
+            # Delete entities in batch
             for entity_id in entity_ids:
-                await entity_repo.delete_entity(UUID(entity_id))
+                try:
+                    stmt = delete(CanonicalEntity).where(CanonicalEntity.id == UUID(entity_id))
+                    await session.execute(stmt)
+                except Exception as e:
+                    activity.logger.warning(f"Failed to delete entity {entity_id}: {e}")
             
             await session.commit()
             

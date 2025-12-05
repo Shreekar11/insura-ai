@@ -15,7 +15,7 @@ from temporalio import activity
 from typing import Dict
 from uuid import UUID
 
-from app.services.normalization.normalization_service import NormalizationService
+from app.config import settings
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
@@ -50,47 +50,74 @@ async def normalize_and_classify_document(document_id: str) -> Dict:
         # Heartbeat to indicate activity is running
         activity.heartbeat("Starting normalization")
         
-        # Get OCR pages from database
-        from app.database.session import get_session
-        async with get_session() as session:
-            from app.repositories.ocr_repository import OCRRepository
-            ocr_repo = OCRRepository(session)
-            pages = await ocr_repo.get_pages_by_document(UUID(document_id))
-            
-            if not pages:
-                raise ValueError(f"No OCR pages found for document {document_id}")
-            
-            activity.logger.info(f"Retrieved {len(pages)} OCR pages for normalization")
+        # Import inside function to avoid sandbox issues
+        from app.database.base import async_session_maker
+        from app.repositories.document_repository import DocumentRepository
+        from app.repositories.chunk_repository import ChunkRepository
+        from app.repositories.normalization_repository import NormalizationRepository
+        from app.repositories.classification_repository import ClassificationRepository
+        from app.services.entity.resolver import EntityResolver
+        from app.services.normalization.normalization_service import NormalizationService
         
-        # Heartbeat after retrieving pages
-        activity.heartbeat(f"Processing {len(pages)} pages")
+        # Get document from database to verify it exists
+        async with async_session_maker() as session:
+            doc_repo = DocumentRepository(session)
+            document = await doc_repo.get_by_id(UUID(document_id))
+            
+            if not document:
+                raise ValueError(f"Document {document_id} not found")
+            
+            activity.logger.info(f"Retrieved document {document_id} for normalization")
         
-        # Use existing normalization service
-        async with get_session() as session:
-            norm_service = NormalizationService(db_session=session)
+        # Heartbeat before processing
+        activity.heartbeat(f"Starting normalization for document {document_id}")
+        
+        # Use existing normalization service with correct dependencies
+        async with async_session_maker() as session:
+            # Initialize repositories
+            chunk_repo = ChunkRepository(session)
+            norm_repo = NormalizationRepository(session)
+            class_repo = ClassificationRepository(session)
+            entity_resolver = EntityResolver(session)
+            
+            # Initialize normalization service with all dependencies
+            norm_service = NormalizationService(
+                provider=settings.llm_provider,
+                gemini_api_key=settings.gemini_api_key,
+                gemini_model=settings.gemini_model,
+                openrouter_api_key=settings.openrouter_api_key if settings.llm_provider == "openrouter" else None,
+                openrouter_api_url=settings.openrouter_api_url,
+                openrouter_model=settings.openrouter_model,
+                enable_llm_fallback=settings.enable_llm_fallback,
+                chunk_repository=chunk_repo,
+                normalization_repository=norm_repo,
+                classification_repository=class_repo,
+                entity_resolver=entity_resolver,
+            )
             
             # Run normalization (this handles everything)
-            result = await norm_service.run(
+            result, classification = await norm_service.run(
                 pages=pages,
                 document_id=UUID(document_id)
             )
+            
+            await session.commit()
         
         # Extract statistics from result
-        chunk_count = len(result.get('chunks', []))
-        entity_count = result.get('entity_count', 0)
-        classification = result.get('classification', {})
+        chunk_count = len(result) if isinstance(result, list) else 0
+        entity_count = 0  # Will be computed from chunks
+        classification_dict = classification or {}
         
         activity.logger.info(
             f"Normalization complete for {document_id}: "
-            f"{chunk_count} chunks, {entity_count} entities, "
-            f"classified as {classification.get('classified_type', 'unknown')}"
+            f"classified as {classification_dict.get('classified_type', 'unknown')}"
         )
         
         return {
             "chunk_count": chunk_count,
-            "normalized_count": chunk_count,  # Same as chunk_count
+            "normalized_count": chunk_count,
             "entity_count": entity_count,
-            "classification": classification,
+            "classification": classification_dict,
         }
         
     except Exception as e:

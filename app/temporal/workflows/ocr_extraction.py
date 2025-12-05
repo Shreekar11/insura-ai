@@ -5,6 +5,7 @@ to avoid importing non-deterministic modules.
 """
 
 from temporalio import workflow
+from temporalio.common import RetryPolicy
 from datetime import timedelta
 
 
@@ -28,7 +29,7 @@ class OCRExtractionWorkflow:
             "extract_ocr",
             document_id,
             start_to_close_timeout=timedelta(minutes=10),
-            retry_policy=workflow.RetryPolicy(
+            retry_policy=RetryPolicy(
                 maximum_attempts=5,
                 initial_interval=timedelta(seconds=5),
                 maximum_interval=timedelta(seconds=60),
@@ -36,14 +37,7 @@ class OCRExtractionWorkflow:
             ),
         )
         
-        # Store results in database
-        await workflow.execute_activity(
-            "store_ocr_results",
-            [document_id, ocr_data],
-            start_to_close_timeout=timedelta(minutes=2),
-        )
-        
         return {
-            "page_count": len(ocr_data['pages']),
-            "total_text_length": sum(len(p.get('text', '')) for p in ocr_data['pages']),
+            "text_length": len(ocr_data.get('text', '')),
+            "metadata": ocr_data.get('metadata', {}),
         }
