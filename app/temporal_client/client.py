@@ -4,8 +4,6 @@ from temporalio.client import Client as TemporalClient
 
 from app.config import settings
 
-# Global Temporal client manager instance
-_temporal_manager = TemporalClientManager()
 
 class TemporalClientManager:
     """Manages Temporal client connection."""
@@ -30,6 +28,10 @@ class TemporalClientManager:
         if self._client is not None:
             await self._client.aclose()
             self._client = None
+
+
+# Global Temporal client manager instance
+_temporal_manager = TemporalClientManager()
 
 
 async def get_temporal_client() -> TemporalClient:
