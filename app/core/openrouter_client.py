@@ -20,7 +20,7 @@ class OpenRouterClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "google/gemini-2.0-flash-001",
+        model: str = "openai/gpt-oss-20b:free",
         base_url: str = "https://openrouter.ai/api/v1/chat/completions",
         timeout: int = 60,
         max_retries: int = 3,
@@ -29,7 +29,7 @@ class OpenRouterClient:
 
         Args:
             api_key: OpenRouter API key
-            model: Model name to use (e.g., "google/gemini-2.0-flash-001")
+            model: Model name to use (e.g., "openai/gpt-oss-20b:free")
             base_url: OpenRouter API base URL
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts

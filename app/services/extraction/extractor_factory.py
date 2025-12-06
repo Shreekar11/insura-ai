@@ -39,7 +39,7 @@ class ExtractorFactory:
         gemini_api_key: Optional[str] = None,
         gemini_model: str = "gemini-2.0-flash",
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
     ):
         """Initialize extractor factory.

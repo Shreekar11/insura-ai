@@ -37,7 +37,7 @@ class LLMSettings(BaseSettings):
         description="OpenRouter API base URL"
     )
     openrouter_model: str = Field(
-        default="google/gemini-2.0-flash-001",
+        default="openai/gpt-oss-20b:free",
         description="OpenRouter model name"
     )
     

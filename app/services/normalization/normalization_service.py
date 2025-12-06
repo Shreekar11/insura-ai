@@ -123,7 +123,7 @@ class NormalizationService(BaseService):
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model or "gemini-2.0-flash",
             openrouter_api_key=openrouter_api_key,
-            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_model=openrouter_model or "openai/gpt-oss-20b:free",
             openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
             enable_fallback=enable_llm_fallback,
         )
@@ -135,7 +135,7 @@ class NormalizationService(BaseService):
                 gemini_api_key=gemini_api_key,
                 gemini_model=gemini_model or "gemini-2.0-flash",
                 openrouter_api_key=openrouter_api_key,
-                openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+                openrouter_model=openrouter_model or "openai/gpt-oss-20b:free",
                 openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
             )
         
@@ -151,7 +151,7 @@ class NormalizationService(BaseService):
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model or "gemini-2.0-flash",
             openrouter_api_key=openrouter_api_key,
-            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_model=openrouter_model or "openai/gpt-oss-20b:free",
             openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
             batch_size=settings.batch_size,
             timeout=settings.batch_timeout_seconds,
@@ -185,7 +185,7 @@ class NormalizationService(BaseService):
             gemini_api_key=gemini_api_key,
             gemini_model=gemini_model or "gemini-2.0-flash",
             openrouter_api_key=openrouter_api_key,
-            openrouter_model=openrouter_model or "google/gemini-2.0-flash-001",
+            openrouter_model=openrouter_model or "openai/gpt-oss-20b:free",
             openrouter_api_url=openrouter_api_url or "https://openrouter.ai/api/v1/chat/completions",
             timeout=90,
             max_retries=3,
@@ -439,7 +439,7 @@ class NormalizationService(BaseService):
                     gemini_api_key=self.llm_normalizer.client.api_key if self.llm_normalizer.provider == "gemini" else None,
                     gemini_model=self.llm_normalizer.client.model if self.llm_normalizer.provider == "gemini" else "gemini-2.0-flash",
                     openrouter_api_key=self.llm_normalizer.client.api_key if self.llm_normalizer.provider == "openrouter" else None,
-                    openrouter_model=self.llm_normalizer.client.model if self.llm_normalizer.provider == "openrouter" else "google/gemini-2.0-flash-001",
+                    openrouter_model=self.llm_normalizer.client.model if self.llm_normalizer.provider == "openrouter" else "openai/gpt-oss-20b:free",
                 )
                 
                 relationships = await relationship_extractor.extract_relationships(document_id)

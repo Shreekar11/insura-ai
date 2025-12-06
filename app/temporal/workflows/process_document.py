@@ -52,7 +52,7 @@ class ProcessDocumentWorkflow:
         workflow.logger.info(f"Starting document processing: {document_id}")
         self._status = "processing"
         
-        # Phase 1: OCR Extraction (10% progress)
+        # Phase 1: OCR Extraction
         self._current_phase = "ocr_extraction"
         self._progress = 0.1
         ocr_result = await workflow.execute_child_workflow(
@@ -63,7 +63,7 @@ class ProcessDocumentWorkflow:
         )
         workflow.logger.info(f"OCR complete: {ocr_result.get('page_count', 0)} pages extracted")
         
-        # Phase 2: Normalization (40% progress)
+        # Phase 2: Normalization
         # This includes chunking, classification, and entity extraction
         self._current_phase = "normalization"
         self._progress = 0.4
@@ -79,7 +79,7 @@ class ProcessDocumentWorkflow:
             f"{len(norm_result.get('section_types', {}))} section types detected"
         )
         
-        # Phase 3: Entity Resolution (70% progress)
+        # Phase 3: Entity Resolution
         # This includes canonical resolution and relationship extraction
         self._current_phase = "entity_resolution"
         self._progress = 0.7

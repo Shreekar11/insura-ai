@@ -55,7 +55,7 @@ class OCRService(BaseOCRService):
         normalization_service: Optional[NormalizationService] = None,
         provider: str = "gemini",
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
     ):
         """Initialize OCR service.
