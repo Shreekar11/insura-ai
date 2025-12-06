@@ -50,8 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         LOGGER.info("Initializing database...")
         await init_database(
-            auto_migrate=True,  # Enable auto-migration
-            drop_existing=False  # Don't drop existing tables (set to True only for dev reset)
+            auto_migrate=True,
+            drop_existing=False 
         )
         LOGGER.info("Database initialized successfully")
     except Exception as e:
@@ -60,8 +60,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             exc_info=True,
             extra={"error": str(e)}
         )
-        # Continue startup even if database fails (for development)
-        # In production, you might want to raise the exception
 
     yield
 
