@@ -1,6 +1,3 @@
-"""Temporal workflow client module."""
+"""Temporal workflows and activities for document processing pipeline."""
 
-from app.temporal.client import get_temporal_client, temporal_client
-
-__all__ = ["get_temporal_client", "temporal_client"]
-
+__version__ = "1.0.0"

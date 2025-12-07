@@ -52,7 +52,13 @@ class OCRRepository(BaseLLMClient):
         
         self.logger.debug("Downloading document", extra={"document_url": document_url})
 
-        async with httpx.AsyncClient(timeout=self.timeout) as client:
+        async with httpx.AsyncClient(
+            timeout=self.timeout,
+            headers={
+                "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
+                "Accept": "application/pdf, image/*, */*",
+            }
+        ) as client:
             try:
                 response = await client.get(document_url)
                 response.raise_for_status()

@@ -1,13 +1,21 @@
-"""Application configuration management."""
+"""Application configuration module.
+
+This module aggregates all configuration settings from separate modules
+and provides a unified Settings class for backward compatibility.
+"""
 
 from pathlib import Path
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.config.database import DatabaseSettings
+from app.config.llm import LLMSettings
+from app.config.temporal import TemporalSettings
+
 
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Unified application settings combining all configuration modules."""
 
     # Application Settings
     app_name: str = "Insura AI - AI-powered workspace and assistant designed specifically for insurance operations"
@@ -87,8 +95,6 @@ class Settings(BaseSettings):
         description="Timeout for batch LLM calls in seconds"
     )
 
-
-
     # Timeout Settings (in seconds)
     ocr_timeout: int = 120
     http_timeout: int = 60
@@ -110,7 +116,7 @@ class Settings(BaseSettings):
     temporal_task_queue: str = "insura-ai-queue"
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent.parent / ".env"),
+        env_file=str(Path(__file__).resolve().parent.parent.parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
@@ -129,3 +135,13 @@ def get_settings() -> Settings:
 # Global settings instance
 settings = get_settings()
 
+
+# Export individual setting modules for granular access
+__all__ = [
+    "Settings",
+    "settings",
+    "get_settings",
+    "DatabaseSettings",
+    "LLMSettings",
+    "TemporalSettings",
+]

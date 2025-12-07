@@ -1,11 +1,13 @@
-from typing import Optional
+from typing import Optional, List
 from uuid import UUID
 from datetime import datetime, timezone
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy import select
 
 from app.core.base_repository import BaseRepository
-from app.database.models import Document
+from app.database.models import Document, DocumentPage
+from app.models.page_data import PageData
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -66,3 +68,80 @@ class DocumentRepository(BaseRepository[Document]):
             True if updated, False if not found
         """
         return await self.update(document_id, status=status) is not None
+
+    async def store_pages(
+        self,
+        document_id: UUID,
+        pages: List[PageData]
+    ) -> None:
+        """Store OCR pages for a document.
+        
+        Args:
+            document_id: Document ID
+            pages: List of PageData objects from OCR extraction
+        """
+        LOGGER.info(f"Storing {len(pages)} pages for document {document_id}")
+        
+        # Delete existing pages for this document (if re-processing)
+        await self.session.execute(
+            select(DocumentPage).where(DocumentPage.document_id == document_id)
+        )
+        existing_pages = (await self.session.execute(
+            select(DocumentPage).where(DocumentPage.document_id == document_id)
+        )).scalars().all()
+        
+        for page in existing_pages:
+            await self.session.delete(page)
+        
+        # Create new page records
+        for page_data in pages:
+            page = DocumentPage(
+                document_id=document_id,
+                page_number=page_data.page_number,
+                text=page_data.text,
+                markdown=page_data.markdown,
+                additional_metadata=page_data.metadata or {},
+            )
+            self.session.add(page)
+        
+        await self.session.flush()
+        LOGGER.info(f"Successfully stored {len(pages)} pages for document {document_id}")
+
+    async def get_pages_by_document(
+        self,
+        document_id: UUID
+    ) -> List[PageData]:
+        """Fetch OCR pages for a document.
+        
+        Args:
+            document_id: Document ID
+            
+        Returns:
+            List of PageData objects
+        """
+        LOGGER.info(f"Fetching pages for document {document_id}")
+        
+        result = await self.session.execute(
+            select(DocumentPage)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number)
+        )
+        pages = result.scalars().all()
+        
+        if not pages:
+            LOGGER.warning(f"No pages found for document {document_id}")
+            return []
+        
+        # Convert to PageData objects
+        page_data_list = [
+            PageData(
+                page_number=page.page_number,
+                text=page.text or "",
+                markdown=page.markdown or "",
+                metadata=page.additional_metadata or {},
+            )
+            for page in pages
+        ]
+        
+        LOGGER.info(f"Retrieved {len(page_data_list)} pages for document {document_id}")
+        return page_data_list

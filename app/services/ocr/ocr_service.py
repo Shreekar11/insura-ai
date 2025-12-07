@@ -8,6 +8,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.repositories.ocr_repository import OCRRepository
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.normalization_repository import NormalizationRepository
+from app.repositories.classification_repository import ClassificationRepository
 from app.services.ocr.ocr_base import BaseOCRService, OCRResult
 from app.services.normalization.normalization_service import NormalizationService
 from app.services.classification.classification_service import ClassificationService
@@ -19,6 +21,7 @@ from app.utils.exceptions import (
     APIClientError,
 )
 from app.utils.logging import get_logger
+from app.models.page_data import PageData
 
 LOGGER = get_logger(__name__)
 
@@ -52,7 +55,7 @@ class OCRService(BaseOCRService):
         normalization_service: Optional[NormalizationService] = None,
         provider: str = "gemini",
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "google/gemini-2.0-flash-001",
+        openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
     ):
         """Initialize OCR service.
@@ -145,7 +148,7 @@ class OCRService(BaseOCRService):
     async def extract_text_from_url(
         self,
         document_url: str,
-        document_id: Optional[UUID] = None,
+        document_id: UUID,  # Now required, not Optional
     ) -> OCRResult:
         """Wrapper for run() to maintain backward compatibility.
         
@@ -156,10 +159,76 @@ class OCRService(BaseOCRService):
             document_id=document_id
         )
 
+    async def extract_text_only(
+        self,
+        document_url: str,
+        document_id: UUID,
+    ) -> List[PageData]:
+        """Extract raw text from document using Mistral OCR API.
+        
+        Does NOT perform normalization, classification, or entity extraction.
+        This method is used by the OCR workflow to extract and store raw pages.
+        
+        Args:
+            document_url: Public URL to the document (PDF or image)
+            document_id: Document ID for logging
+            
+        Returns:
+            List[PageData]: Raw OCR pages with text and markdown
+            
+        Raises:
+            OCRExtractionError: If extraction fails
+            OCRTimeoutError: If processing times out
+            InvalidDocumentError: If document is invalid
+        """
+        LOGGER.info(
+            "Starting raw OCR extraction (no normalization)",
+            extra={"document_url": document_url, "document_id": str(document_id)}
+        )
+        start_time = time.time()
+
+        try:
+            # Validate document URL
+            self._validate_document_url(document_url)
+
+            # Download document
+            await self.ocr_client.download_document(document_url)
+
+            # Extract text using Mistral API
+            pages = await self.ocr_client.call_mistral_ocr_api(
+                document_url=document_url,
+                model=self.model,
+            )
+
+            # Validate extraction result
+            self._validate_extraction_result(pages, document_url)
+
+            processing_time = time.time() - start_time
+            LOGGER.info(
+                "Raw OCR extraction completed successfully",
+                extra={
+                    "document_id": str(document_id),
+                    "page_count": len(pages),
+                    "processing_time": f"{processing_time:.2f}s"
+                }
+            )
+
+            return pages
+
+        except (OCRExtractionError, OCRTimeoutError, InvalidDocumentError):
+            raise
+        except Exception as e:
+            LOGGER.error(
+                f"Unexpected error during raw OCR extraction: {e}",
+                extra={"document_id": str(document_id)},
+                exc_info=True
+            )
+            raise OCRExtractionError(f"OCR extraction failed: {str(e)}") from e
+
     async def run(
         self,
         document_url: str,
-        document_id: Optional[UUID] = None,
+        document_id: UUID,
     ) -> OCRResult:
         """Extract text from a document URL using Mistral OCR API.
         
@@ -167,7 +236,7 @@ class OCRService(BaseOCRService):
 
         Args:
             document_url: Public URL to the document (PDF or image)
-            document_id: Optional document ID for database tracking
+            document_id: Document ID (REQUIRED - must be created before calling this method)
 
         Returns:
             OCRResult: Extraction result with normalized text and classification
@@ -176,11 +245,21 @@ class OCRService(BaseOCRService):
             OCRExtractionError: If extraction fails
             OCRTimeoutError: If processing times out
             InvalidDocumentError: If document is invalid
+            ValueError: If document_id is not provided
         """
-        LOGGER.info("Starting OCR extraction", extra={"document_url": document_url})
+        LOGGER.info(
+            "Starting OCR extraction",
+            extra={"document_url": document_url, "document_id": str(document_id)}
+        )
         start_time = time.time()
 
         try:
+            # Validate document_id is provided
+            if document_id is None:
+                raise ValueError(
+                    "document_id is required - document must be persisted before OCR extraction"
+                )
+            
             # Validate document URL
             self._validate_document_url(document_url)
 
@@ -192,22 +271,6 @@ class OCRService(BaseOCRService):
                 document_url=document_url,
                 model=self.model,
             )
-            
-            # Create document record if not provided and repository is available
-            if document_id is None and self.document_repository:
-                # Default test user UUID (same as before)
-                DEFAULT_TEST_USER_ID = UUID("00000000-0000-0000-0000-000000000001")
-                
-                document = await self.document_repository.create_document(
-                    file_path=document_url,
-                    page_count=len(pages),
-                    user_id=DEFAULT_TEST_USER_ID,
-                )
-                document_id = document.id
-                LOGGER.info(
-                    "Document record created via repository",
-                    extra={"document_id": str(document_id)}
-                )
 
             # Validate extraction result
             self._validate_extraction_result(pages, document_url)

@@ -8,10 +8,9 @@ from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
 from app.api.main import api_router
-from app.models.response.response import HealthCheckResponse
 from app.config import settings
 from app.utils.logging import get_logger
-from app.database.client import init_database, close_database, db_client
+from app.database.client import init_database, close_database
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -51,8 +50,8 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     try:
         LOGGER.info("Initializing database...")
         await init_database(
-            auto_migrate=True,  # Enable auto-migration
-            drop_existing=False  # Don't drop existing tables (set to True only for dev reset)
+            auto_migrate=True,
+            drop_existing=False 
         )
         LOGGER.info("Database initialized successfully")
     except Exception as e:
@@ -61,8 +60,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             exc_info=True,
             extra={"error": str(e)}
         )
-        # Continue startup even if database fails (for development)
-        # In production, you might want to raise the exception
 
     yield
 
@@ -100,31 +97,6 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
-
-
-# Health check endpoint
-@app.get(
-    "/health",
-    response_model=HealthCheckResponse,
-    tags=["Health"],
-    summary="Health check endpoint",
-    description="Check if the service is running and healthy",
-    operation_id="get_service_health_status",
-)
-async def health_check() -> HealthCheckResponse:
-    """Health check endpoint.
-
-    Returns:
-        HealthCheckResponse: Service health status
-    """
-    # Check database health
-    db_health = await db_client.health_check()
-    
-    return HealthCheckResponse(
-        status="healthy" if db_health["status"] == "healthy" else "degraded",
-        version=settings.app_version,
-        service=settings.app_name,
-    )
 
 
 # Root endpoint
