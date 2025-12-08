@@ -21,6 +21,8 @@ from app.utils.exceptions import (
 )
 from app.utils.logging import get_logger
 
+from docling.document_converter import DocumentConverter
+
 LOGGER = get_logger(__name__)
 
 router = APIRouter()
@@ -218,3 +220,48 @@ async def get_workflow_status(workflow_id: str) -> dict:
             },
         ) from e
 
+@router.post("/process", status_code=status.HTTP_200_OK, responses={
+    200: {
+        "description": "Workflow processed successfully",
+    },
+    400: {
+        "description": "Invalid request",
+        "model": ErrorResponse,
+    },
+    500: {
+        "description": "Internal server error",
+        "model": ErrorResponse,
+    },
+}, 
+summary="Process a document", 
+description="Process a document using Docling and return the results.",
+operation_id="process_document")
+async def process_document_using_docling(request: OCRExtractionRequest) -> dict: 
+    """Process and extract text from a document using Docling and return the results."""
+
+    source_url = str(request.pdf_url)
+
+    try:
+        converter = DocumentConverter()
+        document = converter.convert(source_url).document
+
+        print(document.export_to_markdown())
+
+        return {
+            "document": document.export_to_markdown(),
+            "source_url": source_url,
+        }
+    except Exception as e:
+        LOGGER.error(
+            "Failed to process document",
+            exc_info=True,
+            extra={"source_url": source_url, "error": str(e)},
+        )
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={
+                "error": "DocumentProcessingError",
+                "message": "Failed to process document",
+                "detail": str(e),
+            },
+        ) from e
