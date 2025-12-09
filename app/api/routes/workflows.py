@@ -20,8 +20,9 @@ from app.utils.exceptions import (
     APIClientError,
 )
 from app.utils.logging import get_logger
-
+import os
 from docling.document_converter import DocumentConverter
+from docling.chunking import HybridChunker
 
 LOGGER = get_logger(__name__)
 
@@ -245,10 +246,12 @@ async def process_document_using_docling(request: OCRExtractionRequest) -> dict:
         converter = DocumentConverter()
         document = converter.convert(source_url).document
 
-        print(document.export_to_markdown())
+        chunker = HybridChunker()
+        chunks = chunker.chunk(dl_doc=document)
 
         return {
             "document": document.export_to_markdown(),
+            "chunks_count": len(chunks),
             "source_url": source_url,
         }
     except Exception as e:
