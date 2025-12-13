@@ -14,11 +14,17 @@ from temporalio.worker import Worker
 
 # Import all workflows
 from app.temporal.workflows.process_document import ProcessDocumentWorkflow
+from app.temporal.workflows.page_analysis_workflow import PageAnalysisWorkflow
 from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
 from app.temporal.workflows.normalization import NormalizationWorkflow
 from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
 
 # Import all activities
+from app.temporal.activities.page_analysis_activities import (
+    extract_page_signals,
+    classify_pages,
+    create_page_manifest,
+)
 from app.temporal.activities.ocr_activities import (
     extract_ocr,
 )
@@ -58,11 +64,15 @@ async def main():
         task_queue="documents-queue",
         workflows=[
             ProcessDocumentWorkflow,
+            PageAnalysisWorkflow,
             OCRExtractionWorkflow,
             NormalizationWorkflow,
             EntityResolutionWorkflow,
         ],
         activities=[
+            extract_page_signals,
+            classify_pages,
+            create_page_manifest,
             extract_ocr,
             normalize_and_classify_document,
             aggregate_document_entities,
@@ -79,10 +89,6 @@ async def main():
     logger.info("=" * 60)
     logger.info(f"Connected to: {temporal_host}")
     logger.info(f"Task Queue: documents-queue")
-    logger.info(f"Max Concurrent Activities: 5")
-    logger.info(f"Max Concurrent Workflow Tasks: 10")
-    logger.info(f"Registered Workflows: 4")
-    logger.info(f"Registered Activities: 7")
     logger.info("=" * 60)
     logger.info("Worker is now polling for tasks...")
     logger.info("Press Ctrl+C to stop")
