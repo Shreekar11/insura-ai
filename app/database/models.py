@@ -1432,3 +1432,120 @@ class ClaimItem(Base):
 
     # Relationships
     document: Mapped["Document | None"] = relationship("Document")
+
+
+# ============================================================================
+# Page-Level Analysis Models (v2 Architecture)
+# ============================================================================
+
+
+class PageAnalysis(Base):
+    """Lightweight signals extracted from PDF pages for classification."""
+
+    __tablename__ = "page_analysis"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
+    )
+    top_lines: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="First 5-10 lines of text from page"
+    )
+    text_density: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Text density ratio (0.0 to 1.0)"
+    )
+    has_tables: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, comment="Whether page contains tables"
+    )
+    max_font_size: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2), nullable=True, comment="Largest font size (indicates headers)"
+    )
+    page_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="Hash for duplicate detection"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Unique constraint: one analysis per page per document
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_page_analysis_doc_page"),
+        {"comment": "Lightweight page signals for classification"},
+    )
+
+
+class PageClassificationResult(Base):
+    """Classification results for document pages."""
+
+    __tablename__ = "page_classifications"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
+    )
+    page_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="declarations | coverages | conditions | exclusions | endorsement | sov | loss_run | invoice | boilerplate | duplicate | unknown"
+    )
+    confidence: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Classification confidence (0.0 to 1.0)"
+    )
+    should_process: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, comment="Whether to perform full OCR on this page"
+    )
+    duplicate_of: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Page number this is a duplicate of"
+    )
+    reasoning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Human-readable classification reasoning"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Unique constraint: one classification per page per document
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_page_classification_doc_page"),
+        {"comment": "Page classification results"},
+    )
+
+
+class PageManifestRecord(Base):
+    """Page manifest summary for documents (determines which pages to process)."""
+
+    __tablename__ = "page_manifests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    total_pages: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="Total number of pages in document"
+    )
+    pages_to_process: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="Array of page numbers to process"
+    )
+    pages_skipped: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="Array of page numbers to skip"
+    )
+    processing_ratio: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Percentage of pages to process (0.0 to 1.0)"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    __table_args__ = (
+        {"comment": "Page processing manifest for cost optimization"},
+    )
