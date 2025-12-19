@@ -85,11 +85,12 @@ class PageAnalysisWorkflow:
                 backoff_coefficient=2.0,
             ),
         )
+        processing_ratio = manifest.get('processing_ratio', 0.0)
         
         workflow.logger.info(
             f"Page analysis complete: {manifest['total_pages']} pages, "
             f"{len(manifest['pages_to_process'])} to process "
-            f"({manifest['processing_ratio']:.1%} processing ratio)"
+            f"({processing_ratio:.1%} processing ratio)"
         )
         
         return {
@@ -97,5 +98,5 @@ class PageAnalysisWorkflow:
             "total_pages": manifest['total_pages'],
             "pages_to_process": manifest['pages_to_process'],
             "pages_skipped": manifest['pages_skipped'],
-            "processing_ratio": manifest['processing_ratio'],
+            "processing_ratio": processing_ratio,
         }
