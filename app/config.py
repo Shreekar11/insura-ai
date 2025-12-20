@@ -1,95 +1,72 @@
-"""Application configuration management."""
+"""Application configuration."""
 
 from pathlib import Path
+from typing import Optional
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
+class DatabaseSettings(BaseSettings):
+    """Database connection and pool settings."""
+    url: str = Field(default="postgresql+asyncpg://postgres:postgres@localhost:5432/insura_ai", validation_alias="DATABASE_URL")
+    pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE")
+    max_overflow: int = Field(default=20, validation_alias="DATABASE_MAX_OVERFLOW")
+    echo: bool = Field(default=False, validation_alias="DATABASE_ECHO")
+
+
+class LLMSettings(BaseSettings):
+    """LLM provider and OCR service settings."""
+    mistral_api_key: str = Field(..., validation_alias="MISTRAL_API_KEY")
+    mistral_api_url: str = Field(default="https://api.mistral.ai/v1/ocr", validation_alias="MISTRAL_API_URL")
+    mistral_model: str = Field(default="mistral-ocr-latest", validation_alias="MISTRAL_MODEL")
+
+    gemini_api_key: str = Field(..., validation_alias="GEMINI_API_KEY")
+    gemini_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_MODEL")
+
+    provider: str = Field(default="gemini", validation_alias="LLM_PROVIDER")
+    
+    openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
+    openrouter_api_url: str = Field(default="https://openrouter.ai/api/v1/chat/completions", validation_alias="OPENROUTER_API_URL")
+    openrouter_model: str = Field(default="openai/gpt-oss-20b:free", validation_alias="OPENROUTER_MODEL")
+    
+    enable_fallback: bool = Field(default=False, validation_alias="ENABLE_LLM_FALLBACK")
+
+    # Chunking
+    chunk_max_tokens: int = Field(default=1500, validation_alias="CHUNK_MAX_TOKENS")
+    chunk_overlap_tokens: int = Field(default=50, validation_alias="CHUNK_OVERLAP_TOKENS")
+    enable_section_chunking: bool = Field(default=True, validation_alias="ENABLE_SECTION_CHUNKING")
+
+    # Batch Processing
+    batch_size: int = Field(default=3, validation_alias="BATCH_SIZE")
+    max_batch_retries: int = Field(default=2, validation_alias="MAX_BATCH_RETRIES")
+    batch_timeout_seconds: int = Field(default=90, validation_alias="BATCH_TIMEOUT_SECONDS")
+
+
+class TemporalSettings(BaseSettings):
+    """Temporal connection and workflow settings."""
+    host: str = Field(default="localhost", validation_alias="TEMPORAL_HOST")
+    port: int = Field(default=7233, validation_alias="TEMPORAL_PORT")
+    namespace: str = Field(default="default", validation_alias="TEMPORAL_NAMESPACE")
+    task_queue: str = Field(default="documents-queue", validation_alias="TEMPORAL_TASK_QUEUE")
+
+
 class Settings(BaseSettings):
-    """Application settings loaded from environment variables."""
+    """Unified application settings with nested models."""
 
     # Application Settings
-    app_name: str = "Insura AI - AI-powered workspace and assistant designed specifically for insurance operations"
+    app_name: str = Field(default="Insura AI", validation_alias="APP_NAME")
     app_version: str = "0.1.0"
-    environment: str = "development"
-    debug: bool = True
-    log_level: str = "INFO"
+    environment: str = Field(default="development", validation_alias="ENVIRONMENT")
+    debug: bool = Field(default=True, validation_alias="DEBUG")
+    log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
 
     # API Settings
     api_v1_prefix: str = "/api/v1"
-    host: str = "0.0.0.0"
-    port: int = 8000
+    host: str = Field(default="0.0.0.0", validation_alias="HOST")
+    port: int = Field(default=8000, validation_alias="PORT")
 
-    # OCR Service Settings
-    mistral_api_key: str
-    mistral_api_url: str = "https://api.mistral.ai/v1/ocr"
-    mistral_model: str = "mistral-ocr-latest"
-
-    # Gemini API Configuration
-    gemini_api_key: str = Field(..., description="Gemini API key")
-    gemini_model: str = Field(
-        default="gemini-2.0-flash",
-        description="Gemini model name"
-    )
-
-    # LLM Provider Configuration
-    llm_provider: str = Field(
-        default="gemini",
-        description="LLM provider to use: 'gemini' or 'openrouter'"
-    )
-    
-    # OpenRouter API Configuration
-    openrouter_api_key: str = Field(
-        default="",
-        description="OpenRouter API key (required if llm_provider='openrouter')"
-    )
-    openrouter_api_url: str = Field(
-        default="https://openrouter.ai/api/v1/chat/completions",
-        description="OpenRouter API base URL"
-    )
-    openrouter_model: str = Field(
-        default="openai/gpt-oss-20b:free",
-        description="OpenRouter model name"
-    )
-    
-    # LLM Fallback Configuration
-    enable_llm_fallback: bool = Field(
-        default=False,
-        description="Enable automatic fallback to Gemini if OpenRouter fails"
-    )
-
-    # Chunking Configuration
-    chunk_max_tokens: int = Field(
-        default=1500,
-        description="Maximum tokens per chunk for LLM processing"
-    )
-    chunk_overlap_tokens: int = Field(
-        default=50,
-        description="Number of tokens to overlap between chunks"
-    )
-    enable_section_chunking: bool = Field(
-        default=True,
-        description="Enable section-aware chunking for insurance documents"
-    )
-
-    # Batch Processing Configuration
-    batch_size: int = Field(
-        default=3,
-        description="Number of chunks to process per batch in unified extraction"
-    )
-    max_batch_retries: int = Field(
-        default=2,
-        description="Maximum retries for failed batch processing"
-    )
-    batch_timeout_seconds: int = Field(
-        default=90,
-        description="Timeout for batch LLM calls in seconds"
-    )
-
-
-
-    # Timeout Settings (in seconds)
+    # Timeout Settings
     ocr_timeout: int = 120
     http_timeout: int = 60
 
@@ -97,35 +74,69 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 2
 
-    # Database Settings
-    database_url: str = "postgresql+asyncpg://postgres:postgres@localhost:5432/insura_ai"
-    database_pool_size: int = 10
-    database_max_overflow: int = 20
-    database_echo: bool = False  # SQL query logging
-
-    # Temporal Settings
-    temporal_host: str = "localhost"
-    temporal_port: int = 7233
-    temporal_namespace: str = "default"
-    temporal_task_queue: str = "insura-ai-queue"
+    # Nested Settings
+    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
+    llm: LLMSettings = Field(default_factory=LLMSettings)
+    temporal: TemporalSettings = Field(default_factory=TemporalSettings)
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent.parent / ".env"),
+        env_file=str(Path(__file__).resolve().parent / ".env"),
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
+    # For backward compatibility with the flat settings structure
+    @property
+    def database_url(self) -> str: return self.db.url
+    @property
+    def database_pool_size(self) -> int: return self.db.pool_size
+    @property
+    def database_max_overflow(self) -> int: return self.db.max_overflow
+    @property
+    def database_echo(self) -> bool: return self.db.echo
 
-def get_settings() -> Settings:
-    """Get application settings instance.
+    @property
+    def mistral_api_key(self) -> str: return self.llm.mistral_api_key
+    @property
+    def mistral_api_url(self) -> str: return self.llm.mistral_api_url
+    @property
+    def mistral_model(self) -> str: return self.llm.mistral_model
+    @property
+    def gemini_api_key(self) -> str: return self.llm.gemini_api_key
+    @property
+    def gemini_model(self) -> str: return self.llm.gemini_model
+    @property
+    def llm_provider(self) -> str: return self.llm.provider
+    @property
+    def openrouter_api_key(self) -> str: return self.llm.openrouter_api_key
+    @property
+    def openrouter_api_url(self) -> str: return self.llm.openrouter_api_url
+    @property
+    def openrouter_model(self) -> str: return self.llm.openrouter_model
+    @property
+    def enable_llm_fallback(self) -> bool: return self.llm.enable_fallback
+    @property
+    def chunk_max_tokens(self) -> int: return self.llm.chunk_max_tokens
+    @property
+    def chunk_overlap_tokens(self) -> int: return self.llm.chunk_overlap_tokens
+    @property
+    def enable_section_chunking(self) -> bool: return self.llm.enable_section_chunking
+    @property
+    def batch_size(self) -> int: return self.llm.batch_size
+    @property
+    def max_batch_retries(self) -> int: return self.llm.max_batch_retries
+    @property
+    def batch_timeout_seconds(self) -> int: return self.llm.batch_timeout_seconds
 
-    Returns:
-        Settings: Application settings loaded from environment
-    """
-    return Settings()
+    @property
+    def temporal_host(self) -> str: return self.temporal.host
+    @property
+    def temporal_port(self) -> int: return self.temporal.port
+    @property
+    def temporal_namespace(self) -> str: return self.temporal.namespace
+    @property
+    def temporal_task_queue(self) -> str: return self.temporal.task_queue
 
 
-# Global settings instance
-settings = get_settings()
-
+settings = Settings()
