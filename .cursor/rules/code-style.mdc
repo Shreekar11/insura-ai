@@ -1,7 +1,5 @@
 ---
-description: Use this rule when writing or modifying code to ensure consistent code style, formatting, and documentation standards across the codebase.
-globs: 
-alwaysApply: false
+alwaysApply: true
 ---
 # Code Style Guidelines
 
