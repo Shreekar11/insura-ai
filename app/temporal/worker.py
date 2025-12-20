@@ -20,18 +20,18 @@ from app.temporal.workflows.normalization import NormalizationWorkflow
 from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
 
 # Import all activities
-from app.temporal.activities.page_analysis_activities import (
+from app.temporal.activities.page_analysis import (
     extract_page_signals,
     classify_pages,
     create_page_manifest,
 )
-from app.temporal.activities.ocr_activities import (
+from app.temporal.activities.ocr_extraction import (
     extract_ocr,
 )
-from app.temporal.activities.normalization_activities import (
+from app.temporal.activities.normalization import (
     normalize_and_classify_document,
 )
-from app.temporal.activities.entity_activities import (
+from app.temporal.activities.entity_resolution import (
     aggregate_document_entities,
     resolve_canonical_entities,
     extract_relationships,
