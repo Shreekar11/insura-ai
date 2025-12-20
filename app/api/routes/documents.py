@@ -1,9 +1,11 @@
 """Document management API endpoints."""
 
-from fastapi import APIRouter
-from app.utils.logging import get_logger
+from fastapi import APIRouter, Depends, HTTPException
+from sqlalchemy.ext.asyncio import AsyncSession
+from uuid import UUID
 
-LOGGER = get_logger(__name__)
+from app.database.session import get_session
+from app.debug import get_pipeline_status
 
 router = APIRouter()
 
@@ -15,3 +17,12 @@ router = APIRouter()
 # - POST /documents - Create new document
 # - PUT /documents/{document_id} - Update document
 # - DELETE /documents/{document_id} - Delete document
+
+@router.get("/documents/{document_id}/pipeline-status")
+async def pipeline_status(document_id: UUID, session: AsyncSession = Depends(get_session)):
+    """Get complete pipeline status for debugging."""
+    status = await get_pipeline_status(session, document_id)
+    if "error" in status:
+        raise HTTPException(status_code=404, detail=status["error"])
+    return status
+
