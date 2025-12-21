@@ -51,3 +51,18 @@ def test_extract_signals_handles_missing_values(processor):
     assert signals["policy"] == 0.0
     assert signals["claim"] == 0.0
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
