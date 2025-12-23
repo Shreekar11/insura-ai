@@ -17,6 +17,9 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Module-level singleton instance
+_lightweight_analyzer_instance: Optional["LightweightPageAnalyzer"] = None
+
 
 class LightweightPageAnalyzer:
     """Analyzer for extracting lightweight signals from PDF pages using pdfplumber.
@@ -31,6 +34,18 @@ class LightweightPageAnalyzer:
     def __init__(self):
         """Initialize LightweightPageAnalyzer."""
         logger.info("Initialized LightweightPageAnalyzer with pdfplumber backend")
+    
+    @classmethod
+    def get_instance(cls) -> "LightweightPageAnalyzer":
+        """Get or create singleton instance of LightweightPageAnalyzer.
+        
+        Returns:
+            Singleton instance of LightweightPageAnalyzer
+        """
+        global _lightweight_analyzer_instance
+        if _lightweight_analyzer_instance is None:
+            _lightweight_analyzer_instance = cls()
+        return _lightweight_analyzer_instance
     
     async def analyze_document(self, document_url: str) -> List[PageSignals]:
         """Analyze document and extract signals for all pages.

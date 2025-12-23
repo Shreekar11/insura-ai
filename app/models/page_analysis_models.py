@@ -5,7 +5,7 @@ including page signals, classifications, and manifests.
 """
 
 from enum import Enum
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from typing import Optional, List
 from uuid import UUID
 
@@ -56,8 +56,8 @@ class PageSignals(BaseModel):
         description="Hash of page content for duplicate detection"
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "page_number": 12,
                 "top_lines": [
@@ -71,6 +71,7 @@ class PageSignals(BaseModel):
                 "page_hash": "a3f5e9..."
             }
         }
+    )
 
 
 class PageClassification(BaseModel):
@@ -97,8 +98,8 @@ class PageClassification(BaseModel):
         description="Human-readable explanation of classification"
     )
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "page_number": 12,
                 "page_type": "declarations",
@@ -108,6 +109,7 @@ class PageClassification(BaseModel):
                 "reasoning": "Contains 'DECLARATIONS PAGE' and 'Policy Number' keywords"
             }
         }
+    )
 
 
 class PageManifest(BaseModel):
@@ -151,8 +153,8 @@ class PageManifest(BaseModel):
             if c.page_type == page_type
         ]
     
-    class Config:
-        json_schema_extra = {
+    model_config = ConfigDict(
+        json_schema_extra={
             "example": {
                 "document_id": "550e8400-e29b-41d4-a716-446655440000",
                 "total_pages": 120,
@@ -163,3 +165,4 @@ class PageManifest(BaseModel):
                 "cost_savings_estimate": 0.85
             }
         }
+    )

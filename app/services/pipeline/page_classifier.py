@@ -5,7 +5,7 @@ pages into insurance-specific types without requiring ML models.
 """
 
 import re
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional
 
 from app.models.page_analysis_models import (
     PageSignals,
@@ -15,6 +15,9 @@ from app.models.page_analysis_models import (
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
+
+# Module-level singleton instance
+_page_classifier_instance: Optional["PageClassifier"] = None
 
 
 class PageClassifier:
@@ -98,6 +101,22 @@ class PageClassifier:
         logger.info(
             f"Initialized PageClassifier with threshold {confidence_threshold}"
         )
+    
+    @classmethod
+    def get_instance(cls, confidence_threshold: float = 0.7) -> "PageClassifier":
+        """Get or create singleton instance of PageClassifier.
+        
+        Args:
+            confidence_threshold: Minimum confidence to classify (0.0 to 1.0)
+                Only used on first initialization. Subsequent calls ignore this parameter.
+        
+        Returns:
+            Singleton instance of PageClassifier
+        """
+        global _page_classifier_instance
+        if _page_classifier_instance is None:
+            _page_classifier_instance = cls(confidence_threshold)
+        return _page_classifier_instance
     
     def classify(self, signals: PageSignals) -> PageClassification:
         """Classify a page based on its signals.
@@ -219,6 +238,8 @@ class PageClassifier:
     def _should_process(self, page_type: PageType, confidence: float) -> bool:
         """Determine if a page should be processed.
         
+        Only process high-value insurance sections.
+        
         Args:
             page_type: Classified page type
             confidence: Classification confidence
@@ -239,15 +260,29 @@ class PageClassifier:
         if page_type in key_sections:
             return True
         
-        # Process if confidence is above threshold
-        if confidence >= self.confidence_threshold:
+        # Process table sections (SOV, Loss Run)
+        table_sections = [
+            PageType.SOV,
+            PageType.LOSS_RUN,
+            PageType.INVOICE
+        ]
+        if page_type in table_sections:
             return True
         
-        # Process unknown pages to be safe (conservative approach)
-        if page_type == PageType.UNKNOWN:
+        # Process conditions and exclusions only with high confidence
+        secondary_sections = [
+            PageType.CONDITIONS,
+            PageType.EXCLUSIONS
+        ]
+        if page_type in secondary_sections and confidence >= self.confidence_threshold:
             return True
         
-        # Skip low-confidence non-critical pages
+        # Skip unknown pages by default (aggressive filtering)
+        # Only process if on early pages (1-5) which are typically important
+        if page_type == PageType.UNKNOWN and confidence >= 0.8:
+            return True
+        
+        # Skip low-confidence and unknown pages
         return False
     
     def _generate_reasoning(

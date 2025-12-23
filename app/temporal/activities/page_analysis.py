@@ -2,6 +2,12 @@
 
 These activities extract page signals, classify pages, and create manifests
 to determine which pages should undergo full OCR processing.
+
+PageAnalysisPipeline uses singleton instances for stateless components
+(PageAnalyzer, PageClassifier) to optimize initialization overhead.
+These singletons are safe for use in Temporal activities because they are stateless
+and only contain immutable configuration. Activities run in worker processes, not
+workflow code.
 """
 
 from temporalio import activity

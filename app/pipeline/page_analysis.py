@@ -1,6 +1,13 @@
 """Phase 0: Page Analysis facade.
 
 Combines PageAnalyzer, PageClassifier, and DuplicateDetector into a single interface.
+
+This pipeline uses singleton instances for stateless components (PageAnalyzer, PageClassifier)
+to avoid repeated initialization overhead. These singletons are safe to use in Temporal
+activities because they are stateless and only contain immutable configuration.
+
+DuplicateDetector maintains per-document state and is instantiated fresh per pipeline
+instance, with reset() called at the start of each document classification.
 """
 
 from typing import List, Dict, Tuple
@@ -18,10 +25,32 @@ LOGGER = get_logger(__name__)
 
 
 class PageAnalysisPipeline:
+    """Pipeline for analyzing and classifying document pages.
+    
+    This pipeline orchestrates the page analysis workflow:
+    1. Extracts lightweight signals from PDF pages
+    2. Classifies pages using rule-based patterns
+    3. Detects duplicate pages within a document
+    4. Creates a manifest of pages to process
+    
+    Note: Uses singleton instances for stateless components to optimize performance
+    in Temporal activity execution. Safe for concurrent use in Temporal workers.
+    """
+    
     def __init__(self, session: AsyncSession):
+        """Initialize page analysis pipeline.
+        
+        Args:
+            session: Database session for persisting analysis results
+            
+        Note:
+            - PageAnalyzer and PageClassifier use singleton instances (stateless)
+            - DuplicateDetector is created fresh per pipeline instance (stateful per document)
+        """
         self.session = session
-        self.analyzer = PageAnalyzer()
-        self.classifier = PageClassifier()
+        # Singleton instances for stateless components
+        self.analyzer = PageAnalyzer.get_instance()
+        self.classifier = PageClassifier.get_instance()
         self.detector = DuplicateDetector()
         self.repository = PageAnalysisRepository(session)
 
@@ -37,6 +66,8 @@ class PageAnalysisPipeline:
 
     async def classify_pages(self, document_id: UUID, page_signals: List[PageSignals]) -> List[PageClassification]:
         """Classify pages and detect duplicates."""
+        self.detector.reset()
+        
         classifications = []
         
         for signals in page_signals:
