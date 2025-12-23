@@ -8,7 +8,7 @@ from fastapi import FastAPI, APIRouter, Request
 from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from app.api.routes import workflows, health, documents, debug
+from app.api.routes import workflows, health, documents
 from app.config import settings
 from app.utils.logging import get_logger
 from app.database.client import init_database, close_database

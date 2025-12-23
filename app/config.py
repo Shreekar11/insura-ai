@@ -13,15 +13,22 @@ class DatabaseSettings(BaseSettings):
     pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE")
     max_overflow: int = Field(default=20, validation_alias="DATABASE_MAX_OVERFLOW")
     echo: bool = Field(default=False, validation_alias="DATABASE_ECHO")
+    
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 class LLMSettings(BaseSettings):
     """LLM provider and OCR service settings."""
-    mistral_api_key: str = Field(..., validation_alias="MISTRAL_API_KEY")
+    mistral_api_key: str = Field(default="", validation_alias="MISTRAL_API_KEY")
     mistral_api_url: str = Field(default="https://api.mistral.ai/v1/ocr", validation_alias="MISTRAL_API_URL")
     mistral_model: str = Field(default="mistral-ocr-latest", validation_alias="MISTRAL_MODEL")
 
-    gemini_api_key: str = Field(..., validation_alias="GEMINI_API_KEY")
+    gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_MODEL")
 
     provider: str = Field(default="gemini", validation_alias="LLM_PROVIDER")
@@ -41,6 +48,13 @@ class LLMSettings(BaseSettings):
     batch_size: int = Field(default=3, validation_alias="BATCH_SIZE")
     max_batch_retries: int = Field(default=2, validation_alias="MAX_BATCH_RETRIES")
     batch_timeout_seconds: int = Field(default=90, validation_alias="BATCH_TIMEOUT_SECONDS")
+    
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 class TemporalSettings(BaseSettings):
@@ -49,6 +63,13 @@ class TemporalSettings(BaseSettings):
     port: int = Field(default=7233, validation_alias="TEMPORAL_PORT")
     namespace: str = Field(default="default", validation_alias="TEMPORAL_NAMESPACE")
     task_queue: str = Field(default="documents-queue", validation_alias="TEMPORAL_TASK_QUEUE")
+    
+    model_config = SettingsConfigDict(
+        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+    )
 
 
 class Settings(BaseSettings):

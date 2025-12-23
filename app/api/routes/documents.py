@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
-from app.database.session import get_session
+from app.database.session import get_async_session as get_session
 from app.debug import get_pipeline_status
 
 router = APIRouter()
