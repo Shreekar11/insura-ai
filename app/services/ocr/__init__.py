@@ -1,7 +1,7 @@
 """OCR services for document text extraction."""
 
-from app.services.ocr.docling_ocr_service import DoclingOCRService
+from app.services.ocr.ocr_service import OCRService
 
 __all__ = [
-    "DoclingOCRService",
+    "OCRService",
 ]

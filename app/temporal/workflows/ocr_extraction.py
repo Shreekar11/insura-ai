@@ -3,13 +3,14 @@
 This workflow orchestrates OCR extraction using activity string names
 to avoid importing non-deterministic modules.
 
-UPDATED: Now supports selective page processing based on page manifest.
+UPDATED: Now supports selective page processing based on page manifest
+and accepts page_section_map to store page_type metadata with each page.
 """
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from datetime import timedelta
-from typing import Optional, List
+from typing import Optional, List, Dict
 
 
 @workflow.defn
@@ -20,7 +21,8 @@ class OCRExtractionWorkflow:
     async def run(
         self, 
         document_id: str,
-        pages_to_process: Optional[List[int]] = None
+        pages_to_process: Optional[List[int]] = None,
+        page_section_map: Optional[Dict[int, str]] = None,
     ) -> dict:
         """
         Extract OCR data from document and store results.
@@ -30,22 +32,34 @@ class OCRExtractionWorkflow:
             pages_to_process: Optional list of page numbers to OCR.
                 If None, processes all pages (legacy behavior).
                 If provided, only OCRs the specified pages (v2 architecture).
+            page_section_map: Optional mapping of page numbers to section types
+                from Phase 0 page analysis manifest. If provided, stores
+                page_type metadata with each extracted page.
         
         Returns:
-            Dictionary with page_count and total_text_length
+            Dictionary with page_count, has_section_metadata, etc.
         """
+        # Normalize empty dict to None
+        if page_section_map == {}:
+            page_section_map = None
+        
+        has_section_map = page_section_map is not None
+        
         if pages_to_process:
             workflow.logger.info(
                 f"Starting selective OCR for {len(pages_to_process)} pages "
-                f"(out of total document pages)"
+                f"(section_map: {'provided' if has_section_map else 'none'})"
             )
         else:
-            workflow.logger.info("Starting full OCR extraction (all pages)")
+            workflow.logger.info(
+                f"Starting full OCR extraction (all pages, "
+                f"section_map: {'provided' if has_section_map else 'none'})"
+            )
         
-        # Extract OCR using existing OCRService
+        # Extract OCR using existing OCRService with page_section_map
         ocr_data = await workflow.execute_activity(
             "extract_ocr",
-            args=[document_id, pages_to_process],
+            args=[document_id, pages_to_process, page_section_map],
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(
                 maximum_attempts=5,
@@ -58,4 +72,6 @@ class OCRExtractionWorkflow:
         return {
             "document_id": ocr_data.get('document_id'),
             "page_count": ocr_data.get('page_count', 0),
+            "has_section_metadata": ocr_data.get('has_section_metadata', False),
+            "section_distribution": ocr_data.get('section_distribution'),
         }

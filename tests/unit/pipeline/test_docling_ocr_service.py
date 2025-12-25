@@ -1,6 +1,6 @@
 """Unit tests for Docling-backed OCR service.
 
-Tests the DoclingOCRService which:
+Tests the OCRService which:
 - Uses Docling as the primary document parser
 - Extracts layout-aware text and metadata
 - Handles table extraction as structured data
@@ -15,7 +15,7 @@ from typing import List
 from app.models.page_data import PageData
 
 
-class TestDoclingOCRService:
+class TestOCRService:
     """Tests for the Docling-backed OCR service."""
     
     @pytest.fixture
@@ -32,9 +32,9 @@ class TestDoclingOCRService:
     async def test_extract_text_returns_page_data_list(
         self, sample_pdf_path, document_id
     ):
-        """DoclingOCRService should return a list of PageData objects."""
+        """OCRService should return a list of PageData objects."""
         # Import will fail until we create the service
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             # Setup mock Docling converter
@@ -48,7 +48,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             assert isinstance(result, list)
@@ -59,7 +59,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should have correct 1-indexed page numbers."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_pages = []
@@ -79,7 +79,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             # Page numbers should be 1-indexed
@@ -91,7 +91,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Service should only extract specified pages when filter is provided."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         pages_to_extract = [1, 3, 5]
         
@@ -112,7 +112,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(
                 sample_pdf_path, 
                 document_id,
@@ -129,7 +129,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should include markdown content when available."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -146,7 +146,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             # At least one page should have markdown
@@ -157,7 +157,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Tables should be extracted as structured data in metadata."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             # Create a mock page with table
@@ -181,7 +181,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             # Table data should be in metadata
@@ -195,7 +195,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Service should handle pages with no text gracefully."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -211,7 +211,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             # Should return the page even if empty
@@ -223,7 +223,7 @@ class TestDoclingOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should include metadata (coordinates, etc.)."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -241,7 +241,7 @@ class TestDoclingOCRService:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(sample_pdf_path, document_id)
             
             assert len(result) == 1
@@ -252,8 +252,8 @@ class TestDoclingOCRService:
             assert "height" in page.metadata or "page_height" in page.metadata
 
 
-class TestDoclingOCRServiceErrorHandling:
-    """Tests for error handling in DoclingOCRService."""
+class TestOCRServiceErrorHandling:
+    """Tests for error handling in OCRService."""
     
     @pytest.fixture
     def sample_pdf_path(self):
@@ -268,7 +268,7 @@ class TestDoclingOCRServiceErrorHandling:
         self, sample_pdf_path, document_id
     ):
         """Service should raise appropriate error when conversion fails."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         from app.utils.exceptions import OCRExtractionError
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
@@ -276,7 +276,7 @@ class TestDoclingOCRServiceErrorHandling:
             mock_converter.convert.side_effect = Exception("Conversion failed")
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             
             with pytest.raises(OCRExtractionError):
                 await service.extract_pages(sample_pdf_path, document_id)
@@ -286,7 +286,7 @@ class TestDoclingOCRServiceErrorHandling:
         self, sample_pdf_path, document_id
     ):
         """Service should handle invalid page numbers gracefully."""
-        from app.services.ocr.docling_ocr_service import DoclingOCRService
+        from app.services.ocr.ocr_service import OCRService
         
         # Request pages that don't exist
         pages_to_extract = [1, 100, 200]  # Only page 1 exists
@@ -305,7 +305,7 @@ class TestDoclingOCRServiceErrorHandling:
             mock_converter.convert.return_value = mock_result
             mock_converter_class.return_value = mock_converter
             
-            service = DoclingOCRService()
+            service = OCRService()
             result = await service.extract_pages(
                 sample_pdf_path, 
                 document_id,
@@ -317,8 +317,8 @@ class TestDoclingOCRServiceErrorHandling:
             assert result[0].page_number == 1
 
 
-class TestDoclingOCRServiceIntegration:
-    """Integration-style tests for DoclingOCRService with OCRExtractionPipeline."""
+class TestOCRServiceIntegration:
+    """Integration-style tests for OCRService with OCRExtractionPipeline."""
     
     @pytest.fixture
     def mock_session(self):
@@ -326,13 +326,13 @@ class TestDoclingOCRServiceIntegration:
     
     @pytest.mark.asyncio
     async def test_pipeline_uses_docling_service(self, mock_session):
-        """OCRExtractionPipeline should use DoclingOCRService for extraction."""
+        """OCRExtractionPipeline should use OCRService for extraction."""
         from app.pipeline.ocr_extraction import OCRExtractionPipeline
         
         document_id = uuid4()
         document_url = "https://example.com/test.pdf"
         
-        with patch('app.pipeline.ocr_extraction.DoclingOCRService') as mock_service_class:
+        with patch('app.pipeline.ocr_extraction.OCRService') as mock_service_class:
             mock_service = MagicMock()
             mock_service.extract_pages = AsyncMock(return_value=[
                 PageData(page_number=1, text="Page 1"),
@@ -347,13 +347,13 @@ class TestDoclingOCRServiceIntegration:
                 pipeline.doc_repo.store_pages = AsyncMock()
                 pipeline.docling_service = mock_service
                 
-                # This test expects the pipeline to use DoclingOCRService
+                # This test expects the pipeline to use OCRService
                 # Will fail until we implement the integration
                 result = await pipeline.extract_and_store_pages(
                     document_id,
                     document_url
                 )
                 
-                # Verify DoclingOCRService was used
+                # Verify OCRService was used
                 mock_service.extract_pages.assert_called_once()
 

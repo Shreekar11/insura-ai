@@ -45,8 +45,7 @@ class OCRExtractionResponse(BaseModel):
                     "document_id": "550e8400-e29b-41d4-a716-446655440000",
                     "status": "Completed",
                     "metadata": {
-                        "service": "Mistral OCR",
-                        "model": "mistral-ocr-latest",
+                        "service": "Docling",
                         "processing_time_seconds": 2.5,
                         "pages_count": 3,
                         "raw_text_length": 5420,

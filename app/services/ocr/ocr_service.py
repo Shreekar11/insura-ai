@@ -18,7 +18,7 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
-class DoclingOCRService:
+class OCRService:
     """OCR service implementation using Docling for document parsing.
     
     This service is the primary parser.It provides:
@@ -38,12 +38,12 @@ class DoclingOCRService:
     )
     
     def __init__(self):
-        """Initialize DoclingOCRService with Docling converter."""
+        """Initialize OCRService with Docling converter."""
         try:
             from docling.document_converter import DocumentConverter
             self.converter = DocumentConverter()
             LOGGER.info(
-                "Initialized DoclingOCRService",
+                "Initialized OCRService",
                 extra={"service": "docling"}
             )
         except ImportError as e:
@@ -219,10 +219,6 @@ class DoclingOCRService:
                 metadata=metadata
             )
             pages.append(page_data)
-
-            if page_number == 12:
-                LOGGER.info("Page content: %s", page_content)
-                LOGGER.info("Page metadata: %s", metadata)
             
         return pages
     
