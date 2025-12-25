@@ -6,36 +6,59 @@ from typing import Optional
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
+from app.utils.logging import get_logger
+
+LOGGER = get_logger(__name__)
+
+# Find .env file - check multiple possible locations
+def find_env_file() -> Optional[Path]:
+    """Find .env file in multiple possible locations."""
+    possible_paths = [
+        Path.cwd() / ".env",  # Current working directory
+        Path(__file__).resolve().parent / ".env",  # Same directory as config.py
+        Path(__file__).resolve().parent.parent / ".env",  # Parent directory (project root)
+        Path(__file__).resolve().parent.parent.parent / ".env",  # Two levels up
+    ]
+    
+    for path in possible_paths:
+        if path.exists():
+            LOGGER.info(f"Found .env file at: {path}")
+            return path
+    
+    LOGGER.warning("No .env file found in expected locations")
+    return None
+
+
+ENV_FILE = find_env_file()
+
 
 class DatabaseSettings(BaseSettings):
     """Database connection and pool settings."""
-    url: str = Field(default="postgresql+asyncpg://postgres:postgres@localhost:5432/insura_ai", validation_alias="DATABASE_URL")
+    url: str = Field(default="postgresql+asyncpg://insura:insura@localhost:5432/insura_temp", validation_alias="DATABASE_URL")
     pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE")
     max_overflow: int = Field(default=20, validation_alias="DATABASE_MAX_OVERFLOW")
     echo: bool = Field(default=False, validation_alias="DATABASE_ECHO")
     
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_prefix="",  # No prefix for nested settings
     )
 
 
 class LLMSettings(BaseSettings):
     """LLM provider and OCR service settings."""
-    mistral_api_key: str = Field(default="", validation_alias="MISTRAL_API_KEY")
-    mistral_api_url: str = Field(default="https://api.mistral.ai/v1/ocr", validation_alias="MISTRAL_API_URL")
-    mistral_model: str = Field(default="mistral-ocr-latest", validation_alias="MISTRAL_MODEL")
 
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_MODEL")
 
-    provider: str = Field(default="gemini", validation_alias="LLM_PROVIDER")
+    provider: str = Field(default="openrouter", validation_alias="LLM_PROVIDER")
     
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_api_url: str = Field(default="https://openrouter.ai/api/v1/chat/completions", validation_alias="OPENROUTER_API_URL")
-    openrouter_model: str = Field(default="openai/gpt-oss-20b:free", validation_alias="OPENROUTER_MODEL")
+    openrouter_model: str = Field(default="openai/gpt-4o-mini", validation_alias="OPENROUTER_MODEL")
     
     enable_fallback: bool = Field(default=False, validation_alias="ENABLE_LLM_FALLBACK")
 
@@ -50,11 +73,20 @@ class LLMSettings(BaseSettings):
     batch_timeout_seconds: int = Field(default=90, validation_alias="BATCH_TIMEOUT_SECONDS")
     
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_prefix="",  # No prefix for nested settings
     )
+
+    def model_post_init(self, __context) -> None:
+        """Log settings after initialization."""
+        LOGGER.info(f"LLM Provider: {self.provider}")
+        LOGGER.info(f"OpenRouter API Key present: {bool(self.openrouter_api_key)}")
+        LOGGER.info(f"OpenRouter API Key length: {len(self.openrouter_api_key)}")
+        if self.provider == "openrouter" and not self.openrouter_api_key:
+            LOGGER.error("OpenRouter selected as provider but API key is empty!")
 
 
 class TemporalSettings(BaseSettings):
@@ -65,10 +97,11 @@ class TemporalSettings(BaseSettings):
     task_queue: str = Field(default="documents-queue", validation_alias="TEMPORAL_TASK_QUEUE")
     
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
+        env_prefix="",  # No prefix for nested settings
     )
 
 
@@ -95,69 +128,108 @@ class Settings(BaseSettings):
     max_retries: int = 3
     retry_delay: int = 2
 
-    # Nested Settings
-    db: DatabaseSettings = Field(default_factory=DatabaseSettings)
-    llm: LLMSettings = Field(default_factory=LLMSettings)
-    temporal: TemporalSettings = Field(default_factory=TemporalSettings)
+    # Nested Settings - Initialize with env file explicitly
+    db: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())
+    llm: LLMSettings = Field(default_factory=lambda: LLMSettings())
+    temporal: TemporalSettings = Field(default_factory=lambda: TemporalSettings())
 
     model_config = SettingsConfigDict(
-        env_file=str(Path(__file__).resolve().parent / ".env"),
+        env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
         case_sensitive=False,
         extra="ignore",
     )
 
-    # For backward compatibility with the flat settings structure
+    # Backward compatibility properties
     @property
-    def database_url(self) -> str: return self.db.url
+    def database_url(self) -> str: 
+        return self.db.url
+    
     @property
-    def database_pool_size(self) -> int: return self.db.pool_size
+    def database_pool_size(self) -> int: 
+        return self.db.pool_size
+    
     @property
-    def database_max_overflow(self) -> int: return self.db.max_overflow
+    def database_max_overflow(self) -> int: 
+        return self.db.max_overflow
+    
     @property
-    def database_echo(self) -> bool: return self.db.echo
+    def database_echo(self) -> bool: 
+        return self.db.echo
 
     @property
-    def mistral_api_key(self) -> str: return self.llm.mistral_api_key
+    def gemini_api_key(self) -> str: 
+        return self.llm.gemini_api_key
+    
     @property
-    def mistral_api_url(self) -> str: return self.llm.mistral_api_url
+    def gemini_model(self) -> str: 
+        return self.llm.gemini_model
+    
     @property
-    def mistral_model(self) -> str: return self.llm.mistral_model
+    def llm_provider(self) -> str: 
+        return self.llm.provider
+    
     @property
-    def gemini_api_key(self) -> str: return self.llm.gemini_api_key
+    def openrouter_api_key(self) -> str: 
+        return self.llm.openrouter_api_key
+    
     @property
-    def gemini_model(self) -> str: return self.llm.gemini_model
+    def openrouter_api_url(self) -> str: 
+        return self.llm.openrouter_api_url
+    
     @property
-    def llm_provider(self) -> str: return self.llm.provider
+    def openrouter_model(self) -> str: 
+        return self.llm.openrouter_model
+    
     @property
-    def openrouter_api_key(self) -> str: return self.llm.openrouter_api_key
+    def enable_llm_fallback(self) -> bool: 
+        return self.llm.enable_fallback
+    
     @property
-    def openrouter_api_url(self) -> str: return self.llm.openrouter_api_url
+    def chunk_max_tokens(self) -> int: 
+        return self.llm.chunk_max_tokens
+    
     @property
-    def openrouter_model(self) -> str: return self.llm.openrouter_model
+    def chunk_overlap_tokens(self) -> int: 
+        return self.llm.chunk_overlap_tokens
+    
     @property
-    def enable_llm_fallback(self) -> bool: return self.llm.enable_fallback
+    def enable_section_chunking(self) -> bool: 
+        return self.llm.enable_section_chunking
+    
     @property
-    def chunk_max_tokens(self) -> int: return self.llm.chunk_max_tokens
+    def batch_size(self) -> int: 
+        return self.llm.batch_size
+    
     @property
-    def chunk_overlap_tokens(self) -> int: return self.llm.chunk_overlap_tokens
+    def max_batch_retries(self) -> int: 
+        return self.llm.max_batch_retries
+    
     @property
-    def enable_section_chunking(self) -> bool: return self.llm.enable_section_chunking
-    @property
-    def batch_size(self) -> int: return self.llm.batch_size
-    @property
-    def max_batch_retries(self) -> int: return self.llm.max_batch_retries
-    @property
-    def batch_timeout_seconds(self) -> int: return self.llm.batch_timeout_seconds
+    def batch_timeout_seconds(self) -> int: 
+        return self.llm.batch_timeout_seconds
 
     @property
-    def temporal_host(self) -> str: return self.temporal.host
+    def temporal_host(self) -> str: 
+        return self.temporal.host
+    
     @property
-    def temporal_port(self) -> int: return self.temporal.port
+    def temporal_port(self) -> int: 
+        return self.temporal.port
+    
     @property
-    def temporal_namespace(self) -> str: return self.temporal.namespace
+    def temporal_namespace(self) -> str: 
+        return self.temporal.namespace
+    
     @property
-    def temporal_task_queue(self) -> str: return self.temporal.task_queue
+    def temporal_task_queue(self) -> str: 
+        return self.temporal.task_queue
 
 
+# Initialize settings
 settings = Settings()
+
+# Log initialization for debugging
+LOGGER.info(f"Settings initialized with environment: {settings.environment}")
+LOGGER.info(f"LLM Provider: {settings.llm_provider}")
+LOGGER.info(f"OpenRouter API Key loaded: {bool(settings.openrouter_api_key)}")
