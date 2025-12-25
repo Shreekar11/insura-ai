@@ -79,9 +79,6 @@ class Document(Base):
     pages: Mapped[list["DocumentPage"]] = relationship(
         "DocumentPage", back_populates="document", cascade="all, delete-orphan"
     )
-    ocr_results: Mapped[list["OCRResult"]] = relationship(
-        "OCRResult", back_populates="document", cascade="all, delete-orphan"
-    )
     classifications: Mapped[list["DocumentClassification"]] = relationship(
         "DocumentClassification",
         back_populates="document",
@@ -150,70 +147,6 @@ class DocumentRawText(Base):
     page: Mapped["DocumentPage"] = relationship(
         "DocumentPage", back_populates="raw_texts"
     )
-
-
-class OCRResult(Base):
-    """Document-level full OCR result."""
-
-    __tablename__ = "ocr_results"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
-    )
-    ocr_provider: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # mistral_ocr | tesseract | gcv
-    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    
-    # Provenance tracking
-    model_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="OCR engine version"
-    )
-    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="Links to specific pipeline execution"
-    )
-    source_stage: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Pipeline stage: ocr"
-    )
-    
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    document: Mapped["Document"] = relationship("Document", back_populates="ocr_results")
-
-
-class OCRToken(Base):
-    """Token-level OCR structure for layout understanding."""
-
-    __tablename__ = "ocr_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_page_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("document_pages.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    token: Mapped[str] = mapped_column(String, nullable=False)
-    x_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    y_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    x_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    y_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    page: Mapped["DocumentPage"] = relationship("DocumentPage", back_populates="ocr_tokens")
-
 
 class DocumentClassification(Base):
     """Document classification results."""

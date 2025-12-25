@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
 from app.core.base_repository import BaseRepository
-from app.database.models import Document, DocumentPage
+from app.database.models import Document, DocumentPage, PageManifestRecord
 from app.models.page_data import PageData
 from app.utils.logging import get_logger
 
@@ -145,3 +145,38 @@ class DocumentRepository(BaseRepository[Document]):
         
         LOGGER.info(f"Retrieved {len(page_data_list)} pages for document {document_id}")
         return page_data_list
+
+    async def get_manifest_pages(
+        self,
+        document_id: UUID
+    ) -> Optional[List[int]]:
+        """Get pages_to_process from the page manifest for a document.
+        
+        Args:
+            document_id: Document ID
+            
+        Returns:
+            List of page numbers to process, or None if no manifest exists
+        """
+        LOGGER.info(f"Fetching manifest pages for document {document_id}")
+        
+        result = await self.session.execute(
+            select(PageManifestRecord)
+            .where(PageManifestRecord.document_id == document_id)
+        )
+        manifest = result.scalar_one_or_none()
+        
+        if not manifest:
+            LOGGER.info(f"No manifest found for document {document_id}")
+            return None
+        
+        pages_to_process = manifest.pages_to_process
+        LOGGER.info(
+            f"Found manifest with {len(pages_to_process)} pages to process",
+            extra={
+                "document_id": str(document_id),
+                "pages_to_process": pages_to_process
+            }
+        )
+        
+        return pages_to_process

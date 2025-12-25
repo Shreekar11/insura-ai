@@ -1,13 +1,19 @@
 """Pytest configuration and shared fixtures."""
 
+import os
 import pytest
 from unittest.mock import Mock, AsyncMock
+
+# Set required environment variables for testing BEFORE importing app
+os.environ.setdefault("MISTRAL_API_KEY", "test-mistral-key")
+os.environ.setdefault("GEMINI_API_KEY", "test-gemini-key")
+os.environ.setdefault("DATABASE_URL", "postgresql+asyncpg://test:test@localhost:5432/test_db")
+os.environ.setdefault("SUPABASE_URL", "https://test.supabase.co")
+os.environ.setdefault("SUPABASE_KEY", "test-supabase-key")
+
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.services.ocr.ocr_service import OCRService
-from app.services.ocr.ocr_base import OCRResult
-
 
 @pytest.fixture
 def test_client() -> TestClient:
@@ -25,37 +31,6 @@ def clear_dependency_overrides():
     app.dependency_overrides = {}
     yield
     app.dependency_overrides = {}
-
-
-@pytest.fixture
-def mock_ocr_service() -> Mock:
-    """Create mock OCR service.
-
-    Returns:
-        Mock: Mocked OCR service instance
-    """
-    service = Mock(spec=OCRService)
-    service.get_service_name.return_value = "Mistral OCR"
-    return service
-
-
-@pytest.fixture
-def sample_ocr_result() -> OCRResult:
-    """Create sample OCR result for testing.
-
-    Returns:
-        OCRResult: Sample OCR result
-    """
-    return OCRResult(
-        text="Policy Number: 12345ABC\nCoverage: Property Damage\nEffective Date: 2023-07-10",
-        confidence=0.97,
-        metadata={
-            "service": "Mistral OCR",
-            "model": "pixtral-12b-2409",
-            "processing_time_seconds": 2.5,
-        },
-    )
-
 
 @pytest.fixture
 def sample_pdf_url() -> str:

@@ -1,46 +1,120 @@
-"""Phase 1: OCR Extraction facade.
+"""Phase 2: OCR Extraction Pipeline with Docling.
 
-Wraps OCRService for raw text extraction.
+Uses Docling as the primary parser with selective page processing.
 """
 
-from typing import List
+from typing import List, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.ocr.ocr_service import OCRService
+from app.services.ocr.docling_ocr_service import DoclingOCRService
 from app.repositories.document_repository import DocumentRepository
 from app.models.page_data import PageData
-from app.config import settings
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
 class OCRExtractionPipeline:
+    """OCR extraction pipeline using Docling for document parsing.
+    
+    Attributes:
+        session: Database session for persistence
+        doc_repo: Document repository for page storage
+        docling_service: Docling OCR service for extraction
+    """
+    
     def __init__(self, session: AsyncSession):
+        """Initialize OCR extraction pipeline.
+        
+        Args:
+            session: SQLAlchemy async session
+        """
         self.session = session
         self.doc_repo = DocumentRepository(session)
-        self.ocr_service = OCRService(
-            api_key=settings.mistral_api_key,
-            gemini_api_key=settings.gemini_api_key,
-            gemini_model=settings.gemini_model,
-            db_session=session,
-            provider=settings.llm_provider,
-            openrouter_api_key=settings.openrouter_api_key if settings.llm_provider == "openrouter" else None,
-            openrouter_api_url=settings.openrouter_api_url,
-            openrouter_model=settings.openrouter_model,
+        self.docling_service = DoclingOCRService()
+        
+        LOGGER.info(
+            "Initialized OCRExtractionPipeline with Docling backend",
+            extra={"backend": "docling"}
         )
 
-    async def extract_and_store_pages(self, document_id: UUID, document_url: str) -> List[PageData]:
-        """Extract raw text and store in database."""
-        # Extract raw text only
-        pages = await self.ocr_service.extract_text_only(
-            document_url=document_url,
-            document_id=document_id
+    async def extract_and_store_pages(
+        self, 
+        document_id: UUID, 
+        document_url: str,
+        pages_to_process: Optional[List[int]] = None
+    ) -> List[PageData]:
+        """Extract text from document and store in database.
+        
+        Args:
+            document_id: Document UUID
+            document_url: URL or path to the document
+            pages_to_process: Optional list of page numbers to extract.
+                If None, all pages are processed.
+                If provided, only those pages are extracted and stored.
+        
+        Returns:
+            List[PageData]: Extracted page data
+        """
+        LOGGER.info(
+            "Starting OCR extraction",
+            extra={
+                "document_id": str(document_id),
+                "document_url": document_url,
+                "selective": pages_to_process is not None,
+                "pages_requested": pages_to_process
+            }
         )
+        
+        # Extract pages using Docling
+        pages = await self.docling_service.extract_pages(
+            document_url=document_url,
+            document_id=document_id,
+            pages_to_process=pages_to_process
+        )
+        
+        # Add extraction metadata to pages
+        for page in pages:
+            if page.metadata is None:
+                page.metadata = {}
+            page.metadata["selective"] = pages_to_process is not None
+            page.metadata["extraction_pipeline"] = "v2"
         
         # Store in database
         await self.doc_repo.store_pages(document_id, pages)
         
+        LOGGER.info(
+            f"OCR extraction complete: {len(pages)} pages stored",
+            extra={
+                "document_id": str(document_id),
+                "pages_stored": len(pages),
+                "page_numbers": [p.page_number for p in pages]
+            }
+        )
+        
         return pages
-
+    
+    async def extract_pages_only(
+        self,
+        document_id: UUID,
+        document_url: str,
+        pages_to_process: Optional[List[int]] = None
+    ) -> List[PageData]:
+        """Extract pages without storing to database.
+        
+        Useful for preview or validation scenarios.
+        
+        Args:
+            document_id: Document UUID
+            document_url: URL or path to the document
+            pages_to_process: Optional list of page numbers to extract
+        
+        Returns:
+            List[PageData]: Extracted page data (not stored)
+        """
+        return await self.docling_service.extract_pages(
+            document_url=document_url,
+            document_id=document_id,
+            pages_to_process=pages_to_process
+        )

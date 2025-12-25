@@ -494,3 +494,5 @@ class TestDuplicateDetectorInsuranceScenarios:
         assert is_dup is True
         assert dup_of == 100
 
+
+

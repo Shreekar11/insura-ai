@@ -5,9 +5,7 @@ from unittest.mock import AsyncMock
 import pytest
 from fastapi.testclient import TestClient
 
-from app.api.routes.ocr import get_ocr_service
 from app.main import app
-from app.services.ocr.ocr_base import OCRResult
 from app.utils.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
@@ -21,36 +19,6 @@ class TestOCREndpoints:
     Tests the public API interface, focusing on request/response behavior
     and error handling.
     """
-
-    def test_extract_ocr_success(
-        self, test_client: TestClient, sample_pdf_url: str, sample_ocr_result: OCRResult
-    ) -> None:
-        """Test successful OCR extraction via API.
-
-        Args:
-            test_client: FastAPI test client fixture
-            sample_pdf_url: Sample PDF URL fixture
-            sample_ocr_result: Sample OCR result fixture
-        """
-        mock_service = AsyncMock()
-        mock_service.extract_text_from_url.return_value = sample_ocr_result
-        app.dependency_overrides[get_ocr_service] = lambda: mock_service
-
-        # Execute
-        response = test_client.post(
-            "/api/v1/ocr/extract",
-            json={"pdf_url": sample_pdf_url},
-        )
-
-        # Assert
-        assert response.status_code == 200
-        data = response.json()
-        assert "document_id" in data
-        assert data["text"] == sample_ocr_result.text
-        assert data["confidence"] == sample_ocr_result.confidence
-        assert data["status"] == "Completed"
-        assert "metadata" in data
-
     def test_extract_ocr_invalid_url(self, test_client: TestClient) -> None:
         """Test OCR extraction with invalid URL.
 
