@@ -119,9 +119,6 @@ class DocumentPage(Base):
     raw_texts: Mapped[list["DocumentRawText"]] = relationship(
         "DocumentRawText", back_populates="page", cascade="all, delete-orphan"
     )
-    ocr_tokens: Mapped[list["OCRToken"]] = relationship(
-        "OCRToken", back_populates="page", cascade="all, delete-orphan"
-    )
 
 
 class DocumentRawText(Base):
@@ -165,7 +162,7 @@ class DocumentClassification(Base):
     confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
     classifier_model: Mapped[str | None] = mapped_column(
         String, nullable=True
-    )  # rules | gpt_zero_shot | claude_zero_shot | mistral_zero_shot | chunk_aggregator_v1 | llm_fallback_v1
+    )  # rules | gpt_zero_shot | claude_zero_shot | chunk_aggregator_v1 | llm_fallback_v1
     decision_details: Mapped[dict | None] = mapped_column(
         JSON, nullable=True, comment="Aggregation details: scores, method, chunks_used, fallback_used"
     )
