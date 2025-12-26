@@ -75,7 +75,7 @@ class OCRExtractionPipeline:
         )
         
         # Extract pages using Docling
-        pages = await self.docling_service.extract_pages(
+        pages = await self.ocr_service.extract_pages(
             document_url=document_url,
             document_id=document_id,
             pages_to_process=pages_to_process

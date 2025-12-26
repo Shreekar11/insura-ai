@@ -16,6 +16,9 @@ from temporalio.worker import Worker
 from app.temporal.workflows.process_document import ProcessDocumentWorkflow
 from app.temporal.workflows.page_analysis_workflow import PageAnalysisWorkflow
 from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
+from app.temporal.workflows.hybrid_chunking import HybridChunkingWorkflow
+from app.temporal.workflows.tiered_extraction import TieredExtractionWorkflow
+from app.temporal.workflows.table_extraction import TableExtractionWorkflow
 from app.temporal.workflows.normalization import NormalizationWorkflow
 from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
 
@@ -27,6 +30,17 @@ from app.temporal.activities.page_analysis import (
 )
 from app.temporal.activities.ocr_extraction import (
     extract_ocr,
+)
+from app.temporal.activities.table_extraction import (
+    extract_tables,
+)
+from app.temporal.activities.hybrid_chunking import (
+    perform_hybrid_chunking,
+)
+from app.temporal.activities.tiered_extraction import (
+    classify_document_and_map_sections,
+    extract_section_fields,
+    validate_and_reconcile_data,
 )
 from app.temporal.activities.normalization import (
     normalize_and_classify_document,
@@ -66,6 +80,9 @@ async def main():
             ProcessDocumentWorkflow,
             PageAnalysisWorkflow,
             OCRExtractionWorkflow,
+            HybridChunkingWorkflow,
+            TieredExtractionWorkflow,
+            TableExtractionWorkflow,
             NormalizationWorkflow,
             EntityResolutionWorkflow,
         ],
@@ -74,6 +91,11 @@ async def main():
             classify_pages,
             create_page_manifest,
             extract_ocr,
+            extract_tables,
+            perform_hybrid_chunking,
+            classify_document_and_map_sections,
+            extract_section_fields,
+            validate_and_reconcile_data,
             normalize_and_classify_document,
             aggregate_document_entities,
             resolve_canonical_entities,

@@ -1479,3 +1479,116 @@ class PageManifestRecord(Base):
     __table_args__ = (
         {"comment": "Page processing manifest for cost optimization"},
     )
+
+
+# ============================================================================
+# Table Extraction Models (TableJSON Storage)
+# ============================================================================
+
+
+class DocumentTable(Base):
+    """First-class table representation with full structural information.
+    
+    Stores TableJSON data for any detected table, preserving:
+    - Cell-level structure (rows, cols, spans, bboxes)
+    - Extraction provenance and confidence metrics
+    - Classification and canonicalization results
+    """
+
+    __tablename__ = "document_tables"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
+    )
+    table_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="0-indexed table position on page"
+    )
+    stable_table_id: Mapped[str] = mapped_column(
+        String, unique=True, nullable=False, comment="Deterministic ID: tbl_{doc_id}_p{page}_t{index}"
+    )
+    
+    # Table structure as JSON
+    table_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Full TableJSON with cells, headers, spans, bboxes"
+    )
+    
+    # Bounding box for table region
+    table_bbox: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="[x1, y1, x2, y2] coordinates on page"
+    )
+    
+    # Structure metrics
+    num_rows: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="Total row count"
+    )
+    num_cols: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="Total column count"
+    )
+    header_rows: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="Indices of header rows"
+    )
+    canonical_headers: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="Reconstructed header strings"
+    )
+    
+    # Classification
+    table_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="property_sov, loss_run, premium_schedule, etc."
+    )
+    classification_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Classification confidence (0.0-1.0)"
+    )
+    classification_reasoning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Human-readable classification reasoning"
+    )
+    
+    # Extraction provenance
+    extraction_source: Mapped[str] = mapped_column(
+        String, nullable=False, default="docling_structural",
+        comment="docling_structural, docling_markdown, camelot, tabula, etc."
+    )
+    extractor_version: Mapped[str] = mapped_column(
+        String, nullable=False, default="1.0.0", comment="Version of extractor"
+    )
+    
+    # Confidence metrics
+    confidence_overall: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall extraction confidence"
+    )
+    confidence_metrics: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Detailed confidence metrics"
+    )
+    
+    # Raw data for debugging
+    raw_markdown: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Original markdown representation"
+    )
+    notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Footer/footnote text"
+    )
+    
+    # Additional metadata
+    additional_metadata: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional extraction metadata"
+    )
+    
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", "table_index", name="uq_document_table_position"),
+        {"comment": "First-class table storage with full structural information"},
+    )
