@@ -14,7 +14,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.base_service import BaseService
-from app.core.unified_llm import UnifiedLLMClient
+from app.core.unified_llm import UnifiedLLMClient, create_llm_client_from_settings
 from app.database.models import CoverageItem, ConditionItem, ExclusionItem
 from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
@@ -152,6 +152,7 @@ Extract exclusions including:
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        ollama_model: str = "deepseek-r1:7b",
         timeout: int = 90,
         max_retries: int = 3,
     ):
@@ -159,12 +160,13 @@ Extract exclusions including:
         
         Args:
             session: SQLAlchemy async session
-            provider: LLM provider to use ("gemini" or "openrouter")
+            provider: LLM provider to use ("gemini", "openrouter", or "ollama")
             gemini_api_key: Gemini API key
             gemini_model: Gemini model to use
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model to use
             openrouter_api_url: OpenRouter API URL
+            ollama_model: Ollama model to use
             timeout: Request timeout in seconds
             max_retries: Maximum retry attempts
         """
@@ -172,36 +174,25 @@ Extract exclusions including:
         self.session = session
         self.provider = provider
         
-        # Determine which API key and model to use
-        if provider == "openrouter":
-            if not openrouter_api_key:
-                raise ValueError("openrouter_api_key required when provider='openrouter'")
-            api_key = openrouter_api_key
-            model = openrouter_model
-            base_url = openrouter_api_url
-        else:  # gemini
-            if not gemini_api_key:
-                raise ValueError("gemini_api_key required when provider='gemini'")
-            api_key = gemini_api_key
-            model = gemini_model
-            base_url = None
-        
-        
-        # Store model for external access
-        self.model = model
-        
-        # Initialize UnifiedLLMClient
-        self.client = UnifiedLLMClient(
+        # Initialize UnifiedLLMClient using factory function
+        self.client = create_llm_client_from_settings(
             provider=provider,
-            api_key=api_key,
-            model=model,
-            base_url=base_url,
+            gemini_api_key=gemini_api_key if gemini_api_key else "",
+            gemini_model=gemini_model,
+            openrouter_api_key=openrouter_api_key if openrouter_api_key else "",
+            openrouter_api_url=openrouter_api_url,
+            openrouter_model=openrouter_model,
+            ollama_api_url="http://localhost:11434",
+            ollama_model="deepseek-r1:7b",
             timeout=timeout,
             max_retries=max_retries,
-            fallback_to_gemini=False,
+            enable_fallback=False,
         )
         
-        LOGGER.info(f"Initialized SectionBatchExtractor with provider={provider}, model={model}")
+        # Store model for external access
+        self.model = self.client.model
+        
+        LOGGER.info(f"Initialized SectionBatchExtractor with provider={provider}, model={self.model}")
     
     async def extract_all_sections(
         self,

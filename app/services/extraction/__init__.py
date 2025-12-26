@@ -1,4 +1,8 @@
-"""Extraction services for structured data extraction from documents."""
+"""Extraction services for structured data extraction from documents.
+
+- SectionExtractionOrchestrator: section-level extraction
+- CrossSectionValidator: cross-section validation and reconciliation
+"""
 
 from app.services.extraction.base_extractor import BaseExtractor
 from app.services.extraction.extractor_factory import ExtractorFactory
@@ -7,6 +11,23 @@ from app.services.entity.resolver import EntityResolver
 from app.services.pipeline.batch_extractor import BatchExtractor
 from app.services.pipeline.section_batch_extractor import SectionBatchExtractor
 
+from app.services.extraction.document_classification_service import (
+    DocumentClassificationService,
+    DocumentClassificationResult,
+    SectionBoundary,
+)
+from app.services.extraction.section_extraction_orchestrator import (
+    SectionExtractionOrchestrator,
+    SectionExtractionResult,
+    DocumentExtractionResult,
+)
+from app.services.extraction.cross_section_validator import (
+    CrossSectionValidator,
+    CrossSectionValidationResult,
+    ValidationIssue,
+    ReconciledValue,
+)
+
 __all__ = [
     "BaseExtractor",
     "ExtractorFactory",
@@ -14,4 +35,14 @@ __all__ = [
     "EntityResolver",
     "BatchExtractor",
     "SectionBatchExtractor",
+    "DocumentClassificationService",
+    "DocumentClassificationResult",
+    "SectionBoundary",
+    "SectionExtractionOrchestrator",
+    "SectionExtractionResult",
+    "DocumentExtractionResult",
+    "CrossSectionValidator",
+    "CrossSectionValidationResult",
+    "ValidationIssue",
+    "ReconciledValue",
 ]
