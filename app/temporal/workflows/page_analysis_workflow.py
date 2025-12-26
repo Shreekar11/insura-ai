@@ -2,6 +2,8 @@
 
 This workflow orchestrates the page analysis phase to determine which pages
 should undergo full OCR processing, achieving 70-85% cost reduction.
+
+Now returns full manifest with document_profile and page_section_map
 """
 
 from temporalio import workflow
@@ -18,30 +20,42 @@ class PageAnalysisWorkflow:
     should undergo full OCR processing, achieving 70-85% cost reduction.
     
     Workflow Steps:
-    1. Extracts lightweight signals from all pages (using pdfplumber)
+    1. Extracts lightweight signals from all pages (using Docling)
     2. Classifies pages using rule-based patterns
     3. Detects duplicate pages within the document
-    4. Creates a page manifest determining which pages to process
+    4. Builds document profile
+    5. Creates a page manifest with document_profile and page_section_map
     
     Performance:
         Uses singleton instances for stateless components in activities to
         minimize initialization overhead across multiple document processing.
+    
+    Output:
+        Returns full manifest including document_profile and page_section_map
+        for downstream workflows (OCR, chunking, extraction).
     """
     
     @workflow.run
     async def run(self, document_id: str) -> Dict:
-        """Execute page analysis and create processing manifest.
+        """Execute page analysis and create processing manifest with document profile.
         
         Args:
             document_id: UUID string of the document to analyze
             
         Returns:
-            Dictionary with:
+            Dictionary with full manifest including:
                 - document_id: str
                 - total_pages: int
                 - pages_to_process: List[int]
                 - pages_skipped: List[int]
                 - processing_ratio: float
+                - document_profile: Dict (replaces Tier 1 LLM)
+                    - document_type: str
+                    - document_subtype: Optional[str]
+                    - confidence: float
+                    - section_boundaries: List[Dict]
+                    - page_section_map: Dict[int, str]
+                - page_section_map: Dict[int, str] (for OCR/chunking)
         """
         workflow.logger.info(f"Starting page analysis for document: {document_id}")
         
@@ -79,8 +93,8 @@ class PageAnalysisWorkflow:
         
         workflow.logger.info(f"Classified {len(classifications)} pages")
         
-        # Activity 3: Create and persist page manifest
-        # Determines final list of pages to process vs skip
+        # Activity 3: Create and persist page manifest with document profile
+        # This activity now builds document_profile and page_section_map
         manifest = await workflow.execute_activity(
             "create_page_manifest",
             args=[document_id, classifications],
@@ -92,18 +106,21 @@ class PageAnalysisWorkflow:
                 backoff_coefficient=2.0,
             ),
         )
+        
         processing_ratio = manifest.get('processing_ratio', 0.0)
+        document_profile = manifest.get('document_profile')
+        page_section_map = manifest.get('page_section_map', {})
         
         workflow.logger.info(
             f"Page analysis complete: {manifest['total_pages']} pages, "
             f"{len(manifest['pages_to_process'])} to process "
-            f"({processing_ratio:.1%} processing ratio)"
+            f"({processing_ratio:.1%} processing ratio)",
+            extra={
+                "document_type": document_profile.get("document_type") if document_profile else None,
+                "section_count": len(document_profile.get("section_boundaries", [])) if document_profile else 0,
+                "has_page_section_map": bool(page_section_map),
+            }
         )
         
-        return {
-            "document_id": manifest['document_id'],
-            "total_pages": manifest['total_pages'],
-            "pages_to_process": manifest['pages_to_process'],
-            "pages_skipped": manifest['pages_skipped'],
-            "processing_ratio": processing_ratio,
-        }
+        # Return FULL manifest including document_profile and page_section_map
+        return manifest

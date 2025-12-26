@@ -1,12 +1,12 @@
 """Data models for page-level analysis and classification.
 
 This module defines the data structures used throughout the page analysis pipeline,
-including page signals, classifications, and manifests.
+including page signals, classifications, manifests, and document profiles.
 """
 
 from enum import Enum
 from pydantic import BaseModel, ConfigDict, Field
-from typing import Optional, List
+from typing import Optional, List, Dict, Any
 from uuid import UUID
 
 
@@ -23,6 +23,26 @@ class PageType(str, Enum):
     INVOICE = "invoice"
     BOILERPLATE = "boilerplate"
     DUPLICATE = "duplicate"
+    DEFINITIONS = "definitions"
+    TABLE_OF_CONTENTS = "table_of_contents"
+    UNKNOWN = "unknown"
+
+
+class DocumentType(str, Enum):
+    """Types of insurance documents."""
+    
+    POLICY = "policy"
+    SOV = "sov"
+    LOSS_RUN = "loss_run"
+    ENDORSEMENT = "endorsement"
+    QUOTE = "quote"
+    SUBMISSION = "submission"
+    PROPOSAL = "proposal"
+    INVOICE = "invoice"
+    CERTIFICATE = "certificate"
+    CORRESPONDENCE = "correspondence"
+    FINANCIAL = "financial"
+    AUDIT = "audit"
     UNKNOWN = "unknown"
 
 
@@ -132,6 +152,15 @@ class PageManifest(BaseModel):
         ..., 
         description="Classification results for all pages"
     )
+    # Document profile is added after PageManifest is created
+    document_profile: Optional["DocumentProfile"] = Field(
+        None,
+        description="Document-level profile derived from page classifications (replaces Tier 1 LLM)"
+    )
+    page_section_map: Dict[int, str] = Field(
+        default_factory=dict,
+        description="Mapping of page numbers to section types for downstream processing"
+    )
     
     @property
     def processing_ratio(self) -> float:
@@ -145,6 +174,20 @@ class PageManifest(BaseModel):
         """Estimated cost savings percentage (0.0 to 1.0)."""
         return 1.0 - self.processing_ratio
     
+    @property
+    def document_type(self) -> Optional[str]:
+        """Get document type from profile (for backward compatibility)."""
+        if self.document_profile:
+            return self.document_profile.document_type.value
+        return None
+    
+    @property
+    def section_boundaries(self) -> List["SectionBoundary"]:
+        """Get section boundaries from profile (for backward compatibility)."""
+        if self.document_profile:
+            return self.document_profile.section_boundaries
+        return []
+    
     def get_pages_by_type(self, page_type: PageType) -> List[int]:
         """Get all page numbers of a specific type."""
         return [
@@ -152,6 +195,10 @@ class PageManifest(BaseModel):
             for c in self.classifications 
             if c.page_type == page_type
         ]
+    
+    def get_section_for_page(self, page_number: int) -> Optional[str]:
+        """Get section type for a specific page number."""
+        return self.page_section_map.get(page_number)
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -161,8 +208,159 @@ class PageManifest(BaseModel):
                 "pages_to_process": [1, 2, 3, 10, 15, 80],
                 "pages_skipped": [4, 5, 6, 7, 8, 9, 11, 12],
                 "classifications": [],
+                "document_profile": None,
+                "page_section_map": {"1": "declarations", "2": "declarations"},
                 "processing_ratio": 0.15,
                 "cost_savings_estimate": 0.85
             }
         }
     )
+
+
+class SectionBoundary(BaseModel):
+    """Represents a detected section boundary within a document.
+    
+    Section boundaries are derived from page classifications and represent
+    contiguous runs of pages belonging to the same section type.
+    """
+    
+    section_type: PageType = Field(..., description="Type of section")
+    start_page: int = Field(..., ge=1, description="Starting page number (1-indexed)")
+    end_page: int = Field(..., ge=1, description="Ending page number (inclusive)")
+    confidence: float = Field(
+        ..., 
+        ge=0.0, 
+        le=1.0,
+        description="Average confidence across pages in this section"
+    )
+    page_count: int = Field(..., ge=1, description="Number of pages in this section")
+    anchor_text: Optional[str] = Field(
+        None, 
+        description="Text that triggered section detection (from first page)"
+    )
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "section_type": "declarations",
+                "start_page": 1,
+                "end_page": 5,
+                "confidence": 0.95,
+                "page_count": 5,
+                "anchor_text": "DECLARATIONS PAGE"
+            }
+        }
+    )
+
+
+class DocumentProfile(BaseModel):
+    """Document-level profile aggregated from page classifications.
+    
+    This profile replaces Tier 1 LLM classification by deriving document type
+    and section boundaries from rule-based page analysis. It provides all the
+    context needed for downstream processing without additional LLM calls.
+    """
+    
+    document_id: UUID = Field(..., description="Document UUID")
+    document_type: DocumentType = Field(
+        ..., 
+        description="Classified document type derived from page type distribution"
+    )
+    document_subtype: Optional[str] = Field(
+        None,
+        description="Optional subtype (e.g., 'commercial_property' for policy)"
+    )
+    confidence: float = Field(
+        ..., 
+        ge=0.0, 
+        le=1.0,
+        description="Overall classification confidence"
+    )
+    section_boundaries: List[SectionBoundary] = Field(
+        ..., 
+        description="List of detected section boundaries"
+    )
+    page_section_map: Dict[int, str] = Field(
+        ..., 
+        description="Mapping of page numbers to section types"
+    )
+    page_type_distribution: Dict[str, int] = Field(
+        ..., 
+        description="Count of pages by type"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata from page analysis"
+    )
+    
+    @property
+    def section_count(self) -> int:
+        """Number of distinct sections detected."""
+        return len(self.section_boundaries)
+    
+    @property
+    def has_declarations(self) -> bool:
+        """Whether document has a declarations section."""
+        return any(
+            sb.section_type == PageType.DECLARATIONS 
+            for sb in self.section_boundaries
+        )
+    
+    @property
+    def has_coverages(self) -> bool:
+        """Whether document has a coverages section."""
+        return any(
+            sb.section_type == PageType.COVERAGES 
+            for sb in self.section_boundaries
+        )
+    
+    def get_section_pages(self, section_type: PageType) -> List[int]:
+        """Get all page numbers belonging to a section type."""
+        pages = []
+        for boundary in self.section_boundaries:
+            if boundary.section_type == section_type:
+                pages.extend(range(boundary.start_page, boundary.end_page + 1))
+        return pages
+    
+    def get_section_for_page(self, page_number: int) -> Optional[PageType]:
+        """Get the section type for a specific page."""
+        section_str = self.page_section_map.get(page_number)
+        if section_str:
+            try:
+                return PageType(section_str)
+            except ValueError:
+                return PageType.UNKNOWN
+        return None
+    
+    model_config = ConfigDict(
+        json_schema_extra={
+            "example": {
+                "document_id": "550e8400-e29b-41d4-a716-446655440000",
+                "document_type": "policy",
+                "document_subtype": "commercial_property",
+                "confidence": 0.92,
+                "section_boundaries": [
+                    {
+                        "section_type": "declarations",
+                        "start_page": 1,
+                        "end_page": 5,
+                        "confidence": 0.95,
+                        "page_count": 5
+                    }
+                ],
+                "page_section_map": {
+                    "1": "declarations",
+                    "2": "declarations"
+                },
+                "page_type_distribution": {
+                    "declarations": 5,
+                    "coverages": 20,
+                    "conditions": 10
+                }
+            }
+        }
+    )
+
+
+# Rebuild models to resolve forward references
+PageManifest.model_rebuild()
