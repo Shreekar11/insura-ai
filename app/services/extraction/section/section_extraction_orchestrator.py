@@ -2,14 +2,15 @@
 
 This service implements the v2 architecture's Tier 2 processing:
 - Sequential section-level extraction
-- Section-specific field extraction
+- Section-specific field extraction using factory pattern
 - Batch processing of section super-chunks
 - Structured JSON output per section type
 
-Processes sections in priority order with section-specific prompts.
+Processes sections in priority order using section-specific extractors from factory.
 """
 
 import json
+import time
 from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
 from dataclasses import dataclass, field
@@ -24,6 +25,17 @@ from app.services.chunking.hybrid_models import (
     HybridChunk,
 )
 from app.services.chunking.section_super_chunk_builder import SuperChunkBatch
+from app.services.extraction.extractor_factory import ExtractorFactory
+from app.services.extraction.section.extractors import (
+    DeclarationsExtractor,
+    CoveragesExtractor,
+    ConditionsExtractor,
+    ExclusionsExtractor,
+    EndorsementsExtractor,
+    InsuringAgreementExtractor,
+    PremiumSummaryExtractor,
+    DefaultSectionExtractor,
+)
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 
@@ -99,253 +111,19 @@ class DocumentExtractionResult:
         }
 
 
-# Section-specific extraction prompts
-SECTION_PROMPTS = {
-    SectionType.DECLARATIONS: """You are an expert at extracting structured data from insurance policy declarations pages.
-
-Extract the following fields from the declarations section:
-
-## Required Fields:
-- policy_number: Policy number/ID
-- insured_name: Named insured (primary)
-- insured_address: Insured's address
-- effective_date: Policy effective date (YYYY-MM-DD)
-- expiration_date: Policy expiration date (YYYY-MM-DD)
-- carrier_name: Insurance carrier/company name
-- broker_name: Broker/agent name (if present)
-- total_premium: Total policy premium
-- policy_type: Type of policy (e.g., Commercial Property, General Liability)
-
-## Optional Fields:
-- additional_insureds: List of additional insureds
-- policy_form: Policy form number
-- retroactive_date: Retroactive date if applicable
-- prior_acts_coverage: Prior acts coverage details
-
-## Entities to Extract:
-- POLICY_NUMBER
-- INSURED_NAME
-- CARRIER
-- BROKER
-- AMOUNT (premiums, limits)
-- DATE
-- ADDRESS
-
-Return JSON with this structure:
-{
-    "fields": {
-        "policy_number": "...",
-        "insured_name": "...",
-        ...
-    },
-    "entities": [
-        {"type": "POLICY_NUMBER", "value": "...", "confidence": 0.95},
-        ...
-    ],
-    "confidence": 0.92
-}
-""",
-
-    SectionType.COVERAGES: """You are an expert at extracting coverage information from insurance policies.
-
-Extract ALL coverage items with the following details:
-
-## Per Coverage:
-- coverage_name: Name of the coverage
-- coverage_type: Type (Property, Liability, Auto, Workers Comp, etc.)
-- limit_amount: Coverage limit (numeric)
-- deductible_amount: Deductible (numeric)
-- premium_amount: Premium for this coverage (if shown)
-- description: What is covered
-- sub_limits: Any sub-limits (as object)
-- per_occurrence: Is limit per occurrence? (boolean)
-- aggregate: Is there an aggregate limit? (boolean)
-- aggregate_amount: Aggregate limit amount if applicable
-- coverage_territory: Geographic coverage territory
-- retroactive_date: Retroactive date if applicable
-
-## Entities to Extract:
-- COVERAGE_TYPE
-- AMOUNT (limits, deductibles, premiums)
-- PERCENTAGE (coinsurance, etc.)
-
-Return JSON:
-{
-    "coverages": [
-        {
-            "coverage_name": "Building Coverage",
-            "coverage_type": "Property",
-            "limit_amount": 5000000,
-            "deductible_amount": 5000,
-            ...
-        }
-    ],
-    "entities": [...],
-    "confidence": 0.90
-}
-""",
-
-    SectionType.CONDITIONS: """You are an expert at extracting policy conditions from insurance documents.
-
-Extract ALL conditions with:
-
-## Per Condition:
-- condition_type: Type (Coverage Condition, Claim Condition, General Condition, etc.)
-- title: Brief title/name
-- description: Full description of the condition
-- applies_to: What coverage/section it applies to
-- requirements: List of requirements
-- consequences: What happens if not met
-- reference: Section/clause reference
-
-Return JSON:
-{
-    "conditions": [
-        {
-            "condition_type": "Claim Condition",
-            "title": "Duties in Event of Loss",
-            "description": "...",
-            ...
-        }
-    ],
-    "entities": [...],
-    "confidence": 0.88
-}
-""",
-
-    SectionType.EXCLUSIONS: """You are an expert at extracting exclusions from insurance policies.
-
-Extract ALL exclusions with:
-
-## Per Exclusion:
-- exclusion_type: Type (General Exclusion, Coverage-Specific, etc.)
-- title: Brief title
-- description: Full description
-- applies_to: What it applies to
-- exceptions: List of exceptions to the exclusion
-- reference: Section/clause reference
-
-Return JSON:
-{
-    "exclusions": [
-        {
-            "exclusion_type": "General Exclusion",
-            "title": "War and Military Action",
-            "description": "...",
-            ...
-        }
-    ],
-    "entities": [...],
-    "confidence": 0.87
-}
-""",
-
-    SectionType.ENDORSEMENTS: """You are an expert at extracting endorsement information from insurance policies.
-
-Extract ALL endorsements with:
-
-## Per Endorsement:
-- endorsement_number: Endorsement number/ID
-- endorsement_name: Name/title
-- effective_date: Effective date
-- description: What the endorsement modifies
-- premium_change: Premium impact (if any)
-- coverage_modified: Which coverage is modified
-- adds_coverage: Does it add coverage?
-- removes_coverage: Does it remove coverage?
-- modifies_limit: Does it modify limits?
-- new_limit: New limit if modified
-
-Return JSON:
-{
-    "endorsements": [
-        {
-            "endorsement_number": "IL 00 21",
-            "endorsement_name": "Additional Insured",
-            ...
-        }
-    ],
-    "entities": [...],
-    "confidence": 0.85
-}
-""",
-
-    SectionType.INSURING_AGREEMENT: """You are an expert at extracting insuring agreement details.
-
-Extract:
-- agreement_text: Full text of insuring agreement
-- covered_causes: Causes of loss covered
-- coverage_trigger: What triggers coverage
-- key_definitions: Important defined terms
-- coverage_basis: Claims-made vs occurrence
-
-Return JSON:
-{
-    "insuring_agreement": {
-        "agreement_text": "...",
-        "covered_causes": [...],
-        ...
-    },
-    "entities": [...],
-    "confidence": 0.90
-}
-""",
-
-    SectionType.PREMIUM_SUMMARY: """You are an expert at extracting premium information.
-
-Extract:
-- total_premium: Total policy premium
-- premium_breakdown: Breakdown by coverage
-- taxes_and_fees: Taxes and fees
-- payment_terms: Payment terms
-- installment_schedule: Installment details if applicable
-
-Return JSON:
-{
-    "premium": {
-        "total_premium": 50000,
-        "breakdown": [
-            {"coverage": "Property", "premium": 25000},
-            ...
-        ],
-        ...
-    },
-    "entities": [...],
-    "confidence": 0.92
-}
-""",
-}
-
-# Default prompt for unknown sections
-DEFAULT_SECTION_PROMPT = """You are an expert at extracting structured information from insurance documents.
-
-Extract all relevant information from this section including:
-- Key facts and figures
-- Named entities (people, companies, amounts, dates)
-- Important terms and conditions
-
-Return JSON:
-{
-    "extracted_data": {
-        // All extracted key-value pairs
-    },
-    "entities": [
-        {"type": "...", "value": "...", "confidence": 0.8}
-    ],
-    "confidence": 0.75
-}
-"""
 
 
 class SectionExtractionOrchestrator:
     """Tier 2 orchestrator for section-level extraction.
     
-    This service processes section super-chunks sequentially, applying
-    section-specific prompts to extract structured data.
+    This service processes section super-chunks sequentially, using
+    section-specific extractors from the factory pattern to extract structured data.
     
     Attributes:
-        client: UnifiedLLMClient for LLM API calls
+        factory: ExtractorFactory for getting section-specific extractors
         session: SQLAlchemy session for persistence
+        provider: LLM provider name
+        model: LLM model name
     """
     
     def __init__(
@@ -357,7 +135,6 @@ class SectionExtractionOrchestrator:
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        # ollama_model: str = "deepseek-r1:7b",
         timeout: int = 120,
         max_retries: int = 3,
     ):
@@ -371,34 +148,86 @@ class SectionExtractionOrchestrator:
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
-            ollama_model: Ollama model name
             timeout: API timeout
             max_retries: Max retry attempts
         """
+        if not session:
+            raise ValueError("session is required for SectionExtractionOrchestrator")
+        
         self.session = session
         self.provider = provider
+        self.model = gemini_model if provider == "gemini" else openrouter_model
         
-        # Initialize LLM client using factory function
-        self.client = create_llm_client_from_settings(
+        # Initialize extractor factory
+        self.factory = ExtractorFactory(
+            session=session,
             provider=provider,
-            gemini_api_key=gemini_api_key or "",
+            gemini_api_key=gemini_api_key,
             gemini_model=gemini_model,
-            openrouter_api_key=openrouter_api_key or "",
-            openrouter_api_url=openrouter_api_url,
+            openrouter_api_key=openrouter_api_key,
             openrouter_model=openrouter_model,
-            ollama_api_url="http://localhost:11434",
-            ollama_model="deepseek-r1:7b",
-            timeout=timeout,
-            max_retries=max_retries,
-            enable_fallback=False,
+            openrouter_api_url=openrouter_api_url,
         )
         
-        self.model = self.client.model
+        # Register all section extractors with the factory
+        self._register_extractors()
         
         LOGGER.info(
-            "Initialized SectionExtractionOrchestrator (Tier 2)",
+            "Initialized SectionExtractionOrchestrator (Tier 2) with factory pattern",
             extra={"provider": provider, "model": self.model}
         )
+    
+    def _register_extractors(self):
+        """Register all section extractors with the factory."""
+        # Map SectionType enum values to extractor classes
+        extractor_registry = {
+            SectionType.DECLARATIONS: DeclarationsExtractor,
+            SectionType.COVERAGES: CoveragesExtractor,
+            SectionType.CONDITIONS: ConditionsExtractor,
+            SectionType.EXCLUSIONS: ExclusionsExtractor,
+            SectionType.ENDORSEMENTS: EndorsementsExtractor,
+            SectionType.INSURING_AGREEMENT: InsuringAgreementExtractor,
+            SectionType.PREMIUM_SUMMARY: PremiumSummaryExtractor,
+        }
+        
+        # Register each extractor with its section type and aliases
+        for section_type, extractor_class in extractor_registry.items():
+            # Register with enum value
+            self.factory.register_extractor(
+                section_types=[section_type.value],
+                extractor_class=extractor_class
+            )
+            
+            # Register with common aliases
+            aliases = self._get_section_aliases(section_type)
+            if aliases:
+                self.factory.register_extractor(
+                    section_types=aliases,
+                    extractor_class=extractor_class
+                )
+        
+        # Register default extractor for unknown types
+        self.factory.register_extractor(
+            section_types=["unknown", "other", "default"],
+            extractor_class=DefaultSectionExtractor
+        )
+        
+        LOGGER.debug(
+            f"Registered {len(extractor_registry)} section extractors with factory"
+        )
+    
+    def _get_section_aliases(self, section_type: SectionType) -> List[str]:
+        """Get common aliases for a section type."""
+        alias_map = {
+            SectionType.DECLARATIONS: ["declaration", "dec", "policy declarations"],
+            SectionType.COVERAGES: ["coverage", "coverages", "insurance coverage"],
+            SectionType.CONDITIONS: ["condition", "policy conditions"],
+            SectionType.EXCLUSIONS: ["exclusion", "policy exclusions"],
+            SectionType.ENDORSEMENTS: ["endorsement", "endorsement forms"],
+            SectionType.INSURING_AGREEMENT: ["insuring agreement", "agreement"],
+            SectionType.PREMIUM_SUMMARY: ["premium", "premiums", "premium summary"],
+        }
+        return alias_map.get(section_type, [])
     
     async def run(
         self,
@@ -537,7 +366,7 @@ class SectionExtractionOrchestrator:
         super_chunk: SectionSuperChunk,
         document_id: Optional[UUID],
     ) -> SectionExtractionResult:
-        """Extract data from a single section super-chunk.
+        """Extract data from a single section super-chunk using factory pattern.
         
         Args:
             super_chunk: Section super-chunk to extract
@@ -546,32 +375,48 @@ class SectionExtractionOrchestrator:
         Returns:
             SectionExtractionResult
         """
-        import time
         start_time = time.time()
         
-        # Get section-specific prompt
-        prompt = SECTION_PROMPTS.get(
-            super_chunk.section_type, 
-            DEFAULT_SECTION_PROMPT
-        )
+        # Get section-specific extractor from factory
+        extractor = self.factory.get_extractor(super_chunk.section_type.value)
+        
+        # Fallback to default extractor if not found
+        if not extractor:
+            LOGGER.warning(
+                f"No extractor found for section type {super_chunk.section_type.value}, using default",
+                extra={"section_type": super_chunk.section_type.value}
+            )
+            extractor = self.factory.get_extractor("default")
+            if not extractor:
+                # Create default extractor directly if not registered
+                extractor = DefaultSectionExtractor(
+                    session=self.session,
+                    provider=self.provider,
+                    gemini_api_key=self.factory.gemini_api_key,
+                    gemini_model=self.factory.gemini_model,
+                    openrouter_api_key=self.factory.openrouter_api_key,
+                    openrouter_model=self.factory.openrouter_model,
+                    openrouter_api_url=self.factory.openrouter_api_url,
+                )
         
         # Combine chunk texts
         section_text = super_chunk.get_contextualized_text()
         
         LOGGER.debug(
-            f"Extracting section: {super_chunk.section_type.value}",
+            f"Extracting section: {super_chunk.section_type.value} using {extractor.__class__.__name__}",
             extra={
                 "document_id": str(document_id) if document_id else None,
                 "chunk_count": len(super_chunk.chunks),
                 "total_tokens": super_chunk.total_tokens,
+                "extractor_class": extractor.__class__.__name__,
             }
         )
         
         try:
-            # Call LLM
-            response = await self.client.generate_content(
+            # Use extractor's LLM client to call API
+            response = await extractor.client.generate_content(
                 contents=f"Extract from this {super_chunk.section_type.value} section:\n\n{section_text}",
-                system_instruction=prompt,
+                system_instruction=extractor.get_extraction_prompt(),
                 generation_config={"response_mime_type": "application/json"}
             )
             
@@ -582,8 +427,13 @@ class SectionExtractionOrchestrator:
                 LOGGER.warning(f"Failed to parse extraction response for {super_chunk.section_type}")
                 parsed = {}
             
-            # Extract fields based on section type
-            extracted_data = self._extract_section_data(parsed, super_chunk.section_type)
+            # Extract fields using extractor's method
+            if hasattr(extractor, 'extract_fields'):
+                extracted_data = extractor.extract_fields(parsed)
+            else:
+                # Fallback to old method
+                extracted_data = self._extract_section_data(parsed, super_chunk.section_type)
+            
             entities = parsed.get("entities", [])
             confidence = float(parsed.get("confidence", 0.0))
             
@@ -599,7 +449,14 @@ class SectionExtractionOrchestrator:
             )
             
         except Exception as e:
-            LOGGER.error(f"Section extraction failed: {e}", exc_info=True)
+            LOGGER.error(
+                f"Section extraction failed: {e}",
+                exc_info=True,
+                extra={
+                    "section_type": super_chunk.section_type.value,
+                    "extractor_class": extractor.__class__.__name__,
+                }
+            )
             raise
     
     def _extract_section_data(

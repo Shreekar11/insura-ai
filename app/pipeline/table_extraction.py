@@ -18,22 +18,16 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.table_json import TableJSON, TableType
-from app.services.extraction.table_extraction_service import (
+from app.services.extraction.table import (
     TableExtractionService,
-    TableStructure
-)
-from app.services.extraction.table_classification_service import (
+    TableStructure,
     TableClassificationService,
-    TableClassification
-)
-from app.services.extraction.header_canonicalization_service import (
+    TableClassification,
     HeaderCanonicalizationService,
-    ColumnMapping
-)
-from app.services.extraction.row_normalization_service import RowNormalizationService
-from app.services.extraction.table_validation_service import (
+    ColumnMapping,
+    RowNormalizationService,
     TableValidationService,
-    ValidationResult
+    ValidationResult,
 )
 from app.repositories.table_repository import TableRepository
 from app.utils.logging import get_logger

@@ -11,9 +11,11 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.database.base import async_session_maker
-from app.services.extraction.document_classification_service import DocumentClassificationService
-from app.services.extraction.section_extraction_orchestrator import SectionExtractionOrchestrator
-from app.services.extraction.cross_section_validator import CrossSectionValidator
+from app.services.extraction.document import DocumentClassificationService
+from app.services.extraction.section import (
+    SectionExtractionOrchestrator,
+    CrossSectionValidator,
+)
 from app.services.pipeline.section_batch_extractor import SectionBatchExtractor
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
@@ -244,7 +246,7 @@ async def validate_and_reconcile_data(
         
         async with async_session_maker() as session:
             # Reconstruct classification result
-            from app.services.extraction.document_classification_service import DocumentClassificationResult, SectionBoundary
+            from app.services.extraction.document import DocumentClassificationResult, SectionBoundary
             from app.services.chunking.hybrid_models import SectionType
             
             section_boundaries = []
@@ -280,7 +282,7 @@ async def validate_and_reconcile_data(
             )
             
             # Reconstruct extraction result
-            from app.services.extraction.section_extraction_orchestrator import DocumentExtractionResult, SectionExtractionResult
+            from app.services.extraction.section import DocumentExtractionResult, SectionExtractionResult
             
             section_results = []
             for sr in extraction_result["section_results"]:
