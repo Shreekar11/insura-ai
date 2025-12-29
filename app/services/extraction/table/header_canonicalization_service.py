@@ -7,7 +7,7 @@ using rules-based matching (not LLM), per Phase 5 requirements.
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 
-from app.services.extraction.table_extraction_service import TableStructure, ColumnMapping
+from app.services.extraction.table.table_extraction_service import TableStructure, ColumnMapping
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

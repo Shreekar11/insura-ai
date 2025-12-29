@@ -1,7 +1,13 @@
 """Extraction services for structured data extraction from documents.
 
-- SectionExtractionOrchestrator: section-level extraction
-- CrossSectionValidator: cross-section validation and reconciliation
+This package is organized into submodules:
+- table/: Table extraction, classification, normalization, and validation
+- section/: Section-level extraction and cross-section validation
+- document/: Document classification and section boundary detection
+
+Base classes:
+- BaseExtractor: Abstract base class for all extractors
+- ExtractorFactory: Factory for creating extractors dynamically
 """
 
 from app.services.extraction.base_extractor import BaseExtractor
@@ -11,21 +17,32 @@ from app.services.entity.resolver import EntityResolver
 from app.services.pipeline.batch_extractor import BatchExtractor
 from app.services.pipeline.section_batch_extractor import SectionBatchExtractor
 
-from app.services.extraction.document_classification_service import (
+from app.services.extraction.document import (
     DocumentClassificationService,
     DocumentClassificationResult,
     SectionBoundary,
 )
-from app.services.extraction.section_extraction_orchestrator import (
+from app.services.extraction.section import (
     SectionExtractionOrchestrator,
     SectionExtractionResult,
     DocumentExtractionResult,
-)
-from app.services.extraction.cross_section_validator import (
     CrossSectionValidator,
     CrossSectionValidationResult,
-    ValidationIssue,
+    ValidationIssue as CrossSectionValidationIssue,
     ReconciledValue,
+)
+from app.services.extraction.table import (
+    TableExtractionService,
+    TableStructure,
+    TableCell,
+    ColumnMapping,
+    TableClassification,
+    HeaderCanonicalizationService,
+    RowNormalizationService,
+    TableClassificationService,
+    TableValidationService,
+    ValidationIssue as TableValidationIssue,
+    ValidationResult,
 )
 
 __all__ = [
@@ -43,6 +60,17 @@ __all__ = [
     "DocumentExtractionResult",
     "CrossSectionValidator",
     "CrossSectionValidationResult",
-    "ValidationIssue",
+    "CrossSectionValidationIssue",
     "ReconciledValue",
+    "TableExtractionService",
+    "TableStructure",
+    "TableCell",
+    "ColumnMapping",
+    "TableClassification",
+    "HeaderCanonicalizationService",
+    "RowNormalizationService",
+    "TableClassificationService",
+    "TableValidationService",
+    "TableValidationIssue",
+    "ValidationResult",
 ]
