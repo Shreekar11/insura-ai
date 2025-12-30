@@ -5,7 +5,7 @@ Tests the pdfplumber-based page signal extraction for insurance documents.
 
 import pytest
 from typing import List
-from app.services.pipeline.lightweight_page_analyzer import LightweightPageAnalyzer
+from app.services.page_analysis.lightweight_page_analyzer import LightweightPageAnalyzer
 from app.models.page_analysis_models import PageSignals
 
 

@@ -18,10 +18,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.page_analysis_repository import PageAnalysisRepository
-from app.services.pipeline.page_analyzer import PageAnalyzer
-from app.services.pipeline.page_classifier import PageClassifier
-from app.services.pipeline.duplicate_detector import DuplicateDetector
-from app.services.pipeline.document_profile_builder import DocumentProfileBuilder
+from app.services.page_analysis.page_analyzer import PageAnalyzer
+from app.services.page_analysis.page_classifier import PageClassifier
+from app.services.page_analysis.duplicate_detector import DuplicateDetector
+from app.services.page_analysis.document_profile_builder import DocumentProfileBuilder
 from app.models.page_analysis_models import (
     PageSignals, 
     PageClassification, 

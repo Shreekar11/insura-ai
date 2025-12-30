@@ -7,7 +7,7 @@ MIGRATED: Now uses pdfplumber instead of Docling for better tolerance of complex
 """
 
 from typing import List, Optional
-from app.services.pipeline.lightweight_page_analyzer import LightweightPageAnalyzer
+from app.services.page_analysis.lightweight_page_analyzer import LightweightPageAnalyzer
 from app.models.page_analysis_models import PageSignals
 from app.utils.logging import get_logger
 

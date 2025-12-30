@@ -5,7 +5,7 @@ ensuring alignment with v2 semantic anchors and page roles.
 """
 
 import pytest
-from app.services.pipeline.page_classifier import PageClassifier
+from app.services.page_analysis.page_classifier import PageClassifier
 from app.models.page_analysis_models import PageSignals, PageClassification, PageType
 
 

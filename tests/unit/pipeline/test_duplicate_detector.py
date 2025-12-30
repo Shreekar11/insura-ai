@@ -4,7 +4,7 @@ Tests MinHash-based duplicate detection for insurance document pages.
 """
 
 import pytest
-from app.services.pipeline.duplicate_detector import DuplicateDetector
+from app.services.page_analysis.duplicate_detector import DuplicateDetector
 from app.models.page_analysis_models import PageSignals
 
 
