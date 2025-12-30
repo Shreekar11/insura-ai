@@ -16,7 +16,6 @@ from app.services.extraction.section import (
     SectionExtractionOrchestrator,
     CrossSectionValidator,
 )
-from app.services.pipeline.section_batch_extractor import SectionBatchExtractor
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.config import settings
@@ -105,7 +104,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                # ollama_model="deepseek-r1:7b",
+                ollama_model="qwen3:8b",
             )
             
             classification_result = await classification_service.run(
@@ -168,18 +167,6 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
             )
             activity.heartbeat(f"Processing {len(super_chunks)} super-chunks")
             
-            # Initialize section batch extractor (reused component)
-            section_batch_extractor = SectionBatchExtractor(
-                session=session,
-                provider=settings.llm_provider,
-                gemini_api_key=settings.gemini_api_key,
-                gemini_model=settings.gemini_model,
-                openrouter_api_key=settings.openrouter_api_key,
-                openrouter_api_url=settings.openrouter_api_url,
-                openrouter_model=settings.openrouter_model,
-                # ollama_model=settings.ollama_model,
-            )
-            
             # Initialize extraction orchestrator
             extraction_orchestrator = SectionExtractionOrchestrator(
                 session=session,
@@ -189,7 +176,7 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                # ollama_model=settings.ollama_model,
+                ollama_model=settings.ollama_model,
             )
             
             # Perform extraction
@@ -325,8 +312,8 @@ async def validate_and_reconcile_data(
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                # ollama_model=settings.ollama_model,
-                # ollama_api_url=settings.ollama_api_url,
+                ollama_model=settings.ollama_model,
+                ollama_api_url=settings.ollama_api_url,
             )
             
             validation_result = await validator.validate(
