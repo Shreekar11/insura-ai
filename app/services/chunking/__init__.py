@@ -11,8 +11,6 @@ v2 Architecture additions:
 
 from app.services.chunking.chunking_service import ChunkingService
 from app.services.chunking.models import ChunkMetadata, NormalizedChunk, TextChunk
-from app.services.chunking.page_chunker import PageChunker
-from app.services.chunking.section_chunker import SectionChunker
 from app.services.chunking.token_counter import TokenCounter
 
 # v2 hybrid chunking components
@@ -37,8 +35,6 @@ __all__ = [
     "TextChunk",
     "ChunkMetadata",
     "NormalizedChunk",
-    "PageChunker",
-    "SectionChunker",
     "TokenCounter",
     # v2 hybrid chunking
     "SectionType",

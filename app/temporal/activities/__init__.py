@@ -8,7 +8,6 @@ from .tiered_extraction import (
     extract_section_fields,
     validate_and_reconcile_data,
 )
-from .normalization import normalize_and_classify_document
 from .entity_resolution import (
     aggregate_document_entities,
     resolve_canonical_entities,
@@ -25,7 +24,6 @@ __all__ = [
     "classify_document_and_map_sections",
     "extract_section_fields",
     "validate_and_reconcile_data",
-    "normalize_and_classify_document",
     "aggregate_document_entities",
     "resolve_canonical_entities",
     "extract_relationships",

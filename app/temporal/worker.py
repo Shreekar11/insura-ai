@@ -19,7 +19,6 @@ from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
 from app.temporal.workflows.hybrid_chunking import HybridChunkingWorkflow
 from app.temporal.workflows.tiered_extraction import TieredExtractionWorkflow
 from app.temporal.workflows.table_extraction import TableExtractionWorkflow
-from app.temporal.workflows.normalization import NormalizationWorkflow
 from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
 
 # Import all activities
@@ -41,9 +40,6 @@ from app.temporal.activities.tiered_extraction import (
     classify_document_and_map_sections,
     extract_section_fields,
     validate_and_reconcile_data,
-)
-from app.temporal.activities.normalization import (
-    normalize_and_classify_document,
 )
 from app.temporal.activities.entity_resolution import (
     aggregate_document_entities,
@@ -83,7 +79,6 @@ async def main():
             HybridChunkingWorkflow,
             TieredExtractionWorkflow,
             TableExtractionWorkflow,
-            NormalizationWorkflow,
             EntityResolutionWorkflow,
         ],
         activities=[
@@ -96,7 +91,6 @@ async def main():
             classify_document_and_map_sections,
             extract_section_fields,
             validate_and_reconcile_data,
-            normalize_and_classify_document,
             aggregate_document_entities,
             resolve_canonical_entities,
             extract_relationships,

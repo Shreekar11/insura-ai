@@ -8,8 +8,6 @@ from typing import List, Optional
 from uuid import UUID
 
 from app.services.chunking.models import ChunkMetadata, TextChunk
-from app.services.chunking.page_chunker import PageChunker
-from app.services.chunking.section_chunker import SectionChunker
 from app.services.chunking.token_counter import TokenCounter
 from app.utils.logging import get_logger
 
@@ -46,15 +44,6 @@ class ChunkingService:
         
         # Initialize components
         self.token_counter = TokenCounter()
-        self.page_chunker = PageChunker(
-            token_counter=self.token_counter,
-            max_tokens_per_chunk=max_tokens_per_chunk
-        )
-        self.section_chunker = SectionChunker(
-            token_counter=self.token_counter,
-            max_tokens_per_chunk=max_tokens_per_chunk,
-            overlap_tokens=overlap_tokens
-        )
         
         LOGGER.info(
             "Initialized chunking service",
