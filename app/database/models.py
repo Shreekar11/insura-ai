@@ -90,6 +90,12 @@ class Document(Base):
     workflows: Mapped[list["Workflow"]] = relationship(
         "Workflow", back_populates="document", cascade="all, delete-orphan"
     )
+    section_extractions: Mapped[list["SectionExtraction"]] = relationship(
+        "SectionExtraction", back_populates="document", cascade="all, delete-orphan"
+    )
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", back_populates="document", cascade="all, delete-orphan"
+    )
 
 
 class DocumentPage(Base):
@@ -422,6 +428,9 @@ class DocumentChunk(Base):
     normalized_chunks: Mapped[list["NormalizedChunk"]] = relationship(
         "NormalizedChunk", back_populates="chunk", cascade="all, delete-orphan"
     )
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", foreign_keys="EntityMention.source_document_chunk_id", back_populates="source_chunk"
+    )
 
 
 class NormalizedChunk(Base):
@@ -585,6 +594,39 @@ class CanonicalEntity(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    chunk_entity_links: Mapped[list["ChunkEntityLink"]] = relationship(
+        "ChunkEntityLink", back_populates="canonical_entity"
+    )
+    document_entity_links: Mapped[list["DocumentEntityLink"]] = relationship(
+        "DocumentEntityLink", back_populates="canonical_entity"
+    )
+    source_relationships: Mapped[list["EntityRelationship"]] = relationship(
+        "EntityRelationship", foreign_keys="EntityRelationship.source_entity_id", back_populates="source_entity"
+    )
+    target_relationships: Mapped[list["EntityRelationship"]] = relationship(
+        "EntityRelationship", foreign_keys="EntityRelationship.target_entity_id", back_populates="target_entity"
+    )
+    evidence_records: Mapped[list["EntityEvidence"]] = relationship(
+        "EntityEvidence", back_populates="canonical_entity", cascade="all, delete-orphan"
+    )
+    entity_attributes: Mapped[list["EntityAttribute"]] = relationship(
+        "EntityAttribute", back_populates="canonical_entity", cascade="all, delete-orphan"
+    )
+    # Typed canonical entity relationships (1:1)
+    insured_entity: Mapped["InsuredEntity | None"] = relationship(
+        "InsuredEntity", foreign_keys="InsuredEntity.id", uselist=False
+    )
+    carrier_entity: Mapped["CarrierEntity | None"] = relationship(
+        "CarrierEntity", foreign_keys="CarrierEntity.id", uselist=False
+    )
+    policy_entity: Mapped["PolicyEntity | None"] = relationship(
+        "PolicyEntity", foreign_keys="PolicyEntity.id", uselist=False
+    )
+    claim_entity: Mapped["ClaimEntity | None"] = relationship(
+        "ClaimEntity", foreign_keys="ClaimEntity.id", uselist=False
     )
 
     # Unique constraint
@@ -1591,4 +1633,375 @@ class DocumentTable(Base):
     __table_args__ = (
         UniqueConstraint("document_id", "page_number", "table_index", name="uq_document_table_position"),
         {"comment": "First-class table storage with full structural information"},
+    )
+
+
+# ============================================================================
+# Section + Entity Persistence Models (Layered Architecture)
+# ============================================================================
+
+
+class SectionExtraction(Base):
+    """Raw section-level extraction output store (Layer 1).
+    
+    Stores raw LLM extraction output per section without forcing rigid schemas.
+    This is the extraction source of truth for section-level data.
+    """
+
+    __tablename__ = "section_extractions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    section_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Section type: Declarations, Coverages, SOV, LossRun, etc."
+    )
+    page_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Page range: {start: int, end: int}"
+    )
+    extracted_fields: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Raw extracted fields from LLM (JSONB)"
+    )
+    confidence: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Confidence metrics per field"
+    )
+    source_chunks: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Source chunk references: {chunk_ids: [], stable_chunk_ids: []}"
+    )
+    pipeline_run_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, comment="Pipeline execution identifier"
+    )
+    model_version: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="LLM model version for provenance"
+    )
+    prompt_version: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Prompt template version used"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", back_populates="section_extraction", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        {"comment": "Raw section-level extraction output store"},
+    )
+
+
+class EntityMention(Base):
+    """Document-scoped entity mentions (Layer 1 for entities).
+    
+    Stores raw entity mentions extracted from documents/sections.
+    Multiple mentions per entity are allowed (ambiguity preserved).
+    """
+
+    __tablename__ = "entity_mentions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    section_extraction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("section_extractions.id", ondelete="SET NULL"), nullable=True
+    )
+    entity_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Entity type: INSURED, CARRIER, POLICY, CLAIM, etc."
+    )
+    mention_text: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="Original text as it appears in document"
+    )
+    extracted_fields: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Raw mention payload from LLM extraction"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall confidence (0.0-1.0)"
+    )
+    confidence_details: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Detailed confidence metrics"
+    )
+    source_document_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"), nullable=True
+    )
+    source_stable_chunk_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Deterministic chunk ID for provenance"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
+    section_extraction: Mapped["SectionExtraction | None"] = relationship(
+        "SectionExtraction", back_populates="entity_mentions"
+    )
+    source_chunk: Mapped["DocumentChunk | None"] = relationship("DocumentChunk")
+    evidence_records: Mapped[list["EntityEvidence"]] = relationship(
+        "EntityEvidence", back_populates="entity_mention", cascade="all, delete-orphan"
+    )
+    entity_attributes: Mapped[list["EntityAttribute"]] = relationship(
+        "EntityAttribute", back_populates="source_entity_mention", cascade="all, delete-orphan"
+    )
+
+    __table_args__ = (
+        {"comment": "Document-scoped entity mentions with ambiguity allowed"},
+    )
+
+
+class EntityEvidence(Base):
+    """Entity evidence mapping (Layer 3).
+    
+    Maps canonical entities to their source mentions, providing explainability
+    and audit trail for why canonical entities exist.
+    """
+
+    __tablename__ = "entity_evidence"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_mention_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_mentions.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Evidence confidence (0.0-1.0)"
+    )
+    evidence_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="extracted",
+        comment="Evidence type: extracted, inferred, human_verified"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
+    entity_mention: Mapped["EntityMention"] = relationship(
+        "EntityMention", back_populates="evidence_records"
+    )
+    document: Mapped["Document"] = relationship("Document")
+
+    __table_args__ = (
+        {"comment": "Evidence mapping for canonical entities (explainability/audit)"},
+    )
+
+
+class EntityAttribute(Base):
+    """Entity attributes (Layer 4, optional).
+    
+    Attribute-level provenance for canonical entities, enabling temporal
+    tracking and conflicting value management.
+    """
+
+    __tablename__ = "entity_attributes"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    attribute_name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Attribute name"
+    )
+    attribute_value: Mapped[str | dict] = mapped_column(
+        JSONB, nullable=False, comment="Attribute value (text or JSONB)"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Attribute confidence (0.0-1.0)"
+    )
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
+    )
+    source_entity_mention_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_mentions.id", ondelete="SET NULL"), nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
+    source_document: Mapped["Document | None"] = relationship("Document")
+    source_entity_mention: Mapped["EntityMention | None"] = relationship(
+        "EntityMention", back_populates="entity_attributes"
+    )
+
+    __table_args__ = (
+        {"comment": "Attribute-level provenance for canonical entities"},
+    )
+
+
+# Typed Canonical Entity Tables (Layer 2 - Structured)
+# These are 1:1 with canonical_entities via id as FK
+
+
+class InsuredEntity(Base):
+    """Typed canonical entity table for insured parties."""
+
+    __tablename__ = "insured_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="1:1 FK to canonical_entities.id"
+    )
+    canonical_name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Canonical insured name"
+    )
+    normalized_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Normalized name for matching"
+    )
+    primary_address: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Primary address"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Entity confidence"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship(
+        "CanonicalEntity", foreign_keys=[id]
+    )
+
+    __table_args__ = (
+        {"comment": "Typed canonical entity table for insured parties"},
+    )
+
+
+class CarrierEntity(Base):
+    """Typed canonical entity table for insurance carriers."""
+
+    __tablename__ = "carrier_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="1:1 FK to canonical_entities.id"
+    )
+    canonical_name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Canonical carrier name"
+    )
+    normalized_name: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Normalized name for matching"
+    )
+    naic: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="NAIC code"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Entity confidence"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship(
+        "CanonicalEntity", foreign_keys=[id]
+    )
+
+    __table_args__ = (
+        {"comment": "Typed canonical entity table for insurance carriers"},
+    )
+
+
+class PolicyEntity(Base):
+    """Typed canonical entity table for policies."""
+
+    __tablename__ = "policy_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="1:1 FK to canonical_entities.id"
+    )
+    policy_number: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Policy number"
+    )
+    effective_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Policy effective date"
+    )
+    expiration_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Policy expiration date"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Entity confidence"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship(
+        "CanonicalEntity", foreign_keys=[id]
+    )
+
+    __table_args__ = (
+        {"comment": "Typed canonical entity table for policies"},
+    )
+
+
+class ClaimEntity(Base):
+    """Typed canonical entity table for claims."""
+
+    __tablename__ = "claim_entities"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="CASCADE"),
+        primary_key=True,
+        comment="1:1 FK to canonical_entities.id"
+    )
+    claim_number: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Claim number"
+    )
+    loss_date: Mapped[datetime | None] = mapped_column(
+        Date, nullable=True, comment="Loss date"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Entity confidence"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    canonical_entity: Mapped["CanonicalEntity"] = relationship(
+        "CanonicalEntity", foreign_keys=[id]
+    )
+
+    __table_args__ = (
+        {"comment": "Typed canonical entity table for claims"},
     )

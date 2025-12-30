@@ -3,12 +3,12 @@
 Combines DocumentEntityAggregator, EntityResolver, and RelationshipExtractorGlobal.
 """
 
-from typing import List, Dict
+from typing import List, Dict, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.services.pipeline.document_entity_aggregator import DocumentEntityAggregator
+from app.services.entity.entity_aggregator import EntityAggregator
 from app.services.entity.resolver import EntityResolver
 from app.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
 from app.utils.logging import get_logger
@@ -19,7 +19,7 @@ LOGGER = get_logger(__name__)
 class EntityResolutionPipeline:
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.aggregator = DocumentEntityAggregator(session)
+        self.aggregator = EntityAggregator(session)
         self.resolver = EntityResolver(session)
         self.relationship_extractor = RelationshipExtractorGlobal(
             session=session,

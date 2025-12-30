@@ -38,6 +38,7 @@ from app.services.extraction.section.extractors import (
 )
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
+from app.repositories.section_extraction_repository import SectionExtractionRepository
 
 LOGGER = get_logger(__name__)
 
@@ -131,10 +132,12 @@ class SectionExtractionOrchestrator:
         session: Optional[AsyncSession] = None,
         provider: str = "gemini",
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.0-flash",
+        gemini_model: str = "qwen3:8b",
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        ollama_model: str = "qwen3:8b",
+        ollama_api_url: str = "http://localhost:11434",
         timeout: int = 120,
         max_retries: int = 3,
     ):
@@ -168,6 +171,9 @@ class SectionExtractionOrchestrator:
             openrouter_model=openrouter_model,
             openrouter_api_url=openrouter_api_url,
         )
+        
+        # Initialize section extraction repository
+        self.section_extraction_repo = SectionExtractionRepository(session)
         
         # Register all section extractors with the factory
         self._register_extractors()
@@ -438,6 +444,65 @@ class SectionExtractionOrchestrator:
             confidence = float(parsed.get("confidence", 0.0))
             
             processing_time = int((time.time() - start_time) * 1000)
+            
+            # Persist section extraction to database
+            if document_id:
+                try:
+                    # Build source_chunks reference from super_chunk
+                    source_chunks = {
+                        "chunk_ids": [],
+                        "stable_chunk_ids": [],
+                        "page_range": super_chunk.page_range,
+                    }
+                    
+                    # Extract chunk IDs from super_chunk chunks
+                    for chunk in super_chunk.chunks:
+                        if chunk.metadata.stable_chunk_id:
+                            source_chunks["stable_chunk_ids"].append(chunk.metadata.stable_chunk_id)
+                    
+                    # Build page_range dict
+                    page_range_dict = None
+                    if super_chunk.page_range:
+                        page_range_dict = {
+                            "start": min(super_chunk.page_range),
+                            "end": max(super_chunk.page_range),
+                        }
+                    
+                    # Build confidence dict
+                    confidence_dict = None
+                    if confidence > 0:
+                        confidence_dict = {
+                            "overall": confidence,
+                            "section_type": super_chunk.section_type.value,
+                        }
+                    
+                    await self.section_extraction_repo.create_section_extraction(
+                        document_id=document_id,
+                        section_type=super_chunk.section_type.value,
+                        extracted_fields=extracted_data,
+                        page_range=page_range_dict,
+                        confidence=confidence_dict,
+                        source_chunks=source_chunks if source_chunks["stable_chunk_ids"] else None,
+                        model_version=self.model,
+                        prompt_version="v1",
+                    )
+                    
+                    LOGGER.debug(
+                        "Persisted section extraction",
+                        extra={
+                            "document_id": str(document_id),
+                            "section_type": super_chunk.section_type.value,
+                        }
+                    )
+                except Exception as e:
+                    LOGGER.warning(
+                        f"Failed to persist section extraction: {e}",
+                        exc_info=True,
+                        extra={
+                            "document_id": str(document_id),
+                            "section_type": super_chunk.section_type.value,
+                        }
+                    )
             
             return SectionExtractionResult(
                 section_type=super_chunk.section_type,
