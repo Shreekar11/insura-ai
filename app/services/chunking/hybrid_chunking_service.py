@@ -21,6 +21,7 @@ from app.services.chunking.hybrid_models import (
     SECTION_CONFIG,
 )
 from app.services.chunking.token_counter import TokenCounter
+from app.services.chunking.section_super_chunk_builder import SectionSuperChunkBuilder
 from app.models.page_data import PageData
 from app.utils.logging import get_logger
 
@@ -93,14 +94,18 @@ class HybridChunkingService:
     - Tokenization-aware chunk splitting
     - Section boundary detection
     - Context enrichment for embeddings
-    - Super-chunk aggregation by section
+    - Super-chunk aggregation by section with token limits
     
     Attributes:
         max_tokens: Maximum tokens per chunk
         overlap_tokens: Token overlap between chunks
         tokenizer: Tokenizer name for HybridChunker
         token_counter: Token counting utility
+        max_tokens_per_super_chunk: Maximum tokens per super-chunk (for LLM limits)
     """
+    
+    # Default super-chunk limits for LLM processing
+    DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK = 6000
     
     def __init__(
         self,
@@ -108,6 +113,7 @@ class HybridChunkingService:
         overlap_tokens: int = 50,
         tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2",
         merge_peers: bool = True,
+        max_tokens_per_super_chunk: int = DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK,
     ):
         """Initialize hybrid chunking service.
         
@@ -116,13 +122,18 @@ class HybridChunkingService:
             overlap_tokens: Token overlap between chunks
             tokenizer: HuggingFace tokenizer name for HybridChunker
             merge_peers: Whether to merge small sibling chunks
+            max_tokens_per_super_chunk: Maximum tokens per super-chunk for LLM calls
         """
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
         self.tokenizer = tokenizer
         self.merge_peers = merge_peers
+        self.max_tokens_per_super_chunk = max_tokens_per_super_chunk
         self.token_counter = TokenCounter()
         self._docling_chunker = None
+        self._super_chunk_builder = SectionSuperChunkBuilder(
+            max_tokens_per_super_chunk=max_tokens_per_super_chunk,
+        )
         self._init_docling_chunker()
         
         LOGGER.info(
@@ -130,6 +141,7 @@ class HybridChunkingService:
             extra={
                 "max_tokens": max_tokens,
                 "overlap_tokens": overlap_tokens,
+                "max_tokens_per_super_chunk": max_tokens_per_super_chunk,
                 "tokenizer": tokenizer,
                 "docling_available": self._docling_chunker is not None,
             }
@@ -244,46 +256,64 @@ class HybridChunkingService:
         self,
         page_section_map: Dict[int, str],
     ) -> Dict[int, SectionType]:
-        """Convert page_section_map strings to SectionType enum.
+        """Convert page_section_map strings to canonical SectionType enum.
+        
+        Uses SectionTypeMapper to ensure consistent taxonomy, handling both
+        PageType values (e.g., "endorsement", "sov") and SectionType values
+        (e.g., "endorsements", "schedule_of_values").
         
         Args:
             page_section_map: Mapping of page numbers to section type strings
             
         Returns:
-            Dict mapping page numbers to SectionType enums
+            Dict mapping page numbers to canonical SectionType enums
         """
+        from app.utils.section_type_mapper import SectionTypeMapper
+        
         result = {}
         for page_num, section_str in page_section_map.items():
-            try:
-                # Handle both string keys (from JSON) and int keys
-                page_key = int(page_num) if isinstance(page_num, str) else page_num
-                result[page_key] = SectionType(section_str)
-            except (ValueError, KeyError):
-                # Unknown section type, use UNKNOWN
-                page_key = int(page_num) if isinstance(page_num, str) else page_num
-                result[page_key] = SectionType.UNKNOWN
+            # Handle both string keys (from JSON) and int keys
+            page_key = int(page_num) if isinstance(page_num, str) else page_num
+            # Use canonical mapper to normalize section type
+            section_type = SectionTypeMapper.string_to_section_type(section_str)
+            result[page_key] = section_type
+            
+            # Log if normalization changed the value
+            if section_str.lower() != section_type.value:
+                LOGGER.debug(
+                    f"Normalized section type for page {page_key}: "
+                    f"'{section_str}' -> '{section_type.value}'"
+                )
         return result
     
     def _extract_sections_from_metadata(
         self,
         pages: List[PageData],
     ) -> Dict[int, SectionType]:
-        """Extract section types from page metadata.
+        """Extract section types from page metadata using canonical mapper.
         
         Args:
             pages: List of pages with metadata
             
         Returns:
-            Dict mapping page numbers to SectionType enums
+            Dict mapping page numbers to canonical SectionType enums
         """
+        from app.utils.section_type_mapper import SectionTypeMapper
+        
         page_sections = {}
         for page in pages:
             page_type_str = page.metadata.get("page_type") if page.metadata else None
             if page_type_str:
-                try:
-                    page_sections[page.page_number] = SectionType(page_type_str)
-                except (ValueError, KeyError):
-                    page_sections[page.page_number] = SectionType.UNKNOWN
+                # Use canonical mapper to normalize section type
+                section_type = SectionTypeMapper.string_to_section_type(page_type_str)
+                page_sections[page.page_number] = section_type
+                
+                # Log if normalization changed the value
+                if page_type_str.lower() != section_type.value:
+                    LOGGER.debug(
+                        f"Normalized section type for page {page.page_number} from metadata: "
+                        f"'{page_type_str}' -> '{section_type.value}'"
+                    )
             else:
                 page_sections[page.page_number] = SectionType.UNKNOWN
         return page_sections
@@ -644,44 +674,42 @@ class HybridChunkingService:
         chunks: List[HybridChunk],
         document_id: Optional[UUID],
     ) -> List[SectionSuperChunk]:
-        """Build section super-chunks from hybrid chunks.
+        """Build section super-chunks from hybrid chunks with token limits.
+        
+        Uses SectionSuperChunkBuilder to properly split large sections into
+        multiple super-chunks that respect LLM token limits. This prevents
+        exceeding max_tokens when sending to LLM APIs.
         
         Args:
             chunks: List of hybrid chunks
             document_id: Document ID
             
         Returns:
-            List of SectionSuperChunks
+            List of SectionSuperChunks, split to respect token limits
         """
-        # Group chunks by section type
-        section_groups: Dict[SectionType, List[HybridChunk]] = {}
+        # Use the super-chunk builder which handles token-based splitting
+        super_chunks = self._super_chunk_builder.build_super_chunks(
+            chunks=chunks,
+            document_id=document_id,
+        )
         
-        for chunk in chunks:
-            section_type = chunk.metadata.section_type or SectionType.UNKNOWN
-            if section_type not in section_groups:
-                section_groups[section_type] = []
-            section_groups[section_type].append(chunk)
-        
-        # Create super-chunks
-        super_chunks = []
-        
-        for section_type, section_chunks in section_groups.items():
-            config = SECTION_CONFIG.get(section_type, SECTION_CONFIG[SectionType.UNKNOWN])
-            
-            super_chunk = SectionSuperChunk(
-                section_type=section_type,
-                section_name=section_type.value.replace("_", " ").title(),
-                chunks=section_chunks,
-                document_id=document_id,
-                super_chunk_id=f"sc_{str(document_id)}_{section_type.value}" if document_id else None,
-                processing_priority=config["priority"],
-                requires_llm=config["requires_llm"],
-                table_only=config["table_only"],
-            )
-            super_chunks.append(super_chunk)
-        
-        # Sort by priority
-        super_chunks.sort(key=lambda sc: sc.processing_priority)
+        LOGGER.debug(
+            "Built super-chunks with token limits",
+            extra={
+                "document_id": str(document_id) if document_id else None,
+                "input_chunks": len(chunks),
+                "output_super_chunks": len(super_chunks),
+                "max_tokens_per_super_chunk": self.max_tokens_per_super_chunk,
+                "super_chunk_details": [
+                    {
+                        "section": sc.section_type.value,
+                        "chunks": len(sc.chunks),
+                        "tokens": sc.total_tokens,
+                    }
+                    for sc in super_chunks
+                ],
+            }
+        )
         
         return super_chunks
     

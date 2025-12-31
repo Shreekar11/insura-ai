@@ -11,6 +11,11 @@ from temporalio.common import RetryPolicy
 from datetime import timedelta
 from typing import Optional, Dict
 
+from app.utils.workflow_schemas import (
+    TieredExtractionOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class TieredExtractionWorkflow:
@@ -128,7 +133,7 @@ class TieredExtractionWorkflow:
             f"data quality score: {data_quality_score:.2f}"
         )
         
-        return {
+        output = {
             "classification": classification_result,
             "extraction": extraction_result,
             "validation": validation_result,
@@ -139,6 +144,17 @@ class TieredExtractionWorkflow:
             "is_valid": validation_result.get("is_valid", False),
             "tier1_skipped": document_profile is not None,
         }
+        
+        # Validate output against schema (fail fast if invalid)
+        validated_output = validate_workflow_output(
+            output,
+            TieredExtractionOutputSchema,
+            "TieredExtractionWorkflow"
+        )
+        
+        workflow.logger.info("Tiered extraction output validated against schema")
+        
+        return validated_output
     
     def _convert_profile_to_classification(
         self, 

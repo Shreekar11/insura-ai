@@ -195,8 +195,11 @@ class DocumentClassificationService:
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        # ollama_model: str = "deepseek-r1:7b",
-        # ollama_api_url: str = "http://localhost:11434",
+        ollama_model: str = "qwen3:8b",
+        ollama_api_url: str = "http://localhost:11434",
+        groq_api_key: Optional[str] = None,
+        groq_model: str = "openai/gpt-oss-20b",
+        groq_api_url: str = "",
         max_pages_for_classification: int = 10,
         timeout: int = 300,  # Increased timeout for classification (5 minutes)
     ):
@@ -211,6 +214,9 @@ class DocumentClassificationService:
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
             ollama_model: Ollama model name
+            groq_api_key: Groq API key
+            groq_model: Groq model name
+            groq_api_url: Groq API URL (optional)
             max_pages_for_classification: Max pages to analyze
             timeout: API timeout in seconds
         """
@@ -226,8 +232,11 @@ class DocumentClassificationService:
             openrouter_api_key=openrouter_api_key or "",
             openrouter_api_url=openrouter_api_url,
             openrouter_model=openrouter_model,
-            ollama_api_url="http://localhost:11434",
-            ollama_model="deepseek-r1:7b",
+            ollama_api_url=ollama_api_url,
+            ollama_model=ollama_model,
+            groq_api_key=groq_api_key or "",
+            groq_model=groq_model,
+            groq_api_url=groq_api_url,
             timeout=timeout,
             max_retries=3,
             enable_fallback=False,
@@ -467,21 +476,23 @@ class DocumentClassificationService:
         self,
         classification_result: DocumentClassificationResult,
     ) -> Dict[int, SectionType]:
-        """Convert classification result to section map for chunking.
+        """Convert classification result to canonical section map for chunking.
+        
+        Uses SectionTypeMapper to ensure consistent taxonomy.
         
         Args:
             classification_result: Result from classify_document
             
         Returns:
-            Dict mapping page numbers to SectionType
+            Dict mapping page numbers to canonical SectionType
         """
+        from app.utils.section_type_mapper import SectionTypeMapper
+        
         section_map = {}
         
         for page_num, section_str in classification_result.page_section_map.items():
-            try:
-                section_type = SectionType(section_str)
-            except ValueError:
-                section_type = SectionType.UNKNOWN
+            # Use canonical mapper to normalize section type
+            section_type = SectionTypeMapper.string_to_section_type(section_str)
             section_map[page_num] = section_type
         
         return section_map

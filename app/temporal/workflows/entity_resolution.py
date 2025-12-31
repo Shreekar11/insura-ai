@@ -7,6 +7,11 @@ to avoid importing non-deterministic modules.
 from temporalio import workflow
 from datetime import timedelta
 
+from app.utils.workflow_schemas import (
+    EntityResolutionOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class EntityResolutionWorkflow:
@@ -49,10 +54,21 @@ class EntityResolutionWorkflow:
                 start_to_close_timeout=timedelta(minutes=10),
             )
             
-            return {
+            output = {
                 "entity_count": len(entity_ids),
                 "relationship_count": len(relationships),
             }
+            
+            # Validate output against schema (fail fast if invalid)
+            validated_output = validate_workflow_output(
+                output,
+                EntityResolutionOutputSchema,
+                "EntityResolutionWorkflow"
+            )
+            
+            workflow.logger.info("Entity resolution output validated against schema")
+            
+            return validated_output
             
         except Exception as e:
             # Saga compensation: rollback entities

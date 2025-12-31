@@ -132,12 +132,15 @@ class SectionExtractionOrchestrator:
         session: Optional[AsyncSession] = None,
         provider: str = "gemini",
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "qwen3:8b",
+        gemini_model: str = "gemini-2.0-flash",
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         ollama_model: str = "qwen3:8b",
         ollama_api_url: str = "http://localhost:11434",
+        groq_api_key: Optional[str] = None,
+        groq_model: str = "openai/gpt-oss-20b",
+        groq_api_url: str = "",
         timeout: int = 120,
         max_retries: int = 3,
     ):
@@ -151,6 +154,11 @@ class SectionExtractionOrchestrator:
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
+            ollama_model: Ollama model name
+            ollama_api_url: Ollama API URL
+            groq_api_key: Groq API key
+            groq_model: Groq model name
+            groq_api_url: Groq API URL (optional)
             timeout: API timeout
             max_retries: Max retry attempts
         """
@@ -159,7 +167,17 @@ class SectionExtractionOrchestrator:
         
         self.session = session
         self.provider = provider
-        self.model = gemini_model if provider == "gemini" else openrouter_model
+        # Determine model based on provider
+        if provider == "gemini":
+            self.model = gemini_model
+        elif provider == "openrouter":
+            self.model = openrouter_model
+        elif provider == "ollama":
+            self.model = ollama_model
+        elif provider == "groq":
+            self.model = groq_model
+        else:
+            self.model = gemini_model
         
         # Initialize extractor factory
         self.factory = ExtractorFactory(
@@ -170,6 +188,11 @@ class SectionExtractionOrchestrator:
             openrouter_api_key=openrouter_api_key,
             openrouter_model=openrouter_model,
             openrouter_api_url=openrouter_api_url,
+            ollama_model=ollama_model,
+            ollama_api_url=ollama_api_url,
+            groq_api_key=groq_api_key,
+            groq_model=groq_model,
+            groq_api_url=groq_api_url,
         )
         
         # Initialize section extraction repository
@@ -476,10 +499,16 @@ class SectionExtractionOrchestrator:
                             "section_type": super_chunk.section_type.value,
                         }
                     
+                    # Include entities in extracted_fields so they can be retrieved later
+                    extracted_fields_with_entities = {
+                        **extracted_data,
+                        "entities": entities  # Store entities for entity aggregation
+                    }
+                    
                     await self.section_extraction_repo.create_section_extraction(
                         document_id=document_id,
                         section_type=super_chunk.section_type.value,
-                        extracted_fields=extracted_data,
+                        extracted_fields=extracted_fields_with_entities,
                         page_range=page_range_dict,
                         confidence=confidence_dict,
                         source_chunks=source_chunks if source_chunks["stable_chunk_ids"] else None,

@@ -244,69 +244,85 @@ class ChunkingResult:
 
 
 # Section processing configuration
+# max_chunks: Maximum number of chunks per super-chunk (soft limit)
+# max_tokens: Maximum tokens per super-chunk (hard limit for LLM context)
+# priority: Processing priority (lower = higher priority)
+# requires_llm: Whether section needs LLM extraction
+# table_only: Whether section should only use table extraction
 SECTION_CONFIG = {
     SectionType.DECLARATIONS: {
-        "max_chunks": 1,
+        "max_chunks": 3,
+        "max_tokens": 4000,
         "priority": 1,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.COVERAGES: {
-        "max_chunks": 5,
+        "max_chunks": 8,
+        "max_tokens": 6000,
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.CONDITIONS: {
-        "max_chunks": 2,
+        "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.EXCLUSIONS: {
-        "max_chunks": 2,
+        "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.ENDORSEMENTS: {
         "max_chunks": 10,  # 1 per endorsement
+        "max_tokens": 5000,
         "priority": 4,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.SCHEDULE_OF_VALUES: {
         "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 2,
         "requires_llm": False,
         "table_only": True,
     },
     SectionType.LOSS_RUN: {
         "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 2,
         "requires_llm": False,
         "table_only": True,
     },
     SectionType.INSURING_AGREEMENT: {
-        "max_chunks": 1,
+        "max_chunks": 3,
+        "max_tokens": 4000,
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.PREMIUM_SUMMARY: {
-        "max_chunks": 1,
+        "max_chunks": 3,
+        "max_tokens": 4000,
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.FINANCIAL_STATEMENT: {
-        "max_chunks": 2,
+        "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 4,
         "requires_llm": True,
         "table_only": False,
     },
     SectionType.UNKNOWN: {
-        "max_chunks": 3,
+        "max_chunks": 5,
+        "max_tokens": 5000,
         "priority": 10,
         "requires_llm": True,
         "table_only": False,

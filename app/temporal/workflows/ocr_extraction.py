@@ -12,6 +12,11 @@ from temporalio.common import RetryPolicy
 from datetime import timedelta
 from typing import Optional, List, Dict
 
+from app.utils.workflow_schemas import (
+    OCRExtractionOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class OCRExtractionWorkflow:
@@ -69,9 +74,22 @@ class OCRExtractionWorkflow:
             ),
         )
         
-        return {
+        output = {
             "document_id": ocr_data.get('document_id'),
             "page_count": ocr_data.get('page_count', 0),
+            "pages_processed": ocr_data.get('pages_processed', []),
+            "selective": ocr_data.get('selective', False),
             "has_section_metadata": ocr_data.get('has_section_metadata', False),
             "section_distribution": ocr_data.get('section_distribution'),
         }
+        
+        # Validate output against schema (fail fast if invalid)
+        validated_output = validate_workflow_output(
+            output,
+            OCRExtractionOutputSchema,
+            "OCRExtractionWorkflow"
+        )
+        
+        workflow.logger.info("OCR extraction output validated against schema")
+        
+        return validated_output

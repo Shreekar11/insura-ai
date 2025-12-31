@@ -2,16 +2,16 @@
 
 These activities handle section-aware hybrid chunking using Docling.
 Now accepts page_section_map from manifest to ensure consistent section
-assignment with Phase 0 page analysis.
+assignment with page analysis.
 """
 
 from temporalio import activity
 from typing import Dict, List, Optional
 from uuid import UUID
 
+from app.config import settings
 from app.database.base import async_session_maker
 from app.services.chunking.hybrid_chunking_service import HybridChunkingService
-from app.services.chunking.section_super_chunk_builder import SectionSuperChunkBuilder
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.utils.logging import get_logger
@@ -36,7 +36,7 @@ async def perform_hybrid_chunking(
     Args:
         document_id: UUID of the document to chunk
         page_section_map: Optional mapping of page numbers to section types
-            from Phase 0 page analysis manifest. If provided, this ensures
+            from page analysis manifest. If provided, this ensures
             consistent section assignment without re-detection.
         
     Returns:
@@ -74,16 +74,23 @@ async def perform_hybrid_chunking(
             activity.heartbeat(f"Retrieved {len(pages)} pages")
             
             # Perform hybrid chunking with section map from manifest
+            # Uses config-based token limits for super-chunk splitting
             chunking_service = HybridChunkingService(
-                max_tokens=1500,
-                overlap_tokens=50
+                max_tokens=settings.chunk_max_tokens,
+                overlap_tokens=settings.chunk_overlap_tokens,
+                max_tokens_per_super_chunk=settings.max_tokens_per_super_chunk,
             )
             
             section_source = "manifest" if has_section_map else "auto-detect"
             activity.logger.info(
-                f"[Phase 3: Hybrid Chunking] Performing hybrid chunking (section source: {section_source})..."
+                f"[Phase 3: Hybrid Chunking] Performing hybrid chunking (section source: {section_source})",
+                extra={
+                    "max_tokens_per_super_chunk": settings.max_tokens_per_super_chunk,
+                }
             )
             
+            # chunk_pages now handles both chunking AND super-chunk building
+            # with proper token-based splitting to respect LLM limits
             chunking_result = chunking_service.chunk_pages(
                 pages=pages,
                 document_id=UUID(document_id),
@@ -92,21 +99,10 @@ async def perform_hybrid_chunking(
             
             activity.heartbeat(f"Created {len(chunking_result.chunks)} chunks")
             
-            # Build section super-chunks
-            activity.logger.info("[Phase 3: Hybrid Chunking] Building section super-chunks...")
-            super_chunk_builder = SectionSuperChunkBuilder(
-                max_tokens_per_super_chunk=4000
-            )
-            
-            super_chunks = super_chunk_builder.build_super_chunks(
-                chunks=chunking_result.chunks,
-                document_id=UUID(document_id)
-            )
+            # Super-chunks are already built by chunk_pages with token limits
+            super_chunks = chunking_result.super_chunks
             
             activity.heartbeat(f"Created {len(super_chunks)} super-chunks")
-            
-            # Update chunking result with super-chunks
-            chunking_result.super_chunks = super_chunks
             
             # Persist to database
             activity.logger.info("[Phase 3: Hybrid Chunking] Persisting chunks to database...")

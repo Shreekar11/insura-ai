@@ -176,7 +176,8 @@ class SectionSuperChunkBuilder:
         """Create super-chunks for a specific section.
         
         Handles splitting large sections into multiple super-chunks
-        while respecting token limits.
+        while respecting token limits. Uses section-specific max_tokens
+        if available, otherwise falls back to global max_tokens_per_super_chunk.
         
         Args:
             section_type: Section type
@@ -189,11 +190,26 @@ class SectionSuperChunkBuilder:
         config = SECTION_CONFIG.get(section_type, SECTION_CONFIG[SectionType.UNKNOWN])
         max_chunks = config["max_chunks"]
         
+        # Use section-specific max_tokens if available, else global limit
+        section_max_tokens = config.get("max_tokens", self.max_tokens_per_super_chunk)
+        effective_max_tokens = min(section_max_tokens, self.max_tokens_per_super_chunk)
+        
         # Calculate total tokens
         total_tokens = sum(c.metadata.token_count for c in chunks)
         
+        LOGGER.debug(
+            f"Creating super-chunks for section {section_type.value}",
+            extra={
+                "section_type": section_type.value,
+                "chunk_count": len(chunks),
+                "total_tokens": total_tokens,
+                "effective_max_tokens": effective_max_tokens,
+                "max_chunks_per_super": max_chunks,
+            }
+        )
+        
         # If within limits, create single super-chunk
-        if total_tokens <= self.max_tokens_per_super_chunk and len(chunks) <= max_chunks:
+        if total_tokens <= effective_max_tokens and len(chunks) <= max_chunks:
             super_chunk = self._create_super_chunk(
                 section_type=section_type,
                 chunks=chunks,
@@ -208,6 +224,7 @@ class SectionSuperChunkBuilder:
             chunks=chunks,
             document_id=document_id,
             max_chunks_per_super=max_chunks,
+            max_tokens_per_super=effective_max_tokens,
         )
     
     def _split_into_super_chunks(
@@ -216,6 +233,7 @@ class SectionSuperChunkBuilder:
         chunks: List[HybridChunk],
         document_id: Optional[UUID],
         max_chunks_per_super: int,
+        max_tokens_per_super: Optional[int] = None,
     ) -> List[SectionSuperChunk]:
         """Split large section into multiple super-chunks.
         
@@ -224,10 +242,13 @@ class SectionSuperChunkBuilder:
             chunks: All chunks for section
             document_id: Document ID
             max_chunks_per_super: Maximum chunks per super-chunk
+            max_tokens_per_super: Maximum tokens per super-chunk (uses global if None)
             
         Returns:
             List of super-chunks
         """
+        effective_max_tokens = max_tokens_per_super or self.max_tokens_per_super_chunk
+        
         super_chunks = []
         current_chunks: List[HybridChunk] = []
         current_tokens = 0
@@ -237,7 +258,7 @@ class SectionSuperChunkBuilder:
             chunk_tokens = chunk.metadata.token_count
             
             # Check if adding this chunk would exceed limits
-            would_exceed_tokens = current_tokens + chunk_tokens > self.max_tokens_per_super_chunk
+            would_exceed_tokens = current_tokens + chunk_tokens > effective_max_tokens
             would_exceed_count = len(current_chunks) >= max_chunks_per_super
             
             if current_chunks and (would_exceed_tokens or would_exceed_count):
@@ -249,6 +270,16 @@ class SectionSuperChunkBuilder:
                     part_index=part_index,
                 )
                 super_chunks.append(super_chunk)
+                
+                LOGGER.debug(
+                    f"Created super-chunk part {part_index + 1} for {section_type.value}",
+                    extra={
+                        "section_type": section_type.value,
+                        "part_index": part_index,
+                        "chunk_count": len(current_chunks),
+                        "tokens": current_tokens,
+                    }
+                )
                 
                 # Start new super-chunk
                 current_chunks = [chunk]
@@ -267,6 +298,26 @@ class SectionSuperChunkBuilder:
                 part_index=part_index,
             )
             super_chunks.append(super_chunk)
+            
+            LOGGER.debug(
+                f"Created final super-chunk part {part_index + 1} for {section_type.value}",
+                extra={
+                    "section_type": section_type.value,
+                    "part_index": part_index,
+                    "chunk_count": len(current_chunks),
+                    "tokens": current_tokens,
+                }
+            )
+        
+        LOGGER.info(
+            f"Split section {section_type.value} into {len(super_chunks)} super-chunks",
+            extra={
+                "section_type": section_type.value,
+                "super_chunk_count": len(super_chunks),
+                "total_chunks": len(chunks),
+                "max_tokens_per_super": effective_max_tokens,
+            }
+        )
         
         return super_chunks
     

@@ -11,6 +11,11 @@ from temporalio.common import RetryPolicy
 from datetime import timedelta
 from typing import Dict
 
+from app.utils.workflow_schemas import (
+    PageAnalysisOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class PageAnalysisWorkflow:
@@ -122,5 +127,14 @@ class PageAnalysisWorkflow:
             }
         )
         
+        # Validate output against schema (fail fast if invalid)
+        validated_output = validate_workflow_output(
+            manifest,
+            PageAnalysisOutputSchema,
+            "PageAnalysisWorkflow"
+        )
+        
+        workflow.logger.info("Page analysis output validated against schema")
+        
         # Return FULL manifest including document_profile and page_section_map
-        return manifest
+        return validated_output

@@ -18,6 +18,7 @@ from app.models.page_analysis_models import (
     DocumentProfile,
     SectionBoundary,
 )
+from app.utils.section_type_mapper import SectionTypeMapper
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -377,20 +378,30 @@ class DocumentProfileBuilder:
         self,
         classifications: List[PageClassification],
     ) -> Dict[int, str]:
-        """Build mapping of page numbers to section types.
+        """Build mapping of page numbers to canonical section types.
+        
+        Uses SectionTypeMapper to convert PageType values to canonical SectionType values,
+        ensuring consistent taxonomy across the pipeline.
         
         Args:
             classifications: List of page classifications
             
         Returns:
-            Dict mapping page numbers to section type strings
+            Dict mapping page numbers to canonical section type strings
         """
         page_section_map = {}
         
         for classification in classifications:
-            # Use the page type directly for the map
-            # This enables chunking to assign section_type based on page number
-            page_section_map[classification.page_number] = classification.page_type.value
+            # Convert PageType to canonical SectionType using mapper
+            section_type = SectionTypeMapper.page_type_to_section_type(classification.page_type)
+            page_section_map[classification.page_number] = section_type.value
+            
+            # Log if conversion changed the value
+            if classification.page_type.value != section_type.value:
+                LOGGER.debug(
+                    f"Normalized page {classification.page_number} section type: "
+                    f"'{classification.page_type.value}' -> '{section_type.value}'"
+                )
         
         return page_section_map
     

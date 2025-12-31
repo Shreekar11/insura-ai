@@ -10,6 +10,11 @@ from temporalio.common import RetryPolicy
 from datetime import timedelta
 from typing import Optional, Dict
 
+from app.utils.workflow_schemas import (
+    HybridChunkingOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class HybridChunkingWorkflow:
@@ -68,7 +73,7 @@ class HybridChunkingWorkflow:
             f"(source: {result.get('section_source', 'unknown')})"
         )
         
-        return {
+        output = {
             "chunk_count": result["chunk_count"],
             "super_chunk_count": result["super_chunk_count"],
             "sections_detected": result["sections_detected"],
@@ -77,4 +82,15 @@ class HybridChunkingWorkflow:
             "avg_tokens_per_chunk": result["avg_tokens_per_chunk"],
             "section_source": result.get("section_source", "unknown"),
         }
+        
+        # Validate output against schema (fail fast if invalid)
+        validated_output = validate_workflow_output(
+            output,
+            HybridChunkingOutputSchema,
+            "HybridChunkingWorkflow"
+        )
+        
+        workflow.logger.info("Hybrid chunking output validated against schema")
+        
+        return validated_output
 

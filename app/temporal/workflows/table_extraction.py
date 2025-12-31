@@ -12,6 +12,11 @@ from temporalio.common import RetryPolicy
 from typing import Dict, Any, Optional, List
 from datetime import timedelta
 
+from app.utils.workflow_schemas import (
+    TableExtractionOutputSchema,
+    validate_workflow_output,
+)
+
 
 @workflow.defn
 class TableExtractionWorkflow:
@@ -73,5 +78,14 @@ class TableExtractionWorkflow:
             }
         )
         
-        return result
+        # Validate output against schema (fail fast if invalid)
+        validated_output = validate_workflow_output(
+            result,
+            TableExtractionOutputSchema,
+            "TableExtractionWorkflow"
+        )
+        
+        workflow.logger.info("Table extraction output validated against schema")
+        
+        return validated_output
 

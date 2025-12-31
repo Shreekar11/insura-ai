@@ -24,9 +24,29 @@ from app.utils.logging import get_logger
 logger = get_logger(__name__)
 
 
-def _normalize_section_type(section_type_str: Optional[str]) -> str:
-    """Normalize section type string to valid SectionType enum value.
+def _get_timeout_for_provider(provider: str, default_timeout: int, ollama_timeout: int) -> int:
+    """Get timeout value based on provider.
     
+    Ollama models running locally typically need more time to process requests,
+    so we use higher timeout values for Ollama provider.
+    
+    Args:
+        provider: LLM provider name ("gemini", "openrouter", "ollama")
+        default_timeout: Default timeout in seconds for non-Ollama providers
+        ollama_timeout: Timeout in seconds for Ollama provider
+        
+    Returns:
+        Timeout value in seconds
+    """
+    if provider.lower() == "ollama":
+        return ollama_timeout
+    return default_timeout
+
+
+def _normalize_section_type(section_type_str: Optional[str]) -> str:
+    """Normalize section type string to canonical SectionType enum value.
+    
+    Uses SectionTypeMapper to ensure consistent taxonomy across the pipeline.
     Maps alternative section type strings to their canonical SectionType values.
     For example, "sov" maps to "schedule_of_values", "endorsement" maps to "endorsements".
     
@@ -39,22 +59,11 @@ def _normalize_section_type(section_type_str: Optional[str]) -> str:
     if not section_type_str:
         return "unknown"
     
-    # Map of alternative names to canonical SectionType values
-    section_type_mapping = {
-        # Schedule of Values variations
-        "sov": "schedule_of_values",
-        "schedule_of_values": "schedule_of_values",
-        
-        # Endorsement variations (singular -> plural)
-        "endorsement": "endorsements",
-        "endorsements": "endorsements",
-        
-        # Definitions is not in SectionType enum - map to unknown
-        "definitions": "unknown",
-    }
+    from app.utils.section_type_mapper import SectionTypeMapper
     
-    normalized = section_type_mapping.get(section_type_str.lower(), section_type_str.lower())
-    return normalized
+    # Use canonical mapper to normalize
+    section_type = SectionTypeMapper.string_to_section_type(section_type_str)
+    return section_type.value
 
 
 @activity.defn
@@ -95,6 +104,18 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
             )
             activity.heartbeat(f"Analyzing {len(initial_pages)} pages")
             
+            # Determine timeout based on provider (Ollama needs more time for local models)
+            classification_timeout = _get_timeout_for_provider(
+                provider=settings.llm_provider,
+                default_timeout=300,  # 5 minutes default
+                ollama_timeout=600,  # 10 minutes for Ollama
+            )
+            
+            activity.logger.info(
+                f"[Phase 4 - Tier 1] Using timeout: {classification_timeout}s "
+                f"(provider: {settings.llm_provider})"
+            )
+            
             # Perform classification
             classification_service = DocumentClassificationService(
                 session=session,
@@ -104,7 +125,12 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                ollama_model="qwen3:8b",
+                ollama_model=settings.ollama_model,
+                ollama_api_url=settings.ollama_api_url,
+                groq_api_key=settings.groq_api_key,
+                groq_model=settings.groq_model,
+                groq_api_url=settings.groq_api_url,
+                timeout=classification_timeout,
             )
             
             classification_result = await classification_service.run(
@@ -167,6 +193,18 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
             )
             activity.heartbeat(f"Processing {len(super_chunks)} super-chunks")
             
+            # Determine timeout based on provider (Ollama needs more time for local models)
+            extraction_timeout = _get_timeout_for_provider(
+                provider=settings.llm_provider,
+                default_timeout=120,  # 2 minutes default
+                ollama_timeout=300,  # 5 minutes for Ollama
+            )
+            
+            activity.logger.info(
+                f"[Phase 4 - Tier 2] Using timeout: {extraction_timeout}s "
+                f"(provider: {settings.llm_provider})"
+            )
+            
             # Initialize extraction orchestrator
             extraction_orchestrator = SectionExtractionOrchestrator(
                 session=session,
@@ -177,6 +215,11 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
                 ollama_model=settings.ollama_model,
+                ollama_api_url=settings.ollama_api_url,
+                groq_api_key=settings.groq_api_key,
+                groq_model=settings.groq_model,
+                groq_api_url=settings.groq_api_url,
+                timeout=extraction_timeout,
             )
             
             # Perform extraction
@@ -303,6 +346,18 @@ async def validate_and_reconcile_data(
                 total_processing_time_ms=extraction_result.get("total_processing_time_ms", 0)
             )
             
+            # Determine timeout based on provider (Ollama needs more time for local models)
+            validation_timeout = _get_timeout_for_provider(
+                provider=settings.llm_provider,
+                default_timeout=90,  # 90 seconds default
+                ollama_timeout=180,  # 3 minutes for Ollama
+            )
+            
+            activity.logger.info(
+                f"[Phase 4 - Tier 3] Using timeout: {validation_timeout}s "
+                f"(provider: {settings.llm_provider})"
+            )
+            
             # Perform validation
             validator = CrossSectionValidator(
                 session=session,
@@ -314,6 +369,10 @@ async def validate_and_reconcile_data(
                 openrouter_model=settings.openrouter_model,
                 ollama_model=settings.ollama_model,
                 ollama_api_url=settings.ollama_api_url,
+                groq_api_key=settings.groq_api_key,
+                groq_model=settings.groq_model,
+                groq_api_url=settings.groq_api_url,
+                timeout=validation_timeout,
             )
             
             validation_result = await validator.validate(
