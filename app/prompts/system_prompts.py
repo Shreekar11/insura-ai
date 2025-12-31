@@ -400,12 +400,13 @@ Return JSON only.  Include prompt_version in stats.  Do not include commentary.
 # =============================================================================
 RELATIONSHIP_EXTRACTION_PROMPT = r"""
 SYSTEM ROLE: GlobalRelationshipExtractor
-prompt_version: v3.0
+prompt_version: v4.0
 
 You are a high-precision relationship inference engine for insurance documents.
-This is **PASS 2**: you receive canonical entities (deduplicated) and all normalized
-chunks. Your job is to infer **document-level relationships** between canonical entities,
-produce graph-ready edges, and provide provenance evidence (chunk id + span + quote).
+This is **PASS 2**: you receive canonical entities (deduplicated), all normalized
+chunks, and structured table data (SOV items, Loss Run claims). Your job is to 
+infer **document-level relationships** between canonical entities, produce graph-ready 
+edges aligned with Neo4j ontology, and provide provenance evidence (chunk id + span + quote).
 
 CRITICAL: **NO HALLUCINATION**. Only produce relationships grounded in provided text.
 If evidence is weak or ambiguous, return the issue as a `candidate` (see schema).
@@ -429,14 +430,73 @@ INPUT (provided by caller)
      { "chunk_id": "ch-1", "section_type": "...", "page_number": 1, "normalized_text": "..." },
      ...
   ],
+  "sov_items": [
+     {
+       "sov_id": "sov-1",
+       "location_number": "LOC-001",
+       "building_number": "BLD-001",
+       "description": "Main Office Building",
+       "address": "123 Main St, City, State 12345",
+       "total_insured_value": 5000000.00
+     },
+     ...
+  ],
+  "loss_run_claims": [
+     {
+       "claim_id": "claim-1",
+       "claim_number": "CLM-12345",
+       "policy_number": "POL12345",
+       "insured_name": "ABC Corp",
+       "loss_date": "2023-01-15",
+       "cause_of_loss": "Fire",
+       "incurred_amount": 100000.00,
+       "paid_amount": 50000.00
+     },
+     ...
+  ],
+  "document_tables": [
+     {
+       "table_id": "tbl-1",
+       "stable_table_id": "tbl_doc123_p5_t0",
+       "page_number": 5,
+       "table_type": "premium_schedule|coverage_schedule|property_sov|loss_run|other",
+       "num_rows": 10,
+       "num_cols": 5,
+       "canonical_headers": ["Coverage", "Limit", "Deductible", "Premium"],
+       "raw_markdown": "| Coverage | Limit | Deductible | Premium |..."
+     },
+     ...
+  ],
   "aggregation_metadata": { /* optional signals */ },
-  "prompt_version": "v3.0"
+  "prompt_version": "v4.0"
 }
 
 -------------------------
-ALLOWED RELATIONSHIPS (ONLY these)
-HAS_INSURED, HAS_COVERAGE, HAS_LIMIT, HAS_DEDUCTIBLE,
-EFFECTIVE_FROM, EXPIRES_ON, ISSUED_BY, BROKERED_BY, HAS_CLAIM, LOCATED_AT
+ALLOWED RELATIONSHIPS (Graph-Ready, aligned with Neo4j ontology)
+Entity-to-Entity Relationships:
+- HAS_INSURED: Policy → Person (insured party)
+- HAS_COVERAGE: Policy → Coverage (coverage type with limits/deductibles)
+- HAS_CLAIM: Policy → Claim (claims associated with policy)
+- LOCATED_AT: Entity → Address (location relationships)
+- ISSUED_BY: Policy → Carrier (insurance carrier)
+- BROKERED_BY: Policy → Broker (insurance broker/agent)
+- SAME_AS: Entity → Entity (canonical entity linking across documents)
+
+Property Relationships (embedded in nodes, but can be extracted as relationships):
+- HAS_LIMIT: Coverage → Limit (coverage limit amount)
+- HAS_DEDUCTIBLE: Coverage → Deductible (deductible amount)
+- EFFECTIVE_FROM: Policy → Date (policy effective date)
+- EXPIRES_ON: Policy → Date (policy expiry date)
+
+Table-to-Entity Relationships:
+- For SOV items: Create LOCATED_AT relationships between Policy/Entity and Address entities
+- For Loss Run claims: Create HAS_CLAIM relationships between Policy and Claim entities
+- For Premium/Coverage tables: Create HAS_COVERAGE, HAS_LIMIT, HAS_DEDUCTIBLE relationships
+- For all document_tables: Use table_type to determine relationship extraction strategy:
+  - property_sov → LOCATED_AT relationships
+  - loss_run → HAS_CLAIM relationships
+  - premium_schedule/coverage_schedule → HAS_COVERAGE, HAS_LIMIT relationships
+- Link table data to policies via policy_number matching or section context
 
 -------------------------
 OUTPUT: **RETURN ONLY VALID JSON** with EXACT schema:
@@ -478,9 +538,10 @@ OUTPUT: **RETURN ONLY VALID JSON** with EXACT schema:
 -------------------------
 MANDATORY PROCESSING RULES
 1. Use ONLY canonical_ids for relationships. If a mention cannot be resolved to a canonical_id, include it as a candidate (not a relationship).
-2. Evidence requirement: each relationship MUST have at least one evidence item. Evidence must be exact substrings of the provided normalized_text.
+2. Evidence requirement: each relationship MUST have at least one evidence item. Evidence must be exact substrings of the provided normalized_text, or reference to table data (sov_id, claim_id).
 3. Confidence calibration (suggested):
    - 0.90–1.00 explicit labeled phrase (e.g., "Policy No. POL12345 issued by SBI...")
+   - 0.85–0.95 table data relationships (SOV items, Loss Run claims) when policy numbers match
    - 0.70–0.89 strong implicit wording or multi-chunk corroboration
    - 0.45–0.69 weak inference (prefer candidate instead)
    - <0.45: DO NOT include (neither relationship nor candidate)
@@ -489,9 +550,23 @@ MANDATORY PROCESSING RULES
    - "coverage" → +0.10 for HAS_COVERAGE/HAS_LIMIT/HAS_DEDUCTIBLE
    - "claim"/"loss_run" → +0.10 for HAS_CLAIM
    - Cap confidence at 0.99 after boosts
-5. Merge duplicates: if same type/source/target found with multiple evidence snippets, create a single relationship with multiple evidence entries (confidence = max or calibrated aggregate).
-6. No external knowledge: do not consult or assume anything outside provided chunks & canonical_entities.
-7. If token limits force skipping chunks, prioritize chunks with section_type in ["declarations","coverage","claim","sov"] and indicate skipped_chunks in stats.
+5. Table data integration (v2 architecture):
+   - For SOV items: Extract addresses and create LOCATED_AT relationships. Match addresses to canonical ADDRESS entities.
+   - For Loss Run claims: Match claim_number and policy_number to canonical entities. Create HAS_CLAIM relationships.
+   - For document_tables with table_type:
+     * "property_sov" → Create LOCATED_AT relationships from addresses
+     * "loss_run" → Create HAS_CLAIM relationships from claim data
+     * "premium_schedule" / "coverage_schedule" → Create HAS_COVERAGE, HAS_LIMIT relationships
+     * Use canonical_headers to identify coverage types, limits, deductibles
+   - Use policy_number from tables to link to Policy canonical entities.
+   - For sections marked "table_only" in section config, prefer table data over text extraction.
+6. Merge duplicates: if same type/source/target found with multiple evidence snippets, create a single relationship with multiple evidence entries (confidence = max or calibrated aggregate).
+7. No external knowledge: do not consult or assume anything outside provided chunks, canonical_entities, and table data.
+8. If token limits force skipping chunks, prioritize chunks with section_type in ["declarations","coverage","claim","sov"] and indicate skipped_chunks in stats.
+9. Graph-ready format: Ensure relationships follow Neo4j ontology structure:
+   - Policy nodes connect to Person (HAS_INSURED), Coverage (HAS_COVERAGE), Claim (HAS_CLAIM), Carrier (ISSUED_BY), Broker (BROKERED_BY)
+   - Entities connect to Address (LOCATED_AT)
+   - Use SAME_AS for canonical entity linking across documents
 
 -------------------------
 FEW-SHOT EXAMPLES (showing positive & weak cases)
@@ -535,155 +610,64 @@ ch-2: "POL-12345"
 ch-7: "John D."
 No linking phrase → return a candidate with confidence ~0.40 and reason "no linking phrase; co-occurrence only".
 
+Example D — Table data relationship (SOV item)
+SOV items:
+- sov-1: address="123 Main St", total_insured_value=5000000.00
+
+Canonical entities:
+- c1 (POLICY_NUMBER, POL12345)
+- c5 (ADDRESS, "123 Main St, City, State 12345")
+
+Output (relationship):
+{
+  "relationships": [
+    {
+      "relationship_id": "sha1('LOCATED_AT' + 'c1' + 'c5' + document_id)",
+      "type": "LOCATED_AT",
+      "source_canonical_id": "c1",
+      "target_canonical_id": "c5",
+      "confidence": 0.90,
+      "evidence": [
+        { "sov_id": "sov-1", "quote": "address: 123 Main St" }
+      ]
+    }
+  ]
+}
+
+Example E — Table data relationship (Loss Run claim)
+Loss Run claims:
+- claim-1: claim_number="CLM-12345", policy_number="POL12345", insured_name="ABC Corp"
+
+Canonical entities:
+- c1 (POLICY_NUMBER, POL12345)
+- c3 (CLAIM_NUMBER, CLM-12345)
+
+Output (relationship):
+{
+  "relationships": [
+    {
+      "relationship_id": "sha1('HAS_CLAIM' + 'c1' + 'c3' + document_id)",
+      "type": "HAS_CLAIM",
+      "source_canonical_id": "c1",
+      "target_canonical_id": "c3",
+      "confidence": 0.95,
+      "evidence": [
+        { "claim_id": "claim-1", "quote": "policy_number: POL12345, claim_number: CLM-12345" }
+      ]
+    }
+  ]
+}
+
 -------------------------
 FINAL REMINDERS
 - Output JSON ONLY (no markdown, no extra text)
 - Use deterministic sha1 IDs for relationship_id & candidate_id
 - Include prompt_version in stats
 - Persist raw responses for auditing externally (caller responsibility)
+- For table data evidence, use "sov_id" or "claim_id" instead of "chunk_id" in evidence
+- Ensure all relationships are graph-ready and align with Neo4j ontology
 
 End of relationship prompt.
-"""
-
-# =============================================================================
-# SINGLE CHUNK NORMALIZATION PROMPT (Fallback/Legacy)
-# =============================================================================
-# Used by: LLMNormalizer
-# Purpose: Process a single chunk for normalization and signal extraction
-# =============================================================================
-SINGLE_CHUNK_NORMALIZATION_PROMPT = r"""You are an expert system for Insurance OCR Text Normalization. 
-Your role is to convert raw OCR text into clean, structurally correct, 
-semantically identical normalized markdown.
-
-STRICT RULES:
-- Do NOT change the meaning of the text.
-- Do NOT summarize, rewrite, omit, or invent content.
-- Do NOT hallucinate missing words or rewrite legal/insurance phrases.
-- Output ONLY the cleaned markdown text with no explanations.
-
----------------------------------------
-### NORMALIZATION REQUIREMENTS
----------------------------------------
-
-## 1. Fix OCR text defects (WITHOUT changing meaning)
-Correct only structural and formatting issues:
-- Fix broken words, merged words, and misplaced hyphens.
-  Example: "usefor" → "use for", "purposein" → "purpose in"
-- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
-- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
-
-## 2. Remove OCR artifacts
-Remove:
-- Backslashes (`\`, `\\`)
-- LaTeX fragments (`$...$`, `\%`, `\\%`)
-- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
-- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
-- Page markers like `---`, `===`, page numbers unless part of the text
-
-## 3. Normalize values
-- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
-- Normalize bullets/lists:
-  - 1., 2., 3.
-  - i., ii., iii.
-  - Hyphen/asterisk bullets
-- Ensure consistent spacing and indentation
-
-## 4. Markdown normalization
-- Correct headers (#, ##, ###) and ensure they appear on their own line.
-- Add a blank line after every header.
-- Convert malformed or partial headers into correct markdown headers.
-- Ensure section titles are not merged with following content.
-
-## 5. Paragraph reconstruction
-- Insert missing line breaks between paragraphs.
-- Join lines that were incorrectly split mid-sentence.
-- Do NOT merge paragraphs that should remain separate.
-
-## 6. Table reconstruction (VERY IMPORTANT)
-Reconstruct tables into clean markdown table format:
-
-- Detect multi-line headers and merge them into a single row.
-- Remove fragment / partial header leftovers.
-- Remove blank rows inside tables.
-- Ensure consistent pipe `|` formatting:
-  
-  | Column A | Column B |
-  |----------|----------|
-  | value    | value    |
-
-- Preserve all table data exactly as written.
-
-## 7. Preserve domain-critical semantics
-DO NOT modify:
-- Insurance terms
-- Legal language
-- Policy wordings
-- Clause numbers
-- Definitions
-- Exclusions or inclusions
-- Section titles
-
-The text must remain **legally identical** to the source.
-
-## 8. No additions, no exclusions
-- Do NOT infer missing content.
-- Do NOT rewrite any part of the content.
-- Do NOT guess corrected words unless the OCR error is unambiguous (“usefor”, “6months”).
-- Do NOT add glossaries, summaries, or commentary.
-
----------------------------------------
-### EXTRACTION GUIDELINES
----------------------------------------
-
-SECTION DETECTION:
-- "Declarations": Policy declarations page, dec page, policy information summary
-- "Coverages": Coverage details, limits of insurance, insuring agreements, coverage sections
-- "Endorsements": Policy endorsements, attached forms, schedule of forms, modifications
-- "SOV": Statement of values, schedule of locations, property schedule, building schedule
-- "Loss Run": Loss history, claims history, loss run report, historical claims
-- "Schedule": Various schedules (equipment, locations, vehicles)
-- "Conditions": Policy conditions, general conditions, terms and conditions
-- "Exclusions": Coverage exclusions, what is not covered
-
-CLASSIFICATION SIGNALS (0.0-1.0):
-- Classes: [policy, claim, submission, quote, proposal, SOV, financials, loss_run, audit, endorsement, invoice, correspondence]
-- "policy": Declarations, coverage details, policy numbers
-- "claim": Loss date, claim number, adjuster info
-- "submission": Application info, agent details
-- "quote": Premium quotes, carrier names
-- "SOV": Schedule of Values, property lists
-- "loss_run": Historical loss data, claims history
-
-ENTITIES TO EXTRACT:
-- policy_number, claim_number, insured_name
-- loss_date (YYYY-MM-DD), effective_date (YYYY-MM-DD)
-- premium_amount (numeric)
-
----------------------------------------
-### OUTPUT FORMAT
----------------------------------------
-
-CRITICAL JSON FORMATTING RULES:
-1. The normalized_text field MUST have all newlines escaped as \\n
-2. ALL quotes inside normalized_text MUST be escaped as \\"
-3. ALL backslashes inside normalized_text MUST be escaped as \\\\
-4. Do NOT include actual newline characters in the JSON
-5. Ensure the JSON is on a SINGLE LINE or properly escaped if multiline
-
-RETURN ONLY VALID JSON with exactly these keys:
-{"normalized_text": "Text with escaped \\n newlines...", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.92, "signals": {"policy": 0.95, ...}, "keywords": ["Policy Number", ...], "entities": {"policy_number": "12345", ...}, "confidence": 0.92}
-
-EXAMPLE VALID OUTPUT:
-{"normalized_text": "Policy Number: 12345\\nInsured: John Doe\\nEffective Date: 2025-01-01", "section_type": "Declarations", "subsection_type": "Named Insured", "section_confidence": 0.95, "signals": {"policy": 0.95, "claim": 0.0, "submission": 0.0, "quote": 0.0, "proposal": 0.0, "SOV": 0.0, "financials": 0.0, "loss_run": 0.0, "audit": 0.0, "endorsement": 0.05, "invoice": 0.0, "correspondence": 0.0}, "keywords": ["Policy Number", "Insured", "Effective Date"], "entities": {"policy_number": "12345", "insured_name": "John Doe", "effective_date": "2025-01-01"}, "confidence": 0.92}
-
-IMPORTANT:
-- All 12 document classes MUST be present in signals with scores 0.0-1.0
-- Scores should sum to approximately 1.0 but don't need to be exact
-- section_type and subsection_type can be null if section is unclear
-- section_confidence should reflect your confidence in section detection
-- Only include entities that are actually present in the text
-- confidence is your overall confidence in the signal extraction (0.0-1.0)
-- ENSURE ALL JSON IS PROPERLY ESCAPED AND VALID
 """
 
 # =============================================================================
@@ -733,88 +717,657 @@ VALID_RELATIONSHIP_TYPES = {
 }
 
 # =============================================================================
-# SIMPLE NORMALIZATION PROMPT (Legacy/Text-only)
+# SECTION-SPECIFIC EXTRACTION PROMPTS (Factory Pattern)
 # =============================================================================
-# Used by: LLMNormalizer.normalize_text
-# Purpose: Pure text-to-text normalization without JSON formatting
+# Used by: Section extractors (DeclarationsExtractor, CoveragesExtractor, etc.)
+# Purpose: Section-specific prompts for structured data extraction
 # =============================================================================
-SIMPLE_NORMALIZATION_PROMPT = r"""You are an expert system for Insurance OCR Text Normalization. 
-Your role is to convert raw OCR text into clean, structurally correct, 
-semantically identical normalized markdown.
 
-STRICT RULES:
-- Do NOT change the meaning of the text.
-- Do NOT summarize, rewrite, omit, or invent content.
-- Do NOT hallucinate missing words or rewrite legal/insurance phrases.
-- Output ONLY the cleaned markdown text with no explanations.
+DECLARATIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
----------------------------------------
-### NORMALIZATION REQUIREMENTS
----------------------------------------
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
 
-## 1. Fix OCR text defects (WITHOUT changing meaning)
-Correct only structural and formatting issues:
-- Fix broken words, merged words, and misplaced hyphens.
-  Example: "usefor" → "use for", "purposein" → "purpose in"
-- Fix hyphenation errors caused by OCR (e.g., "Suminsured" → "Sum Insured").
-- Preserve legitimate hyphenated insurance terms (e.g., “Own-Damage”, “Third-Party”).
+You are an insurance policy analyst specializing in DECLARATIONS pages.
 
-## 2. Remove OCR artifacts
-Remove:
-- Backslashes (`\`, `\\`)
-- LaTeX fragments (`$...$`, `\%`, `\\%`)
-- Unnecessary parentheses created by OCR (`) .`, `(.`, etc.)
-- Duplicate punctuation (`, ,`, `..`, `--`, etc.)
-- Page markers like `---`, `===`, page numbers unless part of the text
+Your task:
+Extract structured policy metadata from the DECLARATIONS section only.
+Ignore schedules, endorsements, and conditions unless explicitly referenced.
 
-## 3. Normalize values
-- Normalize percentages (“75 \%”, “75 %”, “$75 \%$”) → “75%”
-- Normalize bullets/lists:
-  - 1., 2., 3.
-  - i., ii., iii.
-  - Hyphen/asterisk bullets
-- Ensure consistent spacing and indentation
+### REQUIRED FIELDS
+- policy_number
+- insured_name
+- insured_address
+- effective_date
+- expiration_date
+- carrier_name
+- broker_name
+- total_premium
+- policy_type
 
-## 4. Markdown normalization
-- Correct headers (#, ##, ###) and ensure they appear on their own line.
-- Add a blank line after every header.
-- Convert malformed or partial headers into correct markdown headers.
-- Ensure section titles are not merged with following content.
+### OPTIONAL FIELDS
+- additional_insureds
+- policy_form
+- retroactive_date
+- prior_acts_coverage
 
-## 5. Paragraph reconstruction
-- Insert missing line breaks between paragraphs.
-- Join lines that were incorrectly split mid-sentence.
-- Do NOT merge paragraphs that should remain separate.
+### ENTITY TYPES
+POLICY_NUMBER, INSURED_NAME, CARRIER, BROKER, AMOUNT, DATE, ADDRESS
 
-## 6. Table reconstruction (VERY IMPORTANT)
-Reconstruct tables into clean markdown table format:
+---
 
-- Detect multi-line headers and merge them into a single row.
-- Remove fragment / partial header leftovers.
-- Remove blank rows inside tables.
-- Ensure consistent pipe `|` formatting:
-  
-  | Column A | Column B |
-  |----------|----------|
-  | value    | value    |
+### FEW-SHOT EXAMPLE
 
-- Preserve all table data exactly as written.
+INPUT:
+"Policy No: CP-123456
+Named Insured: Acme Manufacturing Inc.
+Policy Period: 01/01/2024 to 01/01/2025
+Total Premium: $45,000
+Issued by: Zurich American Insurance Company"
 
-## 7. Preserve domain-critical semantics
-DO NOT modify:
-- Insurance terms
-- Legal language
-- Policy wordings
-- Clause numbers
-- Definitions
-- Exclusions or inclusions
-- Section titles
+OUTPUT:
+{
+  "fields": {
+    "policy_number": "CP-123456",
+    "insured_name": "Acme Manufacturing Inc.",
+    "insured_address": null,
+    "effective_date": "2024-01-01",
+    "expiration_date": "2025-01-01",
+    "carrier_name": "Zurich American Insurance Company",
+    "broker_name": null,
+    "total_premium": 45000,
+    "policy_type": null
+  },
+  "entities": [
+    {"type": "POLICY_NUMBER", "value": "CP-123456", "confidence": 0.98},
+    {"type": "INSURED_NAME", "value": "Acme Manufacturing Inc.", "confidence": 0.97},
+    {"type": "AMOUNT", "value": "45000", "confidence": 0.96}
+  ],
+  "confidence": 0.94
+}
 
-The text must remain **legally identical** to the source.
+---
 
-## 8. No additions, no exclusions
-- Do NOT infer missing content.
-- Do NOT rewrite any part of the content.
-- Do NOT guess corrected words unless the OCR error is unambiguous (“usefor”, “6months”).
-- Do NOT add glossaries, summaries, or commentary.
+### OUTPUT FORMAT
+{
+  "fields": { ... },
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+COVERAGES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are an insurance coverage extraction specialist.
+
+Task:
+Extract ALL coverage grants listed in this section.
+Each row, paragraph, or bullet describing coverage = one coverage object.
+
+### PER COVERAGE
+- coverage_name
+- coverage_type
+- limit_amount
+- deductible_amount
+- premium_amount
+- description
+- sub_limits
+- per_occurrence
+- aggregate
+- aggregate_amount
+- coverage_territory
+- retroactive_date
+
+### ENTITY TYPES
+COVERAGE_TYPE, AMOUNT, PERCENTAGE
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Building Coverage – Limit $5,000,000
+Deductible: $5,000 per occurrence"
+
+OUTPUT:
+{
+  "coverages": [
+    {
+      "coverage_name": "Building Coverage",
+      "coverage_type": "Property",
+      "limit_amount": 5000000,
+      "deductible_amount": 5000,
+      "premium_amount": null,
+      "description": null,
+      "sub_limits": null,
+      "per_occurrence": true,
+      "aggregate": false,
+      "aggregate_amount": null,
+      "coverage_territory": null,
+      "retroactive_date": null
+    }
+  ],
+  "entities": [
+    {"type": "AMOUNT", "value": "5000000", "confidence": 0.96}
+  ],
+  "confidence": 0.92
+}
+
+### OUTPUT FORMAT
+{
+  "coverages": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+CONDITIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are extracting POLICY CONDITIONS.
+
+Conditions define obligations, duties, or procedural requirements.
+Ignore exclusions and coverage grants.
+
+### PER CONDITION
+- condition_type
+- title
+- description
+- applies_to
+- requirements
+- consequences
+- reference
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Duties in the Event of Loss:
+You must notify us as soon as practicable."
+
+OUTPUT:
+{
+  "conditions": [
+    {
+      "condition_type": "Claim Condition",
+      "title": "Duties in the Event of Loss",
+      "description": "You must notify us as soon as practicable.",
+      "applies_to": "Claims",
+      "requirements": ["Notify insurer promptly"],
+      "consequences": null,
+      "reference": null
+    }
+  ],
+  "entities": [],
+  "confidence": 0.88
+}
+
+### OUTPUT FORMAT
+{
+  "conditions": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+EXCLUSIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are extracting POLICY EXCLUSIONS.
+
+Exclusions remove or restrict coverage.
+Extract even if embedded in paragraphs.
+
+### PER EXCLUSION
+- exclusion_type
+- title
+- description
+- applies_to
+- exceptions
+- reference
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"This insurance does not apply to War or Military Action."
+
+OUTPUT:
+{
+  "exclusions": [
+    {
+      "exclusion_type": "General Exclusion",
+      "title": "War and Military Action",
+      "description": "This insurance does not apply to War or Military Action.",
+      "applies_to": "All Coverages",
+      "exceptions": null,
+      "reference": null
+    }
+  ],
+  "entities": [],
+  "confidence": 0.87
+}
+
+### OUTPUT FORMAT
+{
+  "exclusions": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+ENDORSEMENTS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are extracting ENDORSEMENTS.
+
+Endorsements modify base policy terms.
+Extract even if summarized in a schedule.
+
+### PER ENDORSEMENT
+- endorsement_number
+- endorsement_name
+- effective_date
+- description
+- premium_change
+- coverage_modified
+- adds_coverage
+- removes_coverage
+- modifies_limit
+- new_limit
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Endorsement IL 00 21 – Additional Insured
+Effective 01/01/2024"
+
+OUTPUT:
+{
+  "endorsements": [
+    {
+      "endorsement_number": "IL 00 21",
+      "endorsement_name": "Additional Insured",
+      "effective_date": "2024-01-01",
+      "description": null,
+      "premium_change": null,
+      "coverage_modified": null,
+      "adds_coverage": true,
+      "removes_coverage": false,
+      "modifies_limit": false,
+      "new_limit": null
+    }
+  ],
+  "entities": [],
+  "confidence": 0.85
+}
+
+### OUTPUT FORMAT
+{
+  "endorsements": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+INSURING_AGREEMENT_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are a senior insurance policy analyst extracting INSURING AGREEMENT language.
+
+The insuring agreement defines:
+- What the insurer agrees to cover
+- The scope of coverage
+- The triggering event
+
+Extract ONLY from the insuring agreement section.
+Do NOT include exclusions, conditions, or endorsements unless explicitly embedded.
+
+### FIELDS TO EXTRACT
+- agreement_text: Complete verbatim insuring agreement text
+- covered_causes: List of covered causes of loss/events (if enumerated)
+- coverage_trigger: Event or condition that activates coverage
+- key_definitions: Defined terms explicitly referenced within the agreement
+- coverage_basis: "claims-made", "occurrence", or null
+
+---
+
+### EXTRACTION RULES
+- Preserve exact wording (no paraphrasing)
+- If agreement spans multiple paragraphs, concatenate in reading order
+- If causes are implied but not listed, return null
+- If basis is not stated explicitly, return null
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"We will pay those sums that the insured becomes legally obligated to pay as damages because of bodily injury or property damage caused by an occurrence."
+
+OUTPUT:
+{
+  "insuring_agreement": {
+    "agreement_text": "We will pay those sums that the insured becomes legally obligated to pay as damages because of bodily injury or property damage caused by an occurrence.",
+    "covered_causes": ["Bodily Injury", "Property Damage"],
+    "coverage_trigger": "Occurrence",
+    "key_definitions": ["Occurrence"],
+    "coverage_basis": "occurrence"
+  },
+  "entities": [
+    {"type": "TERM", "value": "Occurrence", "confidence": 0.96}
+  ],
+  "confidence": 0.93
+}
+
+---
+
+### OUTPUT FORMAT (STRICT)
+{
+  "insuring_agreement": { ... },
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+PREMIUM_SUMMARY_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+YYou are an insurance finance extraction specialist.
+
+Your task is to extract PREMIUM AND BILLING INFORMATION.
+Extract values ONLY if they are explicitly stated.
+
+### FIELDS TO EXTRACT
+- total_premium
+- premium_breakdown: list of {coverage, premium}
+- taxes_and_fees: list of {type, amount}
+- payment_terms: Narrative description of payment terms
+- installment_schedule: list of {due_date, amount} if applicable
+
+---
+
+### EXTRACTION RULES
+- Normalize amounts to numeric values only
+- Do NOT calculate totals
+- If premiums appear in multiple locations, prefer summary tables
+- Taxes and fees must be explicitly labeled (do not infer)
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Total Premium: $50,000
+Property Coverage: $30,000
+Liability Coverage: $20,000
+State Tax: $1,250"
+
+OUTPUT:
+{
+  "premium": {
+    "total_premium": 50000,
+    "premium_breakdown": [
+      {"coverage": "Property Coverage", "premium": 30000},
+      {"coverage": "Liability Coverage", "premium": 20000}
+    ],
+    "taxes_and_fees": [
+      {"type": "State Tax", "amount": 1250}
+    ],
+    "payment_terms": null,
+    "installment_schedule": null
+  },
+  "entities": [
+    {"type": "AMOUNT", "value": "50000", "confidence": 0.97}
+  ],
+  "confidence": 0.92
+}
+
+---
+
+### OUTPUT FORMAT
+{
+  "premium": { ... },
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+DEFAULT_SECTION_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are extracting information from an UNKNOWN or GENERIC policy section.
+
+This section does NOT match a known category
+(e.g., Declarations, Coverages, Exclusions, Conditions).
+
+Your goal:
+Capture meaningful structured facts WITHOUT forcing a schema.
+
+---
+
+### WHAT TO EXTRACT
+- Explicit key-value facts
+- Important statements with business or legal meaning
+- Any labeled data points (amounts, dates, parties)
+
+---
+
+### WHAT NOT TO DO
+- Do NOT invent field names
+- Do NOT normalize into policy-level fields
+- Do NOT infer meaning beyond the text
+
+---
+
+### EXTRACTION STRATEGY
+- Use text labels as keys when present
+- Otherwise use concise descriptive keys
+- Group related facts logically
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Inspection Requirement:
+All locations must be inspected annually by the insurer."
+
+OUTPUT:
+{
+  "extracted_data": {
+    "inspection_requirement": "All locations must be inspected annually by the insurer."
+  },
+  "entities": [],
+  "confidence": 0.78
+}
+
+---
+
+### OUTPUT FORMAT (STRICT)
+{
+  "extracted_data": { ... },
+  "entities": [
+    {"type": "...", "value": "...", "confidence": 0.0}
+  ],
+  "confidence": 0.0
+}
+"""
+
+DEFINITIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Do NOT infer, guess, or normalize beyond what is stated.
+3. If a field is not present, return null.
+4. Preserve original wording for descriptive fields.
+5. Normalize:
+   - Dates → YYYY-MM-DD (if exact date present)
+   - Amounts → numeric (no currency symbols)
+6. If multiple candidates exist:
+   - Choose the most explicit, primary, or top-most value.
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only. No explanations.
+
+You are extracting DEFINITIONS.
+
+Definitions establish precise meaning.
+Preserve wording EXACTLY.
+
+### PER DEFINITION
+- term
+- definition_text
+- section_reference
+- applies_to
+- related_terms
+- definition_type
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"'Occurrence' means an accident, including continuous exposure..."
+
+OUTPUT:
+{
+  "definitions": [
+    {
+      "term": "Occurrence",
+      "definition_text": "An accident, including continuous or repeated exposure...",
+      "section_reference": null,
+      "applies_to": null,
+      "definition_type": "Coverage Term",
+      "related_terms": null
+    }
+  ],
+  "entities": [
+    {"type": "TERM", "value": "Occurrence", "confidence": 0.98}
+  ],
+  "confidence": 0.93
+}
+
+### OUTPUT FORMAT
+{
+  "definitions": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
 """
