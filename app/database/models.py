@@ -1882,7 +1882,7 @@ class InsuredEntity(Base):
 
     # Relationships
     canonical_entity: Mapped["CanonicalEntity"] = relationship(
-        "CanonicalEntity", foreign_keys=[id]
+        "CanonicalEntity", foreign_keys=[id], overlaps="insured_entity"
     )
 
     __table_args__ = (
@@ -1922,7 +1922,7 @@ class CarrierEntity(Base):
 
     # Relationships
     canonical_entity: Mapped["CanonicalEntity"] = relationship(
-        "CanonicalEntity", foreign_keys=[id]
+        "CanonicalEntity", foreign_keys=[id], overlaps="carrier_entity"
     )
 
     __table_args__ = (
@@ -1962,7 +1962,7 @@ class PolicyEntity(Base):
 
     # Relationships
     canonical_entity: Mapped["CanonicalEntity"] = relationship(
-        "CanonicalEntity", foreign_keys=[id]
+        "CanonicalEntity", foreign_keys=[id], overlaps="policy_entity"
     )
 
     __table_args__ = (
@@ -1999,7 +1999,7 @@ class ClaimEntity(Base):
 
     # Relationships
     canonical_entity: Mapped["CanonicalEntity"] = relationship(
-        "CanonicalEntity", foreign_keys=[id]
+        "CanonicalEntity", foreign_keys=[id], overlaps="claim_entity"
     )
 
     __table_args__ = (

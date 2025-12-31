@@ -2,8 +2,6 @@
 
 This service extracts lightweight signals from PDF pages without performing full OCR,
 enabling fast page classification and filtering.
-
-MIGRATED: Now uses pdfplumber instead of Docling for better tolerance of complex PDFs.
 """
 
 from typing import List, Optional

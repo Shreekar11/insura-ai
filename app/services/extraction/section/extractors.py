@@ -7,6 +7,7 @@ the BaseExtractor interface with section-specific prompts and extraction logic.
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 
+from click import Option
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.extraction.base_extractor import BaseExtractor
@@ -14,6 +15,7 @@ from app.services.chunking.hybrid_models import SectionType
 from app.utils.logging import get_logger
 from app.prompts.system_prompts import (
     DECLARATIONS_EXTRACTION_PROMPT,
+    DEFINITIONS_EXTRACTION_PROMPT,
     COVERAGES_EXTRACTION_PROMPT,
     CONDITIONS_EXTRACTION_PROMPT,
     EXCLUSIONS_EXTRACTION_PROMPT,
@@ -58,6 +60,33 @@ class DeclarationsExtractor(BaseExtractor):
         """Extract fields from parsed response."""
         return parsed.get("fields", parsed)
 
+class DefinitionsExtractor(BaseExtractor):
+    """Extractor for definitions section."""
+
+    def get_extraction_prompt(self) -> str:
+        return DEFINITIONS_EXTRACTION_PROMPT
+
+    async def run(self, text: str, document_id: UUID, chunk_id: Optional[UUID] = None) -> List[Any]:
+        """Extract definitions data from text"""
+        try:
+            response = await self.client.generate_content(
+                contents=f"Extract from this definitions sections: \n\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
+            )
+            from app.utils.json_parser import parse_json_safely
+            parsed = parse_json_safely(response)
+            return [parsed] if parsed else []
+        except Exception as e:
+            LOGGER.error(f"Definitions extraction failed: {e}", exc_info=True)
+            return []
+    
+    def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract fields from parsed response."""
+        return {
+            "definitions": parsed.get("definitions", []),
+            "entities": parsed.get("entities", []),
+        }
 
 class CoveragesExtractor(BaseExtractor):
     """Extractor for coverages section."""

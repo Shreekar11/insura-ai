@@ -28,6 +28,7 @@ from app.services.chunking.section_super_chunk_builder import SuperChunkBatch
 from app.services.extraction.extractor_factory import ExtractorFactory
 from app.services.extraction.section.extractors import (
     DeclarationsExtractor,
+    DefinitionsExtractor,
     CoveragesExtractor,
     ConditionsExtractor,
     ExclusionsExtractor,
@@ -138,9 +139,6 @@ class SectionExtractionOrchestrator:
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
         ollama_model: str = "qwen3:8b",
         ollama_api_url: str = "http://localhost:11434",
-        groq_api_key: Optional[str] = None,
-        groq_model: str = "openai/gpt-oss-20b",
-        groq_api_url: str = "",
         timeout: int = 120,
         max_retries: int = 3,
     ):
@@ -154,11 +152,6 @@ class SectionExtractionOrchestrator:
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
-            ollama_model: Ollama model name
-            ollama_api_url: Ollama API URL
-            groq_api_key: Groq API key
-            groq_model: Groq model name
-            groq_api_url: Groq API URL (optional)
             timeout: API timeout
             max_retries: Max retry attempts
         """
@@ -167,17 +160,7 @@ class SectionExtractionOrchestrator:
         
         self.session = session
         self.provider = provider
-        # Determine model based on provider
-        if provider == "gemini":
-            self.model = gemini_model
-        elif provider == "openrouter":
-            self.model = openrouter_model
-        elif provider == "ollama":
-            self.model = ollama_model
-        elif provider == "groq":
-            self.model = groq_model
-        else:
-            self.model = gemini_model
+        self.model = gemini_model if provider == "gemini" else openrouter_model
         
         # Initialize extractor factory
         self.factory = ExtractorFactory(
@@ -188,11 +171,6 @@ class SectionExtractionOrchestrator:
             openrouter_api_key=openrouter_api_key,
             openrouter_model=openrouter_model,
             openrouter_api_url=openrouter_api_url,
-            ollama_model=ollama_model,
-            ollama_api_url=ollama_api_url,
-            groq_api_key=groq_api_key,
-            groq_model=groq_model,
-            groq_api_url=groq_api_url,
         )
         
         # Initialize section extraction repository
@@ -211,6 +189,7 @@ class SectionExtractionOrchestrator:
         # Map SectionType enum values to extractor classes
         extractor_registry = {
             SectionType.DECLARATIONS: DeclarationsExtractor,
+            SectionType.DEFINITIONS: DefinitionsExtractor,
             SectionType.COVERAGES: CoveragesExtractor,
             SectionType.CONDITIONS: ConditionsExtractor,
             SectionType.EXCLUSIONS: ExclusionsExtractor,
@@ -249,6 +228,7 @@ class SectionExtractionOrchestrator:
         """Get common aliases for a section type."""
         alias_map = {
             SectionType.DECLARATIONS: ["declaration", "dec", "policy declarations"],
+            SectionType.DEFINITIONS: ["definition", "glossary", "definitions", "policy definitions"],
             SectionType.COVERAGES: ["coverage", "coverages", "insurance coverage"],
             SectionType.CONDITIONS: ["condition", "policy conditions"],
             SectionType.EXCLUSIONS: ["exclusion", "policy exclusions"],

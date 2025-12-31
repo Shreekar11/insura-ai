@@ -16,6 +16,7 @@ class SectionType(str, Enum):
     These correspond to the v2 architecture's semantic section groupings.
     """
     DECLARATIONS = "declarations"
+    DEFINITIONS = "definitions"
     COVERAGES = "coverages"
     CONDITIONS = "conditions"
     EXCLUSIONS = "exclusions"
