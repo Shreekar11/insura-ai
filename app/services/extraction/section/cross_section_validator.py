@@ -222,8 +222,6 @@ Return ONLY valid JSON (no code fences or markdown).
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        # ollama_model: str = "deepseek-r1:7b",
-        # ollama_api_url: str = "http://localhost:11434",
         use_llm_for_conflicts: bool = True,
         timeout: int = 90,
     ):
@@ -237,8 +235,6 @@ Return ONLY valid JSON (no code fences or markdown).
             openrouter_api_key: OpenRouter API key
             openrouter_model: OpenRouter model name
             openrouter_api_url: OpenRouter API URL
-            ollama_model: Ollama model name
-            ollama_api_url: Ollama API URL
             use_llm_for_conflicts: Use LLM for complex conflict resolution
             timeout: API timeout
         """
@@ -255,8 +251,6 @@ Return ONLY valid JSON (no code fences or markdown).
                 openrouter_api_key=openrouter_api_key or "",
                 openrouter_api_url=openrouter_api_url,
                 openrouter_model=openrouter_model,
-                ollama_api_url="http://localhost:11434",
-                ollama_model="deepseek-r1:7b",
                 timeout=timeout,
                 max_retries=3,
                 enable_fallback=False,

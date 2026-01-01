@@ -66,6 +66,10 @@ class LLMSettings(BaseSettings):
     chunk_max_tokens: int = Field(default=1500, validation_alias="CHUNK_MAX_TOKENS")
     chunk_overlap_tokens: int = Field(default=50, validation_alias="CHUNK_OVERLAP_TOKENS")
     enable_section_chunking: bool = Field(default=True, validation_alias="ENABLE_SECTION_CHUNKING")
+    
+    # Super-chunk limits (for LLM token limits)
+    max_tokens_per_super_chunk: int = Field(default=6000, validation_alias="MAX_TOKENS_PER_SUPER_CHUNK")
+    max_tokens_per_batch: int = Field(default=12000, validation_alias="MAX_TOKENS_PER_BATCH")
 
     # Batch Processing
     batch_size: int = Field(default=3, validation_alias="BATCH_SIZE")
@@ -87,7 +91,6 @@ class LLMSettings(BaseSettings):
         LOGGER.info(f"OpenRouter API Key length: {len(self.openrouter_api_key)}")
         if self.provider == "openrouter" and not self.openrouter_api_key:
             LOGGER.error("OpenRouter selected as provider but API key is empty!")
-
 
 class TemporalSettings(BaseSettings):
     """Temporal connection and workflow settings."""
@@ -208,6 +211,14 @@ class Settings(BaseSettings):
     @property
     def batch_timeout_seconds(self) -> int: 
         return self.llm.batch_timeout_seconds
+    
+    @property
+    def max_tokens_per_super_chunk(self) -> int:
+        return self.llm.max_tokens_per_super_chunk
+    
+    @property
+    def max_tokens_per_batch(self) -> int:
+        return self.llm.max_tokens_per_batch
 
     @property
     def temporal_host(self) -> str: 

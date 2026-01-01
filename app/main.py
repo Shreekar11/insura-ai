@@ -30,8 +30,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan manager."""
     # Startup
     LOGGER.info("Validating configuration...")
-    if not settings.mistral_api_key:
-        LOGGER.error("MISTRAL_API_KEY is missing")
     if not settings.gemini_api_key:
         LOGGER.error("GEMINI_API_KEY is missing")
 

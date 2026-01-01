@@ -8,8 +8,6 @@
 #   1) UNIFIED_BATCH_EXTRACTION_PROMPT
 #   2) SECTION_EXTRACTION_PROMPT
 #   3) RELATIONSHIP_EXTRACTION_PROMPT
-#   4) SINGLE_CHUNK_NORMALIZATION_PROMPT (Fallback/Legacy)
-#
 # NOTE: Keep these prompts under version control and include a `prompt_version`
 # field in every LLM call for traceability. Always persist raw responses for auditing.
 

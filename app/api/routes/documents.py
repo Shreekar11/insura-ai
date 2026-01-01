@@ -5,7 +5,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
 from app.database.session import get_async_session as get_session
-from app.debug import get_pipeline_status
+from app.repositories.document_repository import DocumentRepository
+from app.utils.logging import get_logger
+
+LOGGER = get_logger(__name__)
 
 router = APIRouter()
 
@@ -18,11 +21,17 @@ router = APIRouter()
 # - PUT /documents/{document_id} - Update document
 # - DELETE /documents/{document_id} - Delete document
 
-@router.get("/documents/{document_id}/pipeline-status")
+@router.get("/{document_id}/status")
 async def pipeline_status(document_id: UUID, session: AsyncSession = Depends(get_session)):
-    """Get complete pipeline status for debugging."""
-    status = await get_pipeline_status(session, document_id)
-    if "error" in status:
-        raise HTTPException(status_code=404, detail=status["error"])
-    return status
+    document_repository = DocumentRepository(session)
+    result = await document_repository.get_by_id(document_id)
 
+    LOGGER.info("Document: %s", result)
+
+    return {
+        "id": result.id,
+        "status": result.status,
+        "file_path": result.file_path,
+        "created_at": result.uploaded_at.isoformat() if result.uploaded_at else None,
+        "updated_at": result.updated_at.isoformat() if result.updated_at else None,
+    }
