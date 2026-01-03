@@ -431,7 +431,7 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
                     "workflow_completion": {
                         "status": "success",
                         "output_type": "manifest_with_profile",
-                        "downstream_workflows": ["ocr_extraction", "hybrid_chunking", "tiered_extraction"],
+                        "downstream_workflows": ["ocr_extraction", "hybrid_chunking", "extraction"],
                         "tier1_llm_replaced": True,
                     }
                 }

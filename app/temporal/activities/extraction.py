@@ -1,9 +1,9 @@
-"""Phase 4: Tiered LLM Extraction activities.
+"""LLM Extraction activities.
 
-These activities handle the three-tier LLM extraction pipeline:
-- Tier 1: Document classification and section mapping
-- Tier 2: Section-level field extraction
-- Tier 3: Cross-section validation and reconciliation
+These activities handle LLM extraction pipeline:
+- Document classification and section mapping
+- Section-level field extraction
+- Cross-section validation and reconciliation
 """
 
 from temporalio import activity
@@ -11,8 +11,8 @@ from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.database.base import async_session_maker
-from app.services.extraction.document import DocumentClassificationService
-from app.services.extraction.section import (
+from app.services.extracted.services.extraction.document import DocumentClassificationService
+from app.services.extracted.services.extraction.section import (
     SectionExtractionOrchestrator,
     CrossSectionValidator,
 )
@@ -68,7 +68,7 @@ def _normalize_section_type(section_type_str: Optional[str]) -> str:
 
 @activity.defn
 async def classify_document_and_map_sections(document_id: str) -> Dict:
-    """Tier 1: Classify document type and map section boundaries.
+    """Classify document type and map section boundaries.
     
     This activity:
     1. Retrieves initial pages (typically first 5-10 pages)
@@ -84,7 +84,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
     """
     try:
         activity.logger.info(
-            f"[Phase 4 - Tier 1] Starting document classification for: {document_id}"
+            f"Starting document classification for: {document_id}"
         )
         activity.heartbeat("Starting document classification")
         
@@ -100,7 +100,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
             initial_pages = all_pages[:10]
             
             activity.logger.info(
-                f"[Phase 4 - Tier 1] Using {len(initial_pages)} initial pages for classification"
+                f"Using {len(initial_pages)} initial pages for classification"
             )
             activity.heartbeat(f"Analyzing {len(initial_pages)} pages")
             
@@ -112,7 +112,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
             )
             
             activity.logger.info(
-                f"[Phase 4 - Tier 1] Using timeout: {classification_timeout}s "
+                f"Using timeout: {classification_timeout}s "
                 f"(provider: {settings.llm_provider})"
             )
             
@@ -125,11 +125,6 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                ollama_model=settings.ollama_model,
-                ollama_api_url=settings.ollama_api_url,
-                groq_api_key=settings.groq_api_key,
-                groq_model=settings.groq_model,
-                groq_api_url=settings.groq_api_url,
                 timeout=classification_timeout,
             )
             
@@ -141,7 +136,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
             await session.commit()
             
             activity.logger.info(
-                f"[Phase 4 - Tier 1] Classification complete: "
+                f"Classification complete: "
                 f"type={classification_result.document_type}, "
                 f"subtype={classification_result.document_subtype}, "
                 f"sections={len(classification_result.section_boundaries)}"
@@ -159,7 +154,7 @@ async def classify_document_and_map_sections(document_id: str) -> Dict:
 
 @activity.defn
 async def extract_section_fields(document_id: str, classification_result: Dict) -> Dict:
-    """Tier 2: Extract section-specific fields from super-chunks.
+    """Extract section-specific fields from super-chunks.
     
     This activity:
     1. Retrieves section super-chunks from database
@@ -169,14 +164,14 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
     
     Args:
         document_id: UUID of the document to extract from
-        classification_result: Classification result from Tier 1
+        classification_result: Classification result
         
     Returns:
         Dictionary with extraction results
     """
     try:
         activity.logger.info(
-            f"[Phase 4 - Tier 2] Starting section extraction for: {document_id}"
+            f"Starting section extraction for: {document_id}"
         )
         activity.heartbeat("Starting section extraction")
         
@@ -189,7 +184,7 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
                 raise ValueError(f"No super-chunks found for document {document_id}")
             
             activity.logger.info(
-                f"[Phase 4 - Tier 2] Retrieved {len(super_chunks)} super-chunks for extraction"
+                f"Retrieved {len(super_chunks)} super-chunks for extraction"
             )
             activity.heartbeat(f"Processing {len(super_chunks)} super-chunks")
             
@@ -201,7 +196,7 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
             )
             
             activity.logger.info(
-                f"[Phase 4 - Tier 2] Using timeout: {extraction_timeout}s "
+                f"Using timeout: {extraction_timeout}s "
                 f"(provider: {settings.llm_provider})"
             )
             
@@ -214,11 +209,6 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                ollama_model=settings.ollama_model,
-                ollama_api_url=settings.ollama_api_url,
-                groq_api_key=settings.groq_api_key,
-                groq_model=settings.groq_model,
-                groq_api_url=settings.groq_api_url,
                 timeout=extraction_timeout,
             )
             
@@ -231,7 +221,7 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
             await session.commit()
             
             activity.logger.info(
-                f"[Phase 4 - Tier 2] Section extraction complete: "
+                f"Section extraction complete: "
                 f"{len(extraction_result.section_results)} sections processed, "
                 f"{len(extraction_result.all_entities)} entities extracted"
             )
@@ -252,7 +242,7 @@ async def validate_and_reconcile_data(
     classification_result: Dict,
     extraction_result: Dict
 ) -> Dict:
-    """Tier 3: Cross-section validation and data reconciliation.
+    """Cross-section validation and data reconciliation.
     
     This activity:
     1. Validates extracted data across sections
@@ -262,22 +252,22 @@ async def validate_and_reconcile_data(
     
     Args:
         document_id: UUID of the document
-        classification_result: Classification result from Tier 1
-        extraction_result: Extraction result from Tier 2
+        classification_result: Classification result
+        extraction_result: Extraction result
         
     Returns:
         Dictionary with validation results
     """
     try:
         activity.logger.info(
-            f"[Phase 4 - Tier 3] Starting cross-section validation for: {document_id}"
+            f"Starting cross-section validation for: {document_id}"
         )
         activity.heartbeat("Starting validation")
         
         async with async_session_maker() as session:
             # Reconstruct classification result
-            from app.services.extraction.document import DocumentClassificationResult, SectionBoundary
-            from app.services.chunking.hybrid_models import SectionType
+            from app.services.extracted.services.extraction.document import DocumentClassificationResult, SectionBoundary
+            from app.services.processed.services.chunking.hybrid_models import SectionType
             
             section_boundaries = []
             for sb in classification_result["section_boundaries"]:
@@ -312,7 +302,7 @@ async def validate_and_reconcile_data(
             )
             
             # Reconstruct extraction result
-            from app.services.extraction.section import DocumentExtractionResult, SectionExtractionResult
+            from app.services.extracted.services.extraction.section import DocumentExtractionResult, SectionExtractionResult
             
             section_results = []
             for sr in extraction_result["section_results"]:
@@ -354,7 +344,7 @@ async def validate_and_reconcile_data(
             )
             
             activity.logger.info(
-                f"[Phase 4 - Tier 3] Using timeout: {validation_timeout}s "
+                f"Using timeout: {validation_timeout}s "
                 f"(provider: {settings.llm_provider})"
             )
             
@@ -367,11 +357,6 @@ async def validate_and_reconcile_data(
                 openrouter_api_key=settings.openrouter_api_key,
                 openrouter_api_url=settings.openrouter_api_url,
                 openrouter_model=settings.openrouter_model,
-                ollama_model=settings.ollama_model,
-                ollama_api_url=settings.ollama_api_url,
-                groq_api_key=settings.groq_api_key,
-                groq_model=settings.groq_model,
-                groq_api_url=settings.groq_api_url,
                 timeout=validation_timeout,
             )
             
@@ -382,7 +367,7 @@ async def validate_and_reconcile_data(
             await session.commit()
             
             activity.logger.info(
-                f"[Phase 4 - Tier 3] Validation complete: "
+                f"Validation complete: "
                 f"{len(validation_result.issues)} issues found"
             )
             

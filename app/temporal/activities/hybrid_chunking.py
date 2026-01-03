@@ -11,7 +11,7 @@ from uuid import UUID
 
 from app.config import settings
 from app.database.base import async_session_maker
-from app.services.chunking.hybrid_chunking_service import HybridChunkingService
+from app.services.processed.services.chunking.hybrid_chunking_service import HybridChunkingService
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
 from app.utils.logging import get_logger

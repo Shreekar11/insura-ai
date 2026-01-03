@@ -4,7 +4,7 @@ from temporalio import workflow
 from datetime import timedelta
 
 # Import existing child workflows
-from app.temporal.workflows.child.page_analysis_workflow import PageAnalysisWorkflow
+from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
 from app.temporal.workflows.child.ocr_extraction import OCRExtractionWorkflow
 from app.temporal.workflows.child.table_extraction import TableExtractionWorkflow
 from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
@@ -59,8 +59,7 @@ class ProcessedStageWorkflow:
             task_queue="documents-queue",
         )
         
-        # Mark BOTH processed and classified stages complete
-        # (classification happens during PageAnalysis)
+        # Mark processed and classified stages complete
         await workflow.execute_activity(
             "update_stage_status",
             args=[document_id, "processed", True],

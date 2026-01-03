@@ -12,14 +12,21 @@ import os
 from temporalio.client import Client
 from temporalio.worker import Worker
 
-# Import all workflows
+# Import all child workflows
 from app.temporal.workflows.process_document import ProcessDocumentWorkflow
-from app.temporal.workflows.page_analysis_workflow import PageAnalysisWorkflow
+from app.temporal.workflows.page_analysis import PageAnalysisWorkflow
 from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
 from app.temporal.workflows.hybrid_chunking import HybridChunkingWorkflow
-from app.temporal.workflows.tiered_extraction import TieredExtractionWorkflow
+from app.temporal.workflows.extraction import ExtractionWorkflow
 from app.temporal.workflows.table_extraction import TableExtractionWorkflow
 from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
+
+# Import all stages workflows
+from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
+from app.temporal.workflows.stages.classified import ClassifiedStageWorkflow
+from app.temporal.workflows.stages.extracted import ExtractedStageWorkflow
+from app.temporal.workflows.stages.enriched import EnrichedStageWorkflow
+from app.temporal.workflows.stages.summarized import SummarizedStageWorkflow
 
 # Import all activities
 from app.temporal.activities.page_analysis import (
@@ -36,10 +43,8 @@ from app.temporal.activities.table_extraction import (
 from app.temporal.activities.hybrid_chunking import (
     perform_hybrid_chunking,
 )
-from app.temporal.activities.tiered_extraction import (
-    classify_document_and_map_sections,
+from app.temporal.activities.extraction import (
     extract_section_fields,
-    validate_and_reconcile_data,
 )
 from app.temporal.activities.entity_resolution import (
     aggregate_document_entities,
@@ -74,10 +79,15 @@ async def main():
         task_queue="documents-queue",
         workflows=[
             ProcessDocumentWorkflow,
+            ProcessedStageWorkflow,
+            ClassifiedStageWorkflow,
+            ExtractedStageWorkflow,
+            EnrichedStageWorkflow,
+            SummarizedStageWorkflow,
             PageAnalysisWorkflow,
             OCRExtractionWorkflow,
             HybridChunkingWorkflow,
-            TieredExtractionWorkflow,
+            ExtractionWorkflow,
             TableExtractionWorkflow,
             EntityResolutionWorkflow,
         ],
@@ -88,9 +98,7 @@ async def main():
             extract_ocr,
             extract_tables,
             perform_hybrid_chunking,
-            classify_document_and_map_sections,
             extract_section_fields,
-            validate_and_reconcile_data,
             aggregate_document_entities,
             resolve_canonical_entities,
             extract_relationships,
