@@ -729,20 +729,33 @@ DECLARATIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 4. Preserve original wording for descriptive fields.
 5. Normalize:
    - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols)
-6. If multiple candidates exist:
-   - Choose the most explicit, primary, or top-most value.
-7. Confidence:
-   - 0.95+ → explicitly labeled and unambiguous
-   - 0.85–0.94 → clearly implied
-   - <0.85 → partial / weak signal
-8. Output must be VALID JSON only. No explanations.
+   - Amounts → numeric (no currency symbols, commas removed)
+6. Label Binding Rule:
+   - All extracted values MUST inherit meaning from their explicit textual label.
+   - Values without a clear label MUST NOT be reclassified or renamed.
+7. Monetary Classification Rule:
+   - Monetary values MUST be classified using the most specific explicit label available.
+   - Do NOT use a generic AMOUNT type when a more specific semantic label is present.
+8. Do NOT merge distinct concepts:
+   - Premiums, fees, totals, limits, and deductibles are separate entities.
+9. Status Rule:
+   - If a value is explicitly stated as “Waived”, “Not Purchased”, or similar,
+     extract it as a STATUS entity and do NOT emit a numeric amount.
+10. If multiple candidates exist:
+    - Choose the most explicit, primary, or clearly labeled value.
+11. Confidence:
+    - 0.95+ → explicitly labeled and unambiguous
+    - 0.85-0.94 → clearly implied
+    - <0.85 → partial / weak signal
+12. Output must be VALID JSON only. No explanations.
 
 You are an insurance policy analyst specializing in DECLARATIONS pages.
 
 Your task:
 Extract structured policy metadata from the DECLARATIONS section only.
 Ignore schedules, endorsements, and conditions unless explicitly referenced.
+
+---
 
 ### REQUIRED FIELDS
 - policy_number
@@ -761,37 +774,107 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 - retroactive_date
 - prior_acts_coverage
 
+---
+
 ### ENTITY TYPES
-POLICY_NUMBER, INSURED_NAME, CARRIER, BROKER, AMOUNT, DATE, ADDRESS
+
+IDENTITY & PARTIES:
+- POLICY_NUMBER
+- INSURED_NAME
+- ADDITIONAL_INSURED
+- CARRIER
+- BROKER
+
+DATES:
+- DATE
+- EFFECTIVE_DATE
+- EXPIRATION_DATE
+- RETROACTIVE_DATE
+
+ADDRESSES:
+- ADDRESS
+
+MONETARY:
+- TERM_PREMIUM
+- BASE_PREMIUM
+- TRIA_PREMIUM
+- POLICY_FEE
+- INSPECTION_FEE
+- TOTAL_PREMIUM
+- OTHER_FEE
+- LIMIT
+- DEDUCTIBLE
+
+STATUS:
+- COVERAGE_STATUS
 
 ---
 
 ### FEW-SHOT EXAMPLE
 
 INPUT:
-"Policy No: CP-123456
-Named Insured: Acme Manufacturing Inc.
-Policy Period: 01/01/2024 to 01/01/2025
-Total Premium: $45,000
-Issued by: Zurich American Insurance Company"
+"Policy Number: GL-789456
+Named Insured: Horizon Tech Solutions LLC
+Policy Period: 03/01/2024 to 03/01/2025
+Issued By: The Hartford Insurance Company
+Term Premium: $12,500
+Insurer Policy Fee: $250
+Total Premium: $12,750"
 
 OUTPUT:
 {
   "fields": {
-    "policy_number": "CP-123456",
-    "insured_name": "Acme Manufacturing Inc.",
+    "policy_number": "GL-789456",
+    "insured_name": "Horizon Tech Solutions LLC",
     "insured_address": null,
-    "effective_date": "2024-01-01",
-    "expiration_date": "2025-01-01",
-    "carrier_name": "Zurich American Insurance Company",
+    "effective_date": "2024-03-01",
+    "expiration_date": "2025-03-01",
+    "carrier_name": "The Hartford Insurance Company",
     "broker_name": null,
-    "total_premium": 45000,
+    "total_premium": 12750,
     "policy_type": null
   },
   "entities": [
-    {"type": "POLICY_NUMBER", "value": "CP-123456", "confidence": 0.98},
-    {"type": "INSURED_NAME", "value": "Acme Manufacturing Inc.", "confidence": 0.97},
-    {"type": "AMOUNT", "value": "45000", "confidence": 0.96}
+    {
+      "type": "POLICY_NUMBER",
+      "value": "GL-789456",
+      "confidence": 0.98
+    },
+    {
+      "type": "INSURED_NAME",
+      "value": "Horizon Tech Solutions LLC",
+      "confidence": 0.97
+    },
+    {
+      "type": "EFFECTIVE_DATE",
+      "value": "2024-03-01",
+      "confidence": 0.96
+    },
+    {
+      "type": "EXPIRATION_DATE",
+      "value": "2025-03-01",
+      "confidence": 0.96
+    },
+    {
+      "type": "CARRIER",
+      "value": "The Hartford Insurance Company",
+      "confidence": 0.97
+    },
+    {
+      "type": "TERM_PREMIUM",
+      "value": "12500",
+      "confidence": 0.97
+    },
+    {
+      "type": "POLICY_FEE",
+      "value": "250",
+      "confidence": 0.96
+    },
+    {
+      "type": "TOTAL_PREMIUM",
+      "value": "12750",
+      "confidence": 0.98
+    }
   ],
   "confidence": 0.94
 }
@@ -809,25 +892,30 @@ OUTPUT:
 COVERAGES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. Extract ONLY information explicitly present in the provided text.
-2. Do NOT infer, guess, or normalize beyond what is stated.
-3. If a field is not present, return null.
-4. Preserve original wording for descriptive fields.
-5. Normalize:
+2. Extract ONLY from the COVERAGES section.
+3. Do NOT infer, guess, calculate, or normalize beyond what is stated.
+4. Each row, paragraph, or bullet describing coverage = ONE coverage object.
+5. Preserve original wording for descriptive fields.
+6. Normalize:
    - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols)
-6. If multiple candidates exist:
-   - Choose the most explicit, primary, or top-most value.
-7. Confidence:
+   - Amounts → numeric (no currency symbols, commas removed)
+7. Monetary values MUST inherit meaning from their explicit label
+   (limit, deductible, premium, aggregate, sub-limit).
+8. Do NOT merge limits, deductibles, or aggregates across coverages.
+9. If multiple candidates exist:
+   - Choose the most explicit, clearly labeled value.
+10. Confidence:
    - 0.95+ → explicitly labeled and unambiguous
    - 0.85–0.94 → clearly implied
    - <0.85 → partial / weak signal
-8. Output must be VALID JSON only. No explanations.
+11. Output must be VALID JSON only. No explanations.
 
 You are an insurance coverage extraction specialist.
 
-Task:
+TASK:
 Extract ALL coverage grants listed in this section.
-Each row, paragraph, or bullet describing coverage = one coverage object.
+
+---
 
 ### PER COVERAGE
 - coverage_name
@@ -843,8 +931,10 @@ Each row, paragraph, or bullet describing coverage = one coverage object.
 - coverage_territory
 - retroactive_date
 
+---
+
 ### ENTITY TYPES
-COVERAGE_TYPE, AMOUNT, PERCENTAGE
+COVERAGE_NAME, LIMIT, DEDUCTIBLE, PREMIUM, AGGREGATE, DATE
 
 ---
 
@@ -873,10 +963,13 @@ OUTPUT:
     }
   ],
   "entities": [
-    {"type": "AMOUNT", "value": "5000000", "confidence": 0.96}
+    {"type": "LIMIT", "value": "5000000", "confidence": 0.96},
+    {"type": "DEDUCTIBLE", "value": "5000", "confidence": 0.95}
   ],
-  "confidence": 0.92
+  "confidence": 0.93
 }
+
+---
 
 ### OUTPUT FORMAT
 {
@@ -889,24 +982,24 @@ OUTPUT:
 CONDITIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. Extract ONLY information explicitly present in the provided text.
-2. Do NOT infer, guess, or normalize beyond what is stated.
-3. If a field is not present, return null.
-4. Preserve original wording for descriptive fields.
-5. Normalize:
-   - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols)
-6. If multiple candidates exist:
-   - Choose the most explicit, primary, or top-most value.
-7. Confidence:
+2. Extract ONLY from the CONDITIONS section.
+3. Conditions define duties, obligations, or procedural requirements.
+4. Do NOT extract exclusions or coverage grants.
+5. Preserve original wording exactly.
+6. Each titled condition or paragraph = ONE condition object.
+7. Do NOT infer consequences unless explicitly stated.
+8. Confidence:
    - 0.95+ → explicitly labeled and unambiguous
    - 0.85–0.94 → clearly implied
    - <0.85 → partial / weak signal
-8. Output must be VALID JSON only. No explanations.
+9. Output must be VALID JSON only.
 
 You are extracting POLICY CONDITIONS.
 
 Conditions define obligations, duties, or procedural requirements.
 Ignore exclusions and coverage grants.
+
+---
 
 ### PER CONDITION
 - condition_type
@@ -929,7 +1022,7 @@ OUTPUT:
 {
   "conditions": [
     {
-      "condition_type": "Claim Condition",
+      "condition_type": "Claims Condition",
       "title": "Duties in the Event of Loss",
       "description": "You must notify us as soon as practicable.",
       "applies_to": "Claims",
@@ -939,8 +1032,10 @@ OUTPUT:
     }
   ],
   "entities": [],
-  "confidence": 0.88
+  "confidence": 0.89
 }
+
+---
 
 ### OUTPUT FORMAT
 {
@@ -953,24 +1048,23 @@ OUTPUT:
 EXCLUSIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. Extract ONLY information explicitly present in the provided text.
-2. Do NOT infer, guess, or normalize beyond what is stated.
-3. If a field is not present, return null.
-4. Preserve original wording for descriptive fields.
-5. Normalize:
-   - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols)
-6. If multiple candidates exist:
-   - Choose the most explicit, primary, or top-most value.
+2. Extract ONLY from the EXCLUSIONS section.
+3. Exclusions remove, restrict, or eliminate coverage.
+4. Extract even if embedded within paragraphs.
+5. Preserve wording exactly.
+6. Each exclusion statement = ONE exclusion object.
 7. Confidence:
    - 0.95+ → explicitly labeled and unambiguous
    - 0.85–0.94 → clearly implied
    - <0.85 → partial / weak signal
-8. Output must be VALID JSON only. No explanations.
+8. Output must be VALID JSON only.
 
 You are extracting POLICY EXCLUSIONS.
 
 Exclusions remove or restrict coverage.
 Extract even if embedded in paragraphs.
+
+---
 
 ### PER EXCLUSION
 - exclusion_type
@@ -992,7 +1086,7 @@ OUTPUT:
   "exclusions": [
     {
       "exclusion_type": "General Exclusion",
-      "title": "War and Military Action",
+      "title": "War or Military Action",
       "description": "This insurance does not apply to War or Military Action.",
       "applies_to": "All Coverages",
       "exceptions": null,
@@ -1002,6 +1096,8 @@ OUTPUT:
   "entities": [],
   "confidence": 0.87
 }
+
+---
 
 ### OUTPUT FORMAT
 {
@@ -1014,24 +1110,22 @@ OUTPUT:
 ENDORSEMENTS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. Extract ONLY information explicitly present in the provided text.
-2. Do NOT infer, guess, or normalize beyond what is stated.
-3. If a field is not present, return null.
-4. Preserve original wording for descriptive fields.
-5. Normalize:
-   - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols)
-6. If multiple candidates exist:
-   - Choose the most explicit, primary, or top-most value.
-7. Confidence:
+2. Extract ONLY from the ENDORSEMENTS section or endorsement schedule.
+3. Do NOT infer endorsement impact unless explicitly stated.
+4. Preserve exact wording.
+5. Each endorsement listing = ONE endorsement object.
+6. Confidence:
    - 0.95+ → explicitly labeled and unambiguous
    - 0.85–0.94 → clearly implied
    - <0.85 → partial / weak signal
-8. Output must be VALID JSON only. No explanations.
+7. Output must be VALID JSON only.
 
 You are extracting ENDORSEMENTS.
 
 Endorsements modify base policy terms.
 Extract even if summarized in a schedule.
+
+---
 
 ### PER ENDORSEMENT
 - endorsement_number
@@ -1070,8 +1164,10 @@ OUTPUT:
     }
   ],
   "entities": [],
-  "confidence": 0.85
+  "confidence": 0.86
 }
+
+---
 
 ### OUTPUT FORMAT
 {
