@@ -8,13 +8,13 @@ This service classifies tables as:
 - premium_schedule
 - other
 
-Classification is rules-based, not LLM-based, per Phase 5 requirements.
+Classification is rules-based.
 """
 
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 
-from app.services.extraction.table.table_extraction_service import TableStructure, TableClassification
+from app.services.processed.services.table.table_extraction_service import TableStructure, TableClassification
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

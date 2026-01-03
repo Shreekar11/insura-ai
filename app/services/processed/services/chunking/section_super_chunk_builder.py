@@ -8,14 +8,14 @@ from typing import List, Dict, Optional, Tuple, Any
 from uuid import UUID
 from dataclasses import dataclass, field
 
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     SectionType,
     SectionSuperChunk,
     ChunkingResult,
     SECTION_CONFIG,
 )
-from app.services.chunking.token_counter import TokenCounter
+from app.services.processed.services.chunking.token_counter import TokenCounter
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -533,8 +533,7 @@ class SectionSuperChunkBuilder:
     ) -> List[SectionSuperChunk]:
         """Get super-chunks in optimal extraction order.
         
-        Orders super-chunks for sequential extraction according to
-        v2 architecture's tiered processing model.
+        Orders super-chunks for sequential extraction according to extraction processing model.
         
         Args:
             super_chunks: List of super-chunks

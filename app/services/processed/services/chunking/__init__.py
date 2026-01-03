@@ -9,12 +9,11 @@ v2 Architecture additions:
 - New models for hybrid chunks and section super-chunks
 """
 
-from app.services.chunking.chunking_service import ChunkingService
-from app.services.chunking.models import ChunkMetadata, NormalizedChunk, TextChunk
-from app.services.chunking.token_counter import TokenCounter
+from .chunking_service import ChunkingService
+from .models import ChunkMetadata, NormalizedChunk, TextChunk
+from .token_counter import TokenCounter
 
-# v2 hybrid chunking components
-from app.services.chunking.hybrid_models import (
+from .hybrid_models import (
     SectionType,
     ChunkRole,
     HybridChunk,
@@ -23,20 +22,18 @@ from app.services.chunking.hybrid_models import (
     ChunkingResult,
     SECTION_CONFIG,
 )
-from app.services.chunking.hybrid_chunking_service import HybridChunkingService
-from app.services.chunking.section_super_chunk_builder import (
+from .hybrid_chunking_service import HybridChunkingService
+from .section_super_chunk_builder import (
     SectionSuperChunkBuilder,
     SuperChunkBatch,
 )
 
 __all__ = [
-    # v1 components
     "ChunkingService",
     "TextChunk",
     "ChunkMetadata",
     "NormalizedChunk",
     "TokenCounter",
-    # v2 hybrid chunking
     "SectionType",
     "ChunkRole",
     "HybridChunk",

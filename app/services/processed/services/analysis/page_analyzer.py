@@ -5,7 +5,7 @@ enabling fast page classification and filtering.
 """
 
 from typing import List, Optional
-from app.services.page_analysis.lightweight_page_analyzer import LightweightPageAnalyzer
+from app.services.processed.services.analysis.lightweight_page_analyzer import LightweightPageAnalyzer
 from app.models.page_analysis_models import PageSignals
 from app.utils.logging import get_logger
 

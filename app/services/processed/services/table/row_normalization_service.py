@@ -9,8 +9,8 @@ from decimal import Decimal
 from datetime import datetime
 import re
 
-from app.services.extraction.table.table_extraction_service import TableStructure, ColumnMapping
-from app.services.extraction.table.table_classification_service import TableClassification
+from app.services.processed.services.table.table_extraction_service import TableStructure, ColumnMapping
+from app.services.processed.services.table.table_classification_service import TableClassification
 from app.database.models import SOVItem, LossRunClaim
 from app.utils.logging import get_logger
 

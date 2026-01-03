@@ -11,7 +11,7 @@ import re
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     HybridChunkMetadata,
     SectionType,
@@ -20,8 +20,8 @@ from app.services.chunking.hybrid_models import (
     ChunkingResult,
     SECTION_CONFIG,
 )
-from app.services.chunking.token_counter import TokenCounter
-from app.services.chunking.section_super_chunk_builder import SectionSuperChunkBuilder
+from app.services.processed.services.chunking.token_counter import TokenCounter
+from app.services.processed.services.chunking.section_super_chunk_builder import SectionSuperChunkBuilder
 from app.models.page_data import PageData
 from app.utils.logging import get_logger
 

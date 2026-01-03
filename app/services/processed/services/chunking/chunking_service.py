@@ -7,8 +7,8 @@ page-level and section-aware chunking.
 from typing import List, Optional
 from uuid import UUID
 
-from app.services.chunking.models import ChunkMetadata, TextChunk
-from app.services.chunking.token_counter import TokenCounter
+from app.services.processed.services.chunking.models import ChunkMetadata, TextChunk
+from app.services.processed.services.chunking.token_counter import TokenCounter
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
