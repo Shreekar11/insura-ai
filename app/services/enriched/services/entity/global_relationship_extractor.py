@@ -26,7 +26,7 @@ from app.database.models import (
     EntityEvidence,
 )
 from app.repositories.table_repository import TableRepository
-from app.services.chunking.hybrid_models import SectionType, SECTION_CONFIG
+from app.services.processed.services.chunking.hybrid_models import SectionType, SECTION_CONFIG
 from app.prompts import RELATIONSHIP_EXTRACTION_PROMPT, VALID_RELATIONSHIP_TYPES
 from app.utils.logging import get_logger
 
@@ -326,7 +326,7 @@ class RelationshipExtractorGlobal:
                 )
                 
                 # Resolve entities to canonical form
-                from app.services.entity.resolver import EntityResolver
+                from app.services.enriched.services.entity.resolver import EntityResolver
                 resolver = EntityResolver(self.session)
                 
                 canonical_ids = await resolver.resolve_entities_batch(
