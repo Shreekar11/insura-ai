@@ -12,7 +12,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import DocumentChunk, NormalizedChunk
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     HybridChunkMetadata,
     SectionType,
@@ -379,7 +379,7 @@ class SectionChunkRepository:
         Returns:
             List of DocumentChunks for extraction
         """
-        from app.services.chunking.hybrid_models import SECTION_CONFIG
+        from app.services.processed.services.chunking.hybrid_models import SECTION_CONFIG
         
         query = select(DocumentChunk).where(
             DocumentChunk.document_id == document_id

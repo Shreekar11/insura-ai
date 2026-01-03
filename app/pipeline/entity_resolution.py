@@ -8,10 +8,10 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.config import settings
-from app.services.entity.entity_aggregator import EntityAggregator
-from app.services.entity.resolver import EntityResolver
-from app.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
 from app.utils.logging import get_logger
+from app.services.enriched.services.entity.resolver import EntityResolver
+from app.services.enriched.services.entity.entity_aggregator import EntityAggregator
+from app.services.enriched.services.entity.global_relationship_extractor import RelationshipExtractorGlobal
 
 LOGGER = get_logger(__name__)
 

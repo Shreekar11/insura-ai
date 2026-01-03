@@ -9,10 +9,10 @@ from typing import List, Optional, Dict
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.ocr.ocr_service import OCRService
-from app.repositories.document_repository import DocumentRepository
-from app.models.page_data import PageData
 from app.utils.logging import get_logger
+from app.models.page_data import PageData
+from app.services.processed.services.ocr.ocr_service import OCRService
+from app.repositories.document_repository import DocumentRepository
 
 LOGGER = get_logger(__name__)
 
@@ -146,7 +146,7 @@ class OCRExtractionPipeline:
         Returns:
             List[PageData]: Extracted page data (not stored)
         """
-        return await self.docling_service.extract_pages(
+        return await self.ocr_service.extract_pages(
             document_url=document_url,
             document_id=document_id,
             pages_to_process=pages_to_process

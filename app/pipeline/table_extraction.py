@@ -18,7 +18,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.table_json import TableJSON, TableType
-from app.services.extraction.table import (
+from app.services.extracted.services.extraction.table import (
     TableExtractionService,
     TableStructure,
     TableClassificationService,

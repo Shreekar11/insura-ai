@@ -6,7 +6,7 @@ and SectionType enums, ensuring consistent taxonomy across the pipeline.
 
 from typing import Optional
 from app.models.page_analysis_models import PageType
-from app.services.chunking.hybrid_models import SectionType
+from app.services.processed.services.chunking.hybrid_models import SectionType
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

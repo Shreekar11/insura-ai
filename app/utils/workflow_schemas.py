@@ -90,20 +90,16 @@ class HybridChunkingOutputSchema(BaseModel):
     section_source: str = Field(..., description="Source of section information")
 
 
-class TieredExtractionOutputSchema(BaseModel):
-    """Schema for TieredExtractionWorkflow output validation."""
+class ExtractionOutputSchema(BaseModel):
+    """Schema for ExtractionWorkflow output validation."""
     
     classification: Dict[str, Any] = Field(..., description="Classification result")
     extraction: Dict[str, Any] = Field(..., description="Extraction result")
-    validation: Dict[str, Any] = Field(..., description="Validation result")
     document_type: str = Field(..., description="Document type")
     total_entities: int = Field(..., ge=0, description="Total entities extracted")
     total_llm_calls: int = Field(..., ge=0, description="Total LLM calls made")
-    data_quality_score: float = Field(..., ge=0.0, le=1.0, description="Data quality score")
-    is_valid: bool = Field(..., description="Whether extraction is valid")
-    tier1_skipped: bool = Field(..., description="Whether Tier 1 LLM was skipped")
     
-    @field_validator("classification", "extraction", "validation")
+    @field_validator("classification", "extraction")
     @classmethod
     def validate_result_dicts(cls, v: Dict[str, Any]) -> Dict[str, Any]:
         """Ensure result dictionaries are not empty."""

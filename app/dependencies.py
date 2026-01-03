@@ -13,10 +13,10 @@ from app.database.session import get_async_session
 from app.repositories.chunk_repository import ChunkRepository
 from app.repositories.classification_repository import ClassificationRepository
 from app.repositories.ocr_repository import OCRRepository
-from app.services.chunking.chunking_service import ChunkingService
-from app.services.classification.classification_service import ClassificationService
-from app.services.classification.fallback_classifier import FallbackClassifier
-from app.services.ocr.ocr_service import OCRService
+from app.services.processed.services.chunking.chunking_service import ChunkingService
+from app.services.classified.services.classification.classification_service import ClassificationService
+from app.services.classified.services.classification.fallback_classifier import FallbackClassifier
+from app.services.processed.services.ocr.ocr_service import OCRService
 from app.config import settings
 
 
