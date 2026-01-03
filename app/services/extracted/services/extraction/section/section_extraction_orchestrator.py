@@ -19,14 +19,14 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.unified_llm import UnifiedLLMClient, create_llm_client_from_settings
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_models import (
     SectionType,
     SectionSuperChunk,
     HybridChunk,
 )
-from app.services.chunking.section_super_chunk_builder import SuperChunkBatch
-from app.services.extraction.extractor_factory import ExtractorFactory
-from app.services.extraction.section.extractors import (
+from app.services.processed.services.chunking.section_super_chunk_builder import SuperChunkBatch
+from app.services.extracted.services.extraction.extractor_factory import ExtractorFactory
+from app.services.extracted.services.extraction.section.extractors import (
     DeclarationsExtractor,
     DefinitionsExtractor,
     CoveragesExtractor,
@@ -137,8 +137,6 @@ class SectionExtractionOrchestrator:
         openrouter_api_key: Optional[str] = None,
         openrouter_model: str = "openai/gpt-oss-20b:free",
         openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-        ollama_model: str = "qwen3:8b",
-        ollama_api_url: str = "http://localhost:11434",
         timeout: int = 120,
         max_retries: int = 3,
     ):

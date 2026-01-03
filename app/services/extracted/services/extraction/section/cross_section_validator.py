@@ -20,8 +20,8 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.unified_llm import UnifiedLLMClient, create_llm_client_from_settings
-from app.services.chunking.hybrid_models import SectionType
-from app.services.extraction.section.section_extraction_orchestrator import (
+from app.services.processed.services.chunking.hybrid_models import SectionType
+from app.services.extracted.services.extraction.section.section_extraction_orchestrator import (
     DocumentExtractionResult,
     SectionExtractionResult,
 )

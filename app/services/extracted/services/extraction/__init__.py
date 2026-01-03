@@ -10,17 +10,17 @@ Base classes:
 - ExtractorFactory: Factory for creating extractors dynamically
 """
 
-from app.services.extraction.base_extractor import BaseExtractor
-from app.services.extraction.extractor_factory import ExtractorFactory
-from app.services.entity.relationship_extractor import EntityRelationshipExtractor
-from app.services.entity.resolver import EntityResolver
+from app.services.extracted.services.extraction.base_extractor import BaseExtractor
+from app.services.extracted.services.extraction.extractor_factory import ExtractorFactory
+from app.services.enriched.services.entity.relationship_extractor import EntityRelationshipExtractor
+from app.services.enriched.services.entity.resolver import EntityResolver
 
-from app.services.extraction.document import (
+from app.services.extracted.services.extraction.document import (
     DocumentClassificationService,
     DocumentClassificationResult,
     SectionBoundary,
 )
-from app.services.extraction.section import (
+from app.services.extracted.services.extraction.section import (
     SectionExtractionOrchestrator,
     SectionExtractionResult,
     DocumentExtractionResult,
@@ -29,7 +29,7 @@ from app.services.extraction.section import (
     ValidationIssue as CrossSectionValidationIssue,
     ReconciledValue,
 )
-from app.services.extraction.table import (
+from app.services.extracted.services.extraction.table import (
     TableExtractionService,
     TableStructure,
     TableCell,

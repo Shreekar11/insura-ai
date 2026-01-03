@@ -8,7 +8,7 @@ extractor based on section type.
 from typing import Dict, Type, Optional, List
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.extraction.base_extractor import BaseExtractor
+from app.services.extracted.services.extraction.base_extractor import BaseExtractor
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

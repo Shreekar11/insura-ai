@@ -10,8 +10,8 @@ from uuid import UUID
 from click import Option
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.extraction.base_extractor import BaseExtractor
-from app.services.chunking.hybrid_models import SectionType
+from app.services.extracted.services.extraction.base_extractor import BaseExtractor
+from app.services.processed.services.chunking.hybrid_models import SectionType
 from app.utils.logging import get_logger
 from app.prompts.system_prompts import (
     DECLARATIONS_EXTRACTION_PROMPT,

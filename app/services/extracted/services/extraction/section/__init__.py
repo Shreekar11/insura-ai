@@ -6,18 +6,18 @@ This module contains services for:
 - Cross-section validation and reconciliation
 """
 
-from app.services.extraction.section.section_extraction_orchestrator import (
+from app.services.extracted.services.extraction.section.section_extraction_orchestrator import (
     SectionExtractionOrchestrator,
     SectionExtractionResult,
     DocumentExtractionResult,
 )
-from app.services.extraction.section.cross_section_validator import (
+from app.services.extracted.services.extraction.section.cross_section_validator import (
     CrossSectionValidator,
     CrossSectionValidationResult,
     ValidationIssue,
     ReconciledValue,
 )
-from app.services.extraction.section.extractors import (
+from app.services.extracted.services.extraction.section.extractors import (
     DeclarationsExtractor,
     CoveragesExtractor,
     ConditionsExtractor,
