@@ -75,7 +75,7 @@ class UnifiedLLMClient:
             self.client = OpenRouterClient(
                 api_key=api_key,
                 model=model,
-                base_url=base_url or "https://openrouter.ai/api/v1/chat/completions",
+                base_url=base_url,
                 timeout=timeout,
                 max_retries=max_retries
             )
@@ -218,10 +218,10 @@ def create_llm_client(
 def create_llm_client_from_settings(
     provider: str,
     gemini_api_key: str = "",
-    gemini_model: str = "gemini-2.0-flash",
-    openrouter_api_key: str = "",
-    openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
-    openrouter_model: str = "openai/gpt-oss-20b:free",
+    gemini_model: Optional[str] = None,
+    openrouter_api_key: Optional[str] = None,
+    openrouter_api_url: Optional[str] = None,
+    openrouter_model: Optional[str] = None,
     timeout: int = 90,
     max_retries: int = 3,
     enable_fallback: bool = False,

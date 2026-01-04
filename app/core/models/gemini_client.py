@@ -83,7 +83,7 @@ class GeminiClient:
         for attempt in range(self.max_retries):
             try:
                 # The SDK's generate_content is synchronous by default, but we want async.
-                # The V2 SDK (google-genai) supports async via `aio`.
+                # The SDK (google-genai) supports async via `aio`.
                 # However, the user example showed synchronous usage: `client.models.generate_content`.
                 # To keep it async compatible with the rest of the app, we should use the async client if available,
                 # or run in executor. The `google-genai` package has an async client.

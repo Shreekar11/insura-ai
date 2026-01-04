@@ -20,8 +20,8 @@ class OpenRouterClient:
     def __init__(
         self,
         api_key: str,
-        model: str = "openai/gpt-oss-20b:free",
-        base_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        model: Optional[str] = None,
+        base_url: Optional[str] = None,
         timeout: int = 60,
         max_retries: int = 5,  # Increased for better reliability with rate limits
     ):

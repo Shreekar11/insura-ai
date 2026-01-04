@@ -1,6 +1,6 @@
 """Table extraction service for structured table parsing.
 
-This service implements Phase 5 table extraction following the v2 architecture:
+This service implements Phase 5 table extraction:
 - Step 1: Table Detection (Layout First, No Semantics)
 - Step 2: Structural Table Parsing (Rows & Columns) via TableJSON
 - Step 3: Header Canonicalization (Domain Mapping)
