@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
 
-from app.core.base_repository import BaseRepository
+from app.repositories.base_repository import BaseRepository
 from app.database.models import Document, DocumentPage, PageManifestRecord
 from app.models.page_data import PageData
 from app.utils.logging import get_logger

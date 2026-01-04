@@ -21,11 +21,12 @@ from app.models.page_analysis_models import (
     PageManifest
 )
 from app.utils.logging import get_logger
+from app.repositories.base_repository import BaseRepository
 
 logger = get_logger(__name__)
 
 
-class PageAnalysisRepository:
+class PageAnalysisRepository(BaseRepository[PageAnalysis]):
     """Repository for page analysis operations."""
     
     def __init__(self, session: AsyncSession):

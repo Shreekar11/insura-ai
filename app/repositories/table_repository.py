@@ -12,7 +12,7 @@ from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, delete
 
-from app.core.base_repository import BaseRepository
+from app.repositories.base_repository import BaseRepository
 from app.database.models import SOVItem, LossRunClaim, DocumentTable
 from app.models.table_json import TableJSON, TableExtractionSource, create_table_id
 from app.utils.logging import get_logger
@@ -20,7 +20,7 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
-class TableRepository:
+class TableRepository(BaseRepository[DocumentTable]):
     """Repository for table extraction data.
     
     Handles persistence of:

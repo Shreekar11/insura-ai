@@ -12,12 +12,13 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import EntityMention
+from app.repositories.base_repository import BaseRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class EntityMentionRepository:
+class EntityMentionRepository(BaseRepository[EntityMention]):
     """Repository for managing entity mention records.
     
     This repository provides data access methods for document-scoped

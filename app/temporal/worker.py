@@ -14,16 +14,15 @@ from temporalio.worker import Worker
 
 # Import all child workflows
 from app.temporal.workflows.process_document import ProcessDocumentWorkflow
-from app.temporal.workflows.page_analysis import PageAnalysisWorkflow
-from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
-from app.temporal.workflows.hybrid_chunking import HybridChunkingWorkflow
-from app.temporal.workflows.extraction import ExtractionWorkflow
-from app.temporal.workflows.table_extraction import TableExtractionWorkflow
-from app.temporal.workflows.entity_resolution import EntityResolutionWorkflow
+from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
+from app.temporal.workflows.child.ocr_extraction import OCRExtractionWorkflow
+from app.temporal.workflows.child.table_extraction import TableExtractionWorkflow
+from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
+from app.temporal.workflows.child.extraction import ExtractionWorkflow
+from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
 
 # Import all stages workflows
 from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
-from app.temporal.workflows.stages.classified import ClassifiedStageWorkflow
 from app.temporal.workflows.stages.extracted import ExtractedStageWorkflow
 from app.temporal.workflows.stages.enriched import EnrichedStageWorkflow
 from app.temporal.workflows.stages.summarized import SummarizedStageWorkflow
@@ -80,7 +79,6 @@ async def main():
         workflows=[
             ProcessDocumentWorkflow,
             ProcessedStageWorkflow,
-            ClassifiedStageWorkflow,
             ExtractedStageWorkflow,
             EnrichedStageWorkflow,
             SummarizedStageWorkflow,

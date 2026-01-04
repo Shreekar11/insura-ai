@@ -13,11 +13,12 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import SectionExtraction
 from app.utils.logging import get_logger
+from app.repositories.base_repository import BaseRepository
 
 LOGGER = get_logger(__name__)
 
 
-class SectionExtractionRepository:
+class SectionExtractionRepository(BaseRepository[SectionExtraction]):
     """Repository for managing section extraction records.
     
     This repository provides data access methods for section-level

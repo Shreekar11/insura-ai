@@ -11,11 +11,8 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.session import get_async_session
 from app.repositories.chunk_repository import ChunkRepository
-from app.repositories.classification_repository import ClassificationRepository
 from app.repositories.ocr_repository import OCRRepository
 from app.services.processed.services.chunking.chunking_service import ChunkingService
-from app.services.classified.services.classification.classification_service import ClassificationService
-from app.services.classified.services.classification.fallback_classifier import FallbackClassifier
 from app.services.processed.services.ocr.ocr_service import OCRService
 from app.config import settings
 
@@ -32,20 +29,6 @@ async def get_chunk_repository(
         ChunkRepository: Repository for chunk CRUD operations
     """
     return ChunkRepository(db_session)
-
-
-async def get_classification_repository(
-    db_session: Annotated[AsyncSession, Depends(get_async_session)]
-) -> ClassificationRepository:
-    """Get classification repository instance.
-    
-    Args:
-        db_session: Database session from dependency injection
-        
-    Returns:
-        ClassificationRepository: Repository for classification data operations
-    """
-    return ClassificationRepository(db_session)
 
 
 async def get_ocr_repository(
@@ -72,31 +55,6 @@ async def get_chunking_service() -> ChunkingService:
         max_tokens_per_chunk=settings.chunk_max_tokens,
         overlap_tokens=settings.chunk_overlap_tokens,
         enable_section_chunking=True,
-    )
-
-
-async def get_classification_service() -> ClassificationService:
-    """Get classification service instance.
-    
-    Returns:
-        ClassificationService: Service for signal aggregation and classification
-    """
-    return ClassificationService()
-
-
-async def get_fallback_classifier() -> FallbackClassifier:
-    """Get fallback classifier instance.
-    
-    Returns:
-        FallbackClassifier: Fallback classifier for low-confidence cases
-    """
-    return FallbackClassifier(
-        provider=settings.llm_provider,
-        gemini_api_key=settings.gemini_api_key,
-        gemini_model=settings.gemini_model,
-        openrouter_api_key=settings.openrouter_api_key,
-        openrouter_model=settings.openrouter_model,
-        openrouter_api_url=settings.openrouter_api_url,
     )
 
 

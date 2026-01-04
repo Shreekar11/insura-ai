@@ -1,7 +1,7 @@
 from typing import Optional, Any, Dict, List
 from abc import ABC, abstractmethod
 
-from app.core.base_repository import BaseRepository
+from app.repositories.base_repository import BaseRepository
 from app.core.exceptions import AppError, ValidationError
 from app.utils.logging import get_logger
 

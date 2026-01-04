@@ -11,12 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import ChunkClassificationSignal, DocumentClassification
+from app.repositories.base_repository import BaseRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class ClassificationRepository:
+class ClassificationRepository(BaseRepository[ChunkClassificationSignal]):
     """Repository for managing classification signals and document classifications.
     
     This repository provides data access methods for classification operations,

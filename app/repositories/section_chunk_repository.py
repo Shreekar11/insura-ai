@@ -1,6 +1,6 @@
 """Repository for section chunks and super-chunks.
 
-This repository handles persistence of v2 hybrid chunks and section super-chunks,
+This repository handles persistence of hybrid chunks and section super-chunks,
 supporting the section-aware extraction pipeline.
 """
 
@@ -11,7 +11,7 @@ from datetime import datetime
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import DocumentChunk, NormalizedChunk
+from app.database.models import DocumentChunk
 from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     HybridChunkMetadata,
@@ -19,15 +19,16 @@ from app.services.processed.services.chunking.hybrid_models import (
     SectionSuperChunk,
     ChunkingResult,
 )
+from app.repositories.base_repository import BaseRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class SectionChunkRepository:
+class SectionChunkRepository(BaseRepository[DocumentChunk]):
     """Repository for managing section-aware document chunks.
     
-    This repository provides data access methods for v2 hybrid chunks
+    This repository provides data access methods for hybrid chunks
     and section super-chunks, including bulk operations and section-based
     queries.
     

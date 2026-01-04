@@ -18,7 +18,7 @@ from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.models.table_json import TableJSON, TableType
-from app.services.extracted.services.extraction.table import (
+from app.services.processed.services.table import (
     TableExtractionService,
     TableStructure,
     TableClassificationService,
@@ -38,7 +38,7 @@ LOGGER = get_logger(__name__)
 class TableExtractionPipeline:
     """Pipeline for extracting and processing tables from documents.
     
-    This pipeline implements Phase 5 table extraction following the v2 architecture:
+    This pipeline implements table extraction:
     - Tables are extracted structurally as TableJSON (not as text)
     - Tables are persisted as first-class entities (DocumentTable)
     - LLM is only used when needed (column meaning ambiguous, validation fails)

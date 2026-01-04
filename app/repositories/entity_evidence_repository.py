@@ -12,12 +12,13 @@ from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import EntityEvidence
+from app.repositories.base_repository import BaseRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class EntityEvidenceRepository:
+class EntityEvidenceRepository(BaseRepository[EntityEvidence]):
     """Repository for managing entity evidence records.
     
     This repository provides data access methods for evidence mappings

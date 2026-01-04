@@ -1,16 +1,18 @@
 """This repository is responsible for handling all the stages of the document processing pipeline."""
 
-from app.database.session import AsyncSession, async_session_maker
 from sqlalchemy import select
 from app.utils.logging import get_logger
 from uuid import UUID
 from fastapi import HTTPException
 
+from app.database.session import async_session_maker
+from app.repositories.base_repository import BaseRepository
+
 LOGGER = get_logger(__name__)
 
 from app.database.models import DocumentReadiness
 
-class StagesRepository:
+class StagesRepository(BaseRepository[DocumentReadiness]):
     async def get_all_document_stages(self):
         try:
             async with async_session_maker() as session:
