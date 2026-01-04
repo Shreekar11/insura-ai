@@ -2,6 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, Dict
 
 # Import existing child workflows
 from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
@@ -20,13 +21,14 @@ class ProcessedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str) -> dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
         
         # Phase 1: Page Analysis (includes page classification + document profile)
         page_manifest = await workflow.execute_child_workflow(
             PageAnalysisWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"stage-processed-page-analysis-{document_id}",
             task_queue="documents-queue",
         )
@@ -39,6 +41,7 @@ class ProcessedStageWorkflow:
         ocr_result = await workflow.execute_child_workflow(
             OCRExtractionWorkflow.run,
             args=[document_id, pages_to_process, page_section_map],
+            workflow_id=workflow_id,
             id=f"stage-processed-ocr-{document_id}",
             task_queue="documents-queue",
         )
@@ -47,6 +50,7 @@ class ProcessedStageWorkflow:
         table_result = await workflow.execute_child_workflow(
             TableExtractionWorkflow.run,
             args=[document_id, pages_to_process],
+            workflow_id=workflow_id,
             id=f"stage-processed-table-{document_id}",
             task_queue="documents-queue",
         )
@@ -55,6 +59,7 @@ class ProcessedStageWorkflow:
         chunking_result = await workflow.execute_child_workflow(
             HybridChunkingWorkflow.run,
             args=[document_id, page_section_map],
+            workflow_id=workflow_id,
             id=f"stage-processed-chunking-{document_id}",
             task_queue="documents-queue",
         )

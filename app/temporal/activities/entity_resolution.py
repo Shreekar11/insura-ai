@@ -4,7 +4,7 @@ These activities handle entity aggregation, resolution, and relationship extract
 """
 
 from temporalio import activity
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 
 from app.database.base import async_session_maker
@@ -37,7 +37,7 @@ async def aggregate_document_entities(document_id: str) -> Dict:
 
 
 @activity.defn
-async def resolve_canonical_entities(document_id: str, aggregated_data: Dict) -> List[str]:
+async def resolve_canonical_entities(document_id: str, aggregated_data: Dict, workflow_id: Optional[str] = None) -> List[str]:
     """Resolve aggregated entities to canonical forms."""
     try:
         entities = aggregated_data.get('entities', [])
@@ -45,7 +45,11 @@ async def resolve_canonical_entities(document_id: str, aggregated_data: Dict) ->
         
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
-            canonical_ids = await pipeline.resolve_canonical_entities(UUID(document_id), entities)
+            canonical_ids = await pipeline.resolve_canonical_entities(
+                UUID(document_id), 
+                entities,
+                workflow_id=UUID(workflow_id) if workflow_id else None
+            )
             
             await session.commit()
             
@@ -62,7 +66,7 @@ async def resolve_canonical_entities(document_id: str, aggregated_data: Dict) ->
 
 
 @activity.defn
-async def extract_relationships(document_id: str) -> List[Dict]:
+async def extract_relationships(document_id: str, workflow_id: Optional[str] = None) -> List[Dict]:
     """Extract relationships between canonical entities (Pass 2)."""
     try:
         activity.logger.info(f"[Phase 3: Entity Resolution] Extracting relationships for document: {document_id}")
@@ -70,7 +74,10 @@ async def extract_relationships(document_id: str) -> List[Dict]:
         
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
-            relationship_records = await pipeline.extract_relationships(UUID(document_id))
+            relationship_records = await pipeline.extract_relationships(
+                UUID(document_id),
+                workflow_id=UUID(workflow_id) if workflow_id else None
+            )
             
             await session.commit()
             

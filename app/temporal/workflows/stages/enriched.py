@@ -2,6 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, Dict
 
 # Import existing child workflows
 from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
@@ -17,13 +18,14 @@ class EnrichedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str) -> dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         workflow.logger.info(f"Starting EnrichedStage for {document_id}")
         
         # Phase 1: Entity Resolution & Relationships
         enrichment_result = await workflow.execute_child_workflow(
             EntityResolutionWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"stage-enriched-resolution-{document_id}",
             task_queue="documents-queue",
         )

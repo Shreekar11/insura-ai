@@ -6,6 +6,7 @@ to avoid importing non-deterministic modules.
 
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, Dict, List
 
 from app.utils.workflow_schemas import (
     EntityResolutionOutputSchema,
@@ -18,7 +19,7 @@ class EntityResolutionWorkflow:
     """Child workflow for entity aggregation, canonical resolution, and relationship extraction."""
     
     @workflow.run
-    async def run(self, document_id: str) -> dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         """
         Aggregate entities, resolve to canonical forms, and extract relationships.
         
@@ -43,14 +44,14 @@ class EntityResolutionWorkflow:
             # Resolve to canonical entities
             entity_ids = await workflow.execute_activity(
                 "resolve_canonical_entities",
-                args=[document_id, aggregated],
+                args=[document_id, aggregated, workflow_id],
                 start_to_close_timeout=timedelta(minutes=3),
             )
             
             # Extract relationships (Pass 2)
             relationships = await workflow.execute_activity(
                 "extract_relationships",
-                document_id,
+                args=[document_id, workflow_id],
                 start_to_close_timeout=timedelta(minutes=10),
             )
             

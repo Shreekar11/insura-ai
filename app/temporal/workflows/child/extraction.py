@@ -24,6 +24,7 @@ class ExtractionWorkflow:
     async def run(
         self, 
         document_id: str,
+        workflow_id: Optional[str] = None,
         document_profile: Optional[Dict] = None,
     ) -> dict:
         """
@@ -42,7 +43,9 @@ class ExtractionWorkflow:
         workflow.logger.info(
             f"Starting extraction workflow for document: {document_id}",
             extra={
+                "document_id": document_id,
                 "has_document_profile": document_profile is not None,
+                "workflow_id": workflow_id
             }
         )
         

@@ -2,6 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, Dict
 
 # Import existing child workflows
 from app.temporal.workflows.child.extraction import ExtractionWorkflow
@@ -20,6 +21,7 @@ class ExtractedStageWorkflow:
     async def run(
         self, 
         document_id: str,
+        workflow_id: Optional[str] = None,
         document_profile: dict = None
     ) -> dict:
         workflow.logger.info(f"Starting ExtractedStage for {document_id}")
@@ -28,6 +30,7 @@ class ExtractedStageWorkflow:
         extraction_result = await workflow.execute_child_workflow(
             ExtractionWorkflow.run,
             args=[document_id, document_profile],
+            workflow_id=workflow_id,
             id=f"stage-extracted-{document_id}",
             task_queue="documents-queue",
         )
