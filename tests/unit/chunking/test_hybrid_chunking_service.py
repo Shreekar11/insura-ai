@@ -1,6 +1,6 @@
 """Unit tests for HybridChunkingService.
 
-Tests the v2 hybrid chunking implementation including:
+Tests the hybrid chunking implementation including:
 - Section detection from text content
 - Hybrid chunk creation with metadata
 - Section super-chunk building

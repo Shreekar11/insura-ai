@@ -431,7 +431,7 @@ class OCRService:
         num_cols = 0
         
         try:
-            # Try accessing data.grid_cells if available (Docling v2+)
+            # Try accessing data.grid_cells if available (Docling)
             if hasattr(docling_table, 'data') and hasattr(docling_table.data, 'grid'):
                 grid = docling_table.data.grid
                 num_rows = len(grid)

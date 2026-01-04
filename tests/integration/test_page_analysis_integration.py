@@ -85,7 +85,7 @@ class TestPageAnalysisIntegration:
     async def test_processing_ratio_target(self, analyzer, classifier, duplicate_detector):
         """Test that processing ratio is reasonable for the document.
         
-        V2 Architecture Target:
+        Target:
         - For 100+ page documents with significant boilerplate: 10-20%
         - For smaller, content-rich documents like Harbor Cove: up to 80%
         

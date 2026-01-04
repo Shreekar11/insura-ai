@@ -1,6 +1,6 @@
 """Data models for hybrid chunking and section super-chunks.
 
-This module defines the data structures used for v2 section-aware chunking
+This module defines the data structures used for section-aware chunking
 with Docling's HybridChunker integration.
 """
 
@@ -13,7 +13,7 @@ from enum import Enum
 class SectionType(str, Enum):
     """High-level insurance document section types.
     
-    These correspond to the v2 architecture's semantic section groupings.
+    These correspond to the semantic section groupings.
     """
     DECLARATIONS = "declarations"
     DEFINITIONS = "definitions"

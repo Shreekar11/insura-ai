@@ -1,6 +1,6 @@
 """Hybrid chunking service using Docling's HybridChunker.
 
-This service implements v2 section-aware + layout-aware chunking:
+This service implements section-aware + layout-aware chunking:
 - Uses Docling's HybridChunker for tokenization-aware splitting
 - Preserves document structure and hierarchy
 - Creates semantically meaningful chunks for LLM processing

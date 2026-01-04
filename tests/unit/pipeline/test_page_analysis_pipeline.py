@@ -1,7 +1,7 @@
 """Unit tests for PageAnalysisPipeline.
 
 Tests the facade that coordinates page signal extraction, classification,
-and manifest creation for v2 page-level analysis.
+and manifest creation for page-level analysis.
 """
 
 import pytest
@@ -443,7 +443,7 @@ class TestPageAnalysisPipelineCreateManifest:
 
 
 class TestPageAnalysisPipelineV2Alignment:
-    """Test alignment with v2 architecture requirements."""
+    """Test alignment with requirements."""
     
     @pytest.fixture
     def mock_session(self):
@@ -456,7 +456,7 @@ class TestPageAnalysisPipelineV2Alignment:
     
     @pytest.mark.asyncio
     async def test_processing_ratio_target_range(self, mock_session):
-        """Test that processing ratio falls within v2 target (10-20%)."""
+        """Test that processing ratio falls within target (10-20%)."""
         # Create a realistic insurance document scenario
         # 100 pages with typical distribution
         signals = []
@@ -521,14 +521,14 @@ class TestPageAnalysisPipelineV2Alignment:
                 classifications = await pipeline.classify_pages(document_id, signals)
                 manifest = await pipeline.create_manifest(document_id, classifications)
                 
-                # v2 target: 10-20% of pages processed
+                # Target: 10-20% of pages processed
                 # With 15 key pages out of 100, ratio should be ~15%
                 assert 0.10 <= manifest.processing_ratio <= 0.40, \
                     f"Processing ratio {manifest.processing_ratio:.2%} outside target range"
     
     @pytest.mark.asyncio
     async def test_key_section_types_identified(self, mock_session):
-        """Test that all v2 key section types are properly identified."""
+        """Test that all key section types are properly identified."""
         signals = [
             PageSignals(
                 page_number=1,

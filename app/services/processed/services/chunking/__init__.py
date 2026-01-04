@@ -3,7 +3,7 @@
 This package provides utilities for chunking large insurance documents
 into smaller pieces that fit within LLM token limits.
 
-v2 Architecture additions:
+Additions:
 - HybridChunkingService: Docling-based hybrid chunking with section awareness
 - SectionSuperChunkBuilder: Creates section super-chunks for batch LLM processing
 - New models for hybrid chunks and section super-chunks

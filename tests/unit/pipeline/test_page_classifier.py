@@ -1,7 +1,7 @@
 """Unit tests for PageClassifier.
 
 Tests rule-based page classification for insurance documents,
-ensuring alignment with v2 semantic anchors and page roles.
+ensuring alignment with semantic anchors and page roles.
 """
 
 import pytest
@@ -377,7 +377,7 @@ class TestPageClassifierPatternMatching:
         result = classifier.classify(signals)
         
         assert result.page_type == PageType.UNKNOWN
-        # V2: Unknown pages are skipped by default for aggressive filtering
+        # Unknown pages are skipped by default for aggressive filtering
         assert result.should_process is False
     
     def test_classify_empty_top_lines(self, classifier):
@@ -585,7 +585,7 @@ class TestPageClassifierProcessingDecisions:
         assert result.should_process is False
     
     def test_unknown_pages_skipped_by_default(self, classifier):
-        """Test that unknown pages are skipped (v2 aggressive filtering)."""
+        """Test that unknown pages are skipped (aggressive filtering)."""
         signals = self._create_signals(
             page_number=40,
             top_lines=["Random content without keywords"]
@@ -594,7 +594,7 @@ class TestPageClassifierProcessingDecisions:
         result = classifier.classify(signals)
         
         assert result.page_type == PageType.UNKNOWN
-        # V2: Unknown pages are skipped by default for aggressive filtering
+        # Unknown pages are skipped by default for aggressive filtering
         assert result.should_process is False
 
 

@@ -51,7 +51,7 @@ class SuperChunkBatch:
 class SectionSuperChunkBuilder:
     """Builder for creating and managing section super-chunks.
     
-    This builder implements the v2 architecture's section grouping strategy:
+    This builder implements the section grouping strategy:
     - Groups chunks by semantic section
     - Respects section-specific token limits
     - Creates optimized batches for LLM processing
@@ -63,7 +63,7 @@ class SectionSuperChunkBuilder:
         token_counter: Token counting utility
     """
     
-    # Default limits based on v2 architecture
+    # Default limits
     DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK = 8000
     DEFAULT_MAX_TOKENS_PER_BATCH = 12000
     
