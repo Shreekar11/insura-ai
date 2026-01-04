@@ -548,7 +548,7 @@ MANDATORY PROCESSING RULES
    - "coverage" → +0.10 for HAS_COVERAGE/HAS_LIMIT/HAS_DEDUCTIBLE
    - "claim"/"loss_run" → +0.10 for HAS_CLAIM
    - Cap confidence at 0.99 after boosts
-5. Table data integration (v2 architecture):
+5. Table data integration:
    - For SOV items: Extract addresses and create LOCATED_AT relationships. Match addresses to canonical ADDRESS entities.
    - For Loss Run claims: Match claim_number and policy_number to canonical entities. Create HAS_CLAIM relationships.
    - For document_tables with table_type:
@@ -672,46 +672,158 @@ End of relationship prompt.
 # VALID TYPE SETS (unchanged; used by validation logic in code)
 # =============================================================================
 VALID_ENTITY_TYPES = {
+    # Policy-level entities
     "POLICY_NUMBER",
-    "CARRIER",
-    "INSURED_NAME",
-    "INSURED_ADDRESS",
+    "POLICY_TYPE",
+    "POLICY_FORM",
     "EFFECTIVE_DATE",
     "EXPIRATION_DATE",
-    "PREMIUM_AMOUNT",
-    "COVERAGE_LIMIT",
-    "DEDUCTIBLE",
-    "AGENT_NAME",
+    "POLICY_TERM",
+    "STATUS",
+
+    # Party and organization level entities
+    "INSURED_NAME",
+    "INSURED_ADDRESS",
+    "NAMED_INSURED",
+    "ADDITIONAL_INSURED",
+    "CARRIER",
+    "BROKER",
+    "AGENT",
+    "UNDERWRITER",
+    "ORGANIZATION",
+    "PERSON",
+
+    # Coverage and terms level entities
+    "COVERAGE",
     "COVERAGE_TYPE",
+    "COVERAGE_PART",
+    "LIMIT",
+    "SUBLIMIT",
+    "AGGREGATE_LIMIT",
+    "DEDUCTIBLE",
+    "WAITING_PERIOD",
+    "COINSURANCE",
+    "VALUATION_METHOD",
+    "ENDORSEMENT_NAME",
+
+    # Financial and premium level entities
+    "TOTAL_PREMIUM",
+    "BASE_PREMIUM",
+    "TAX",
+    "FEE",
+    "POLICY_FEE",
+    "INSPECTION_FEE",
+    "TRIA_PREMIUM",
+    "RATE",
+    "RATE_PER_100",
+
+    # Property / SOV level entities
+    "LOCATION_ID",
+    "LOCATION_ADDRESS",
+    "BUILDING_NUMBER",
+    "OCCUPANCY",
+    "CONSTRUCTION_TYPE",
+    "YEAR_BUILT",
+    "NUMBER_OF_STORIES",
+    "SPRINKLERED",
+    "DISTANCE_TO_COAST",
+    "FLOOD_ZONE",
+    "BUILDING_VALUE",
+    "CONTENTS_VALUE",
+    "BI_VALUE",
+    "TIV",
+
+    # Claim level entities
     "CLAIM_NUMBER",
     "LOSS_DATE",
-    "LOCATION",
-    "PERSON",
-    "ORGANIZATION",
+    "DATE_REPORTED",
+    "CAUSE_OF_LOSS",
+    "PAID_AMOUNT",
+    "INCURRED_AMOUNT",
+    "RESERVE_AMOUNT",
+    "CLAIM_STATUS",
+
+    # Auto / fleet level entities
+    "VIN",
+    "VEHICLE_YEAR",
+    "VEHICLE_MAKE",
+    "VEHICLE_MODEL",
+    "DRIVER_NAME",
+    "DRIVER_DOB",
+    "LICENSE_NUMBER",
+    "VIOLATION",
 }
 
 VALID_SECTION_TYPES = {
+  # Policy-level sections
+    "declarations",
     "coverages",
+    "limits",
+    "deductibles",
     "conditions",
     "exclusions",
     "definitions",
     "endorsements",
-    "declarations",
+    "forms",
+
+    # Tables and schedules level sections
+    "sov",
+    "schedule_of_values",
+    "loss_runs",
+    "premium_schedule",
+    "rate_schedule",
+    "vehicle_schedule",
+    "driver_schedule",
+
+    # Submission and admin level sections
     "general_info",
+    "application",
+    "acord",
+    "broker_letter",
+    "underwriting_notes",
+
+    # Fallback and unknown sections
     "unknown",
+    "boilerplate",
 }
 
 VALID_RELATIONSHIP_TYPES = {
+  # Policy-level relationships
     "HAS_INSURED",
-    "HAS_COVERAGE",
-    "HAS_LIMIT",
-    "HAS_DEDUCTIBLE",
-    "HAS_CLAIM",
-    "LOCATED_AT",
-    "EFFECTIVE_FROM",
-    "EXPIRES_ON",
+    "HAS_ADDITIONAL_INSURED",
     "ISSUED_BY",
     "BROKERED_BY",
+    "HAS_TERM",
+    "HAS_STATUS",
+
+    # Coverage-level relationships
+    "HAS_COVERAGE",
+    "HAS_LIMIT",
+    "HAS_SUBLIMIT",
+    "HAS_DEDUCTIBLE",
+    "HAS_AGGREGATE",
+    "MODIFIED_BY_ENDORSEMENT",
+    "EXCLUDES",
+    "SUBJECT_TO",
+
+    # Property and location level relationships
+    "HAS_LOCATION",
+    "LOCATED_AT",
+    "HAS_BUILDING",
+    "HAS_TIV",
+    "COVERS_PROPERTY",
+
+    # Claim level relationships
+    "HAS_CLAIM",
+    "CLAIM_REPORTED_ON",
+    "CLAIM_OCCURRED_ON",
+    "CLAIM_PAID_AMOUNT",
+    "CLAIM_INCURRED_AMOUNT",
+
+    # Other temporal / validation relationships
+    "EFFECTIVE_FROM",
+    "EXPIRES_ON",
+    "APPLIES_DURING",
 }
 
 # =============================================================================
