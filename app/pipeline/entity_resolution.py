@@ -42,16 +42,17 @@ class EntityResolutionPipeline:
             "document_id": str(document_id),
         }
 
-    async def resolve_canonical_entities(self, document_id: UUID, entities: List[Dict]) -> List[UUID]:
+    async def resolve_canonical_entities(self, document_id: UUID, entities: List[Dict], workflow_id: Optional[UUID] = None) -> List[UUID]:
         """Resolve aggregated entities to canonical forms."""
         canonical_ids = await self.resolver.resolve_entities_batch(
             entities=entities,
             chunk_id=None,
-            document_id=document_id
+            document_id=document_id,
+            workflow_id=workflow_id
         )
         return canonical_ids
 
-    async def extract_relationships(self, document_id: UUID) -> List[Any]:
+    async def extract_relationships(self, document_id: UUID, workflow_id: Optional[UUID] = None) -> List[Any]:
         """Extract relationships between canonical entities."""
-        return await self.relationship_extractor.extract_relationships(document_id)
+        return await self.relationship_extractor.extract_relationships(document_id, workflow_id)
 

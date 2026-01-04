@@ -1,6 +1,6 @@
 """Section extraction orchestrator for Tier 2 LLM processing.
 
-This service implements the v2 architecture's Tier 2 processing:
+This service implements the processing:
 - Sequential section-level extraction
 - Section-specific field extraction using factory pattern
 - Batch processing of section super-chunks
@@ -18,7 +18,6 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.unified_llm import UnifiedLLMClient, create_llm_client_from_settings
 from app.services.processed.services.chunking.hybrid_models import (
     SectionType,
     SectionSuperChunk,
@@ -40,6 +39,7 @@ from app.services.extracted.services.extraction.section.extractors import (
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 from app.repositories.section_extraction_repository import SectionExtractionRepository
+from app.repositories.step_repository import StepSectionOutputRepository, StepEntityOutputRepository
 
 LOGGER = get_logger(__name__)
 
@@ -62,6 +62,7 @@ class SectionExtractionResult:
     confidence: float = 0.0
     token_count: int = 0
     processing_time_ms: int = 0
+    extraction_id: Optional[UUID] = None
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
@@ -72,6 +73,7 @@ class SectionExtractionResult:
             "confidence": self.confidence,
             "token_count": self.token_count,
             "processing_time_ms": self.processing_time_ms,
+            "extraction_id": str(self.extraction_id) if self.extraction_id else None,
         }
 
 
@@ -131,12 +133,12 @@ class SectionExtractionOrchestrator:
     def __init__(
         self,
         session: Optional[AsyncSession] = None,
-        provider: str = "gemini",
+        provider: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.0-flash",
+        gemini_model: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-oss-20b:free",
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        openrouter_model: Optional[str] = None,
+        openrouter_api_url: Optional[str] = None,
         timeout: int = 120,
         max_retries: int = 3,
     ):
@@ -173,6 +175,8 @@ class SectionExtractionOrchestrator:
         
         # Initialize section extraction repository
         self.section_extraction_repo = SectionExtractionRepository(session)
+        self.step_section_repo = StepSectionOutputRepository(session)
+        self.step_entity_repo = StepEntityOutputRepository(session)
         
         # Register all section extractors with the factory
         self._register_extractors()
@@ -240,6 +244,7 @@ class SectionExtractionOrchestrator:
         self,
         super_chunks: List[SectionSuperChunk],
         document_id: Optional[UUID] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> DocumentExtractionResult:
         """Run section extraction (BaseService compatibility).
         
@@ -250,12 +255,13 @@ class SectionExtractionOrchestrator:
         Returns:
             DocumentExtractionResult
         """
-        return await self.extract_all_sections(super_chunks, document_id)
+        return await self.extract_all_sections(super_chunks, document_id, workflow_id)
 
     async def extract_all_sections(
         self,
         super_chunks: List[SectionSuperChunk],
         document_id: Optional[UUID] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> DocumentExtractionResult:
         """Extract data from all section super-chunks.
         
@@ -263,7 +269,9 @@ class SectionExtractionOrchestrator:
         
         Args:
             super_chunks: List of section super-chunks
+            super_chunks: List of section super-chunks
             document_id: Document ID
+            workflow_id: Workflow ID (optional, for step output persistence)
             
         Returns:
             DocumentExtractionResult with all section extractions
@@ -275,7 +283,7 @@ class SectionExtractionOrchestrator:
         llm_sections = [sc for sc in super_chunks if sc.requires_llm]
         
         LOGGER.info(
-            "Starting Tier 2 section extraction",
+            "Starting section extraction",
             extra={
                 "document_id": str(document_id) if document_id else None,
                 "total_super_chunks": len(super_chunks),
@@ -328,7 +336,7 @@ class SectionExtractionOrchestrator:
         )
         
         LOGGER.info(
-            "Tier 2 extraction completed",
+            "Section extraction completed",
             extra={
                 "document_id": str(document_id) if document_id else None,
                 "sections_extracted": len(section_results),
@@ -337,7 +345,75 @@ class SectionExtractionOrchestrator:
             }
         )
         
+        # Persist step outputs if workflow_id is provided
+        if workflow_id and document_id:
+            await self._persist_step_outputs(result, workflow_id)
+        
         return result
+    
+    async def _persist_step_outputs(
+        self,
+        result: DocumentExtractionResult,
+        workflow_id: UUID,
+    ):
+        """Persist extraction results to step output tables.
+        
+        Args:
+            result: DocumentExtractionResult
+            workflow_id: Workflow ID
+        """
+        try:
+            # Persist section outputs
+            for section_res in result.section_results:
+                if section_res.confidence == 0.0 and not section_res.extracted_data:
+                    continue
+                    
+                confidence_dict = {
+                    "overall": section_res.confidence,
+                }
+                
+                await self.step_section_repo.create(
+                    document_id=result.document_id,
+                    workflow_id=workflow_id,
+                    section_type=section_res.section_type.value,
+                    display_payload=section_res.extracted_data,
+                    confidence=confidence_dict,
+                    page_range=None, # Populate if available in result, but SectionExtractionResult doesn't have it explicitly besides in internal structure
+                    source_section_extraction_id=section_res.extraction_id,
+                )
+                
+                # Persist entity outputs for this section
+                for entity in section_res.entities:
+                    # Entity structure: {"type": "Company", "text": "Name", ...}
+                    # We need to map to StepEntityOutput fields
+                    entity_type = entity.get("type", "unknown")
+                    entity_label = entity.get("text", entity.get("name", "unknown"))
+                    
+                    await self.step_entity_repo.create(
+                        document_id=result.document_id,
+                        workflow_id=workflow_id,
+                        entity_type=entity_type,
+                        entity_label=entity_label,
+                        display_payload=entity,
+                        confidence=section_res.confidence, # Use section confidence if entity confidence missing
+                        source_section_extraction_id=section_res.extraction_id,
+                    )
+            
+            LOGGER.info(
+                "Persisted step outputs",
+                extra={
+                    "document_id": str(result.document_id),
+                    "workflow_id": str(workflow_id),
+                    "params": {"sections": len(result.section_results)},
+                }
+            )
+            
+        except Exception as e:
+            LOGGER.error(
+                f"Failed to persist step outputs: {e}",
+                exc_info=True,
+                extra={"document_id": str(result.document_id)}
+            )
     
     async def extract_section_batch(
         self,
@@ -446,6 +522,8 @@ class SectionExtractionOrchestrator:
             
             processing_time = int((time.time() - start_time) * 1000)
             
+            extraction_id = None
+            
             # Persist section extraction to database
             if document_id:
                 try:
@@ -483,7 +561,7 @@ class SectionExtractionOrchestrator:
                         "entities": entities  # Store entities for entity aggregation
                     }
                     
-                    await self.section_extraction_repo.create_section_extraction(
+                    extraction = await self.section_extraction_repo.create_section_extraction(
                         document_id=document_id,
                         section_type=super_chunk.section_type.value,
                         extracted_fields=extracted_fields_with_entities,
@@ -493,6 +571,7 @@ class SectionExtractionOrchestrator:
                         model_version=self.model,
                         prompt_version="v1",
                     )
+                    extraction_id = extraction.id
                     
                     LOGGER.debug(
                         "Persisted section extraction",
@@ -518,6 +597,7 @@ class SectionExtractionOrchestrator:
                 confidence=confidence,
                 token_count=super_chunk.total_tokens,
                 processing_time_ms=processing_time,
+                extraction_id=extraction_id,
             )
             
         except Exception as e:

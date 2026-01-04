@@ -12,7 +12,7 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import NormalizedChunk, SectionExtraction, EntityMention
+from app.database.models import SectionExtraction, EntityMention
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.utils.logging import get_logger
 
@@ -142,148 +142,83 @@ class EntityAggregator:
             section_extractions = await self.section_extraction_repo.get_by_document(document_id)
             
             chunks = None
+
+            # Extract from section_extractions
+            all_entities = []
+            chunk_mappings = []
             
-            if not section_extractions:
-                # Strategy 3: Final fallback to normalized_chunks (legacy)
-                LOGGER.warning(
-                    f"No section extractions found, falling back to normalized_chunks (legacy)",
-                    extra={"document_id": str(document_id)}
+            # Collect unique chunk IDs from section extractions for chunk count
+            chunk_id_set = set()
+            
+            for extraction in section_extractions:
+                extracted_fields = extraction.extracted_fields or {}
+                entities = extracted_fields.get("entities", [])
+                
+                LOGGER.debug(
+                    f"Checking section extraction for entities",
+                    extra={
+                        "document_id": str(document_id),
+                        "section_type": extraction.section_type,
+                        "section_extraction_id": str(extraction.id),
+                        "entities_found": len(entities),
+                        "extracted_fields_keys": list(extracted_fields.keys())
+                    }
                 )
-                chunks = await self._fetch_normalized_chunks(document_id)
                 
-                if not chunks:
-                    LOGGER.warning(
-                        f"No data sources found for entity aggregation",
-                        extra={"document_id": str(document_id)}
-                    )
-                    return AggregatedEntities(
-                        entities=[],
-                        chunk_entity_map=[],
-                        total_chunks=0,
-                        total_entities=0,
-                        unique_entities=0
-                    )
-                
-                # Extract from normalized_chunks (legacy path)
-                all_entities = []
-                chunk_mappings = []
-                
-                for chunk in chunks:
-                    entities = chunk.entities or []
+                if entities:
+                    source_chunks = extraction.source_chunks or {}
+                    chunk_ids = source_chunks.get("chunk_ids", [])
+                    stable_chunk_ids = source_chunks.get("stable_chunk_ids", [])
                     
-                    if entities:
-                        normalized_count = 0
-                        for entity in entities:
-                            # Normalize entity format to match resolver expectations
-                            normalized_entity = self._normalize_entity_format(entity)
-                            
-                            if not normalized_entity:
-                                LOGGER.warning(
-                                    f"Entity missing required fields, skipping",
-                                    extra={
-                                        "entity": entity,
-                                        "chunk_id": str(chunk.id)
-                                    }
-                                )
-                                continue
-                            
-                            normalized_entity["source_chunk_id"] = str(chunk.id)
-                            all_entities.append(normalized_entity)
-                            normalized_count += 1
+                    normalized_count = 0
+                    for entity in entities:
+                        # Normalize entity format to match resolver expectations
+                        normalized_entity = self._normalize_entity_format(entity)
                         
-                        # Build chunk mappings with normalized entities
-                        entity_ids = [e.get("entity_id") for e in all_entities if e.get("source_chunk_id") == str(chunk.id) and e.get("entity_id")]
-                        if entity_ids:
-                            chunk_mappings.append(ChunkEntityMapping(
-                                chunk_id=chunk.id,
-                                entity_ids=entity_ids
-                            ))
+                        if not normalized_entity:
+                            LOGGER.warning(
+                                f"Entity missing required fields, skipping",
+                                extra={
+                                    "entity": entity,
+                                    "section_extraction_id": str(extraction.id),
+                                    "section_type": extraction.section_type
+                                }
+                            )
+                            continue
                         
-                        LOGGER.debug(
-                            f"Normalized {normalized_count} entities from normalized_chunks (legacy)",
-                            extra={
-                                "chunk_id": str(chunk.id),
-                                "total_entities": len(entities),
-                                "normalized_count": normalized_count
-                            }
-                        )
-            else:
-                # Extract from section_extractions
-                all_entities = []
-                chunk_mappings = []
-                
-                # Collect unique chunk IDs from section extractions for chunk count
-                chunk_id_set = set()
-                
-                for extraction in section_extractions:
-                    extracted_fields = extraction.extracted_fields or {}
-                    entities = extracted_fields.get("entities", [])
+                        normalized_entity["source_section_extraction_id"] = str(extraction.id)
+                        if stable_chunk_ids:
+                            normalized_entity["source_stable_chunk_id"] = stable_chunk_ids[0] if stable_chunk_ids else None
+                        
+                        all_entities.append(normalized_entity)
+                        normalized_count += 1
                     
                     LOGGER.debug(
-                        f"Checking section extraction for entities",
+                        f"Normalized {normalized_count} entities from section_extractions",
                         extra={
                             "document_id": str(document_id),
                             "section_type": extraction.section_type,
                             "section_extraction_id": str(extraction.id),
-                            "entities_found": len(entities),
-                            "extracted_fields_keys": list(extracted_fields.keys())
+                            "total_entities": len(entities),
+                            "normalized_count": normalized_count
                         }
                     )
                     
-                    if entities:
-                        source_chunks = extraction.source_chunks or {}
-                        chunk_ids = source_chunks.get("chunk_ids", [])
-                        stable_chunk_ids = source_chunks.get("stable_chunk_ids", [])
-                        
-                        normalized_count = 0
-                        for entity in entities:
-                            # Normalize entity format to match resolver expectations
-                            normalized_entity = self._normalize_entity_format(entity)
-                            
-                            if not normalized_entity:
-                                LOGGER.warning(
-                                    f"Entity missing required fields, skipping",
-                                    extra={
-                                        "entity": entity,
-                                        "section_extraction_id": str(extraction.id),
-                                        "section_type": extraction.section_type
-                                    }
-                                )
-                                continue
-                            
-                            normalized_entity["source_section_extraction_id"] = str(extraction.id)
-                            if stable_chunk_ids:
-                                normalized_entity["source_stable_chunk_id"] = stable_chunk_ids[0] if stable_chunk_ids else None
-                            
-                            all_entities.append(normalized_entity)
-                            normalized_count += 1
-                        
-                        LOGGER.debug(
-                            f"Normalized {normalized_count} entities from section_extractions",
-                            extra={
-                                "document_id": str(document_id),
-                                "section_type": extraction.section_type,
-                                "section_extraction_id": str(extraction.id),
-                                "total_entities": len(entities),
-                                "normalized_count": normalized_count
-                            }
-                        )
-                        
-                        # Create chunk mappings from source_chunks
-                        for chunk_id_str in chunk_ids:
-                            try:
-                                chunk_id = UUID(chunk_id_str) if isinstance(chunk_id_str, str) else chunk_id_str
-                                chunk_id_set.add(chunk_id)
-                                entity_ids = [e.get("entity_id") for e in entities if e.get("entity_id")]
-                                chunk_mappings.append(ChunkEntityMapping(
-                                    chunk_id=chunk_id,
-                                    entity_ids=entity_ids
-                                ))
-                            except (ValueError, TypeError):
-                                continue
-                
-                # Create placeholder chunks list for coverage metrics (only count matters)
-                chunks = [None] * len(chunk_id_set) if chunk_id_set else []
+                    # Create chunk mappings from source_chunks
+                    for chunk_id_str in chunk_ids:
+                        try:
+                            chunk_id = UUID(chunk_id_str) if isinstance(chunk_id_str, str) else chunk_id_str
+                            chunk_id_set.add(chunk_id)
+                            entity_ids = [e.get("entity_id") for e in entities if e.get("entity_id")]
+                            chunk_mappings.append(ChunkEntityMapping(
+                                chunk_id=chunk_id,
+                                entity_ids=entity_ids
+                            ))
+                        except (ValueError, TypeError):
+                            continue
+            
+            # Create placeholder chunks list for coverage metrics (only count matters)
+            chunks = [None] * len(chunk_id_set) if chunk_id_set else []
         
         # Deduplicate entities
         unique_entities = self._deduplicate_entities(all_entities)
@@ -379,37 +314,6 @@ class EntityAggregator:
         )
         
         return list(mentions)
-    
-    async def _fetch_normalized_chunks(
-        self,
-        document_id: UUID
-    ) -> List[NormalizedChunk]:
-        """Fetch all normalized chunks for a document (legacy fallback).
-        
-        Args:
-            document_id: Document ID
-            
-        Returns:
-            List of normalized chunks
-        """
-        from app.database.models import DocumentChunk
-        
-        stmt = (
-            select(NormalizedChunk)
-            .join(NormalizedChunk.chunk)
-            .where(DocumentChunk.document_id == document_id)
-            .order_by(DocumentChunk.chunk_index)
-        )
-        
-        result = await self.session.execute(stmt)
-        chunks = result.scalars().all()
-        
-        LOGGER.debug(
-            f"Fetched {len(chunks)} normalized chunks (legacy)",
-            extra={"document_id": str(document_id)}
-        )
-        
-        return list(chunks)
     
     def _deduplicate_entities(
         self,

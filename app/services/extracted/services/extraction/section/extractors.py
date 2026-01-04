@@ -60,6 +60,7 @@ class DeclarationsExtractor(BaseExtractor):
         """Extract fields from parsed response."""
         return parsed.get("fields", parsed)
 
+
 class DefinitionsExtractor(BaseExtractor):
     """Extractor for definitions section."""
 
@@ -87,6 +88,7 @@ class DefinitionsExtractor(BaseExtractor):
             "definitions": parsed.get("definitions", []),
             "entities": parsed.get("entities", []),
         }
+
 
 class CoveragesExtractor(BaseExtractor):
     """Extractor for coverages section."""

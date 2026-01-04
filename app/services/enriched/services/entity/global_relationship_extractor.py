@@ -15,7 +15,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import (
     CanonicalEntity,
-    NormalizedChunk,
     EntityRelationship,
     Document,
     DocumentChunk,
@@ -25,6 +24,7 @@ from app.database.models import (
     EntityMention,
     EntityEvidence,
 )
+from app.repositories.entity_mention_repository import EntityMentionRepository
 from app.repositories.table_repository import TableRepository
 from app.services.processed.services.chunking.hybrid_models import SectionType, SECTION_CONFIG
 from app.prompts import RELATIONSHIP_EXTRACTION_PROMPT, VALID_RELATIONSHIP_TYPES
@@ -60,12 +60,12 @@ class RelationshipExtractorGlobal:
     def __init__(
         self,
         session: AsyncSession,
-        provider: str = "gemini",
+        provider: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.0-flash",
+        gemini_model: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-oss-20b:free",
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        openrouter_model: Optional[str] = None,
+        openrouter_api_url: Optional[str] = None,
         timeout: int = 90,
         max_retries: int = 3,
     ):
@@ -121,7 +121,8 @@ class RelationshipExtractorGlobal:
     
     async def extract_relationships(
         self,
-        document_id: UUID
+        document_id: UUID,
+        workflow_id: Optional[UUID] = None
     ) -> List[EntityRelationship]:
         """Extract relationships for a document using global context.
         
@@ -185,7 +186,7 @@ class RelationshipExtractorGlobal:
             }
         )
         
-        # Group chunks by section type (v2 architecture)
+        # Group chunks by section type
         section_chunks = self._group_chunks_by_section(chunks)
         
         # Build global context (includes chunk candidates if sparse, and all table data)
@@ -212,7 +213,8 @@ class RelationshipExtractorGlobal:
                     document_id=document_id,
                     relationship_data=rel_data,
                     canonical_entities=canonical_entities,
-                    chunks=chunks if is_sparse else None  # Pass chunks for temp entity reconciliation
+                    chunks=chunks if is_sparse else None,
+                    workflow_id=workflow_id
                 )
                 if relationship:
                     relationships.append(relationship)
@@ -243,10 +245,7 @@ class RelationshipExtractorGlobal:
     ) -> List[CanonicalEntity]:
         """Fetch canonical entities for a document.
         
-        This method tries multiple strategies to find canonical entities:
-        1. Via ChunkEntityLink (chunk-level links)
-        2. Via DocumentEntityLink (document-level links)
-        3. Fallback: Extract from NormalizedChunk.entities and resolve on-the-fly
+        This method tries multiple strategies to find canonical entities
         
         Args:
             document_id: Document ID
@@ -254,9 +253,8 @@ class RelationshipExtractorGlobal:
         Returns:
             List of canonical entities
         """
-        from app.database.models import ChunkEntityLink, DocumentEntityLink
         
-        # Strategy 1: Get canonical entities via EntityEvidence (preferred - doc-aligned)
+        # Get canonical entities via EntityEvidence
         stmt = select(CanonicalEntity).join(
             EntityEvidence,
             EntityEvidence.canonical_entity_id == CanonicalEntity.id
@@ -271,25 +269,7 @@ class RelationshipExtractorGlobal:
             f"Found {len(canonical_entities)} canonical entities via EntityEvidence",
             extra={"document_id": str(document_id)}
         )
-        
-        # Strategy 2: If no entities found, try DocumentEntityLink
-        if not canonical_entities:
-            stmt = select(CanonicalEntity).join(
-                DocumentEntityLink,
-                DocumentEntityLink.canonical_entity_id == CanonicalEntity.id
-            ).where(
-                DocumentEntityLink.document_id == document_id
-            ).distinct()
-            
-            result = await self.session.execute(stmt)
-            canonical_entities = list(result.scalars().all())
-            
-            LOGGER.debug(
-                f"Found {len(canonical_entities)} canonical entities via DocumentEntityLink",
-                extra={"document_id": str(document_id)}
-            )
-        
-        # Strategy 3: Fallback - Extract entities from EntityMention and resolve
+        #Extract entities from EntityMention and resolve to canonical entities
         if not canonical_entities:
             LOGGER.warning(
                 f"No canonical entities found via links. Attempting fallback: extracting from entity_mentions",
@@ -405,43 +385,14 @@ class RelationshipExtractorGlobal:
         
         return list(chunks)
     
-    async def _fetch_normalized_chunks(
-        self,
-        document_id: UUID
-    ) -> List[NormalizedChunk]:
-        """Fetch normalized chunks for a document (legacy fallback).
-        
-        Args:
-            document_id: Document ID
-            
-        Returns:
-            List of normalized chunks
-        """
-        from app.database.models import DocumentChunk
-        from sqlalchemy.orm import selectinload
-        
-        stmt = (
-            select(NormalizedChunk)
-            .join(NormalizedChunk.chunk)
-            .where(DocumentChunk.document_id == document_id)
-            .order_by(DocumentChunk.chunk_index)
-            .options(selectinload(NormalizedChunk.chunk))  # Eagerly load the relationship
-        )
-        
-        result = await self.session.execute(stmt)
-        chunks = result.scalars().all()
-        
-        return list(chunks)
-    
     def _group_chunks_by_section(
         self,
         chunks: List[DocumentChunk]
     ) -> Dict[str, List[Dict[str, Any]]]:
-        """Group chunks by section type for v2 section-aware processing.
+        """Group chunks by section type for section-aware processing.
         
-        This method organizes chunks into semantic sections matching the v2
-        architecture's SectionType enum, enabling better relationship extraction
-        by providing section context.
+        This method organizes chunks into semantic sections matching the SectionType enum,
+        enabling better relationship extraction by providing section context.
         
         Args:
             chunks: List of document chunks
@@ -451,15 +402,15 @@ class RelationshipExtractorGlobal:
         """
         section_groups: Dict[str, List[Dict[str, Any]]] = {}
         
-        # Map v2 SectionType values for reference
-        v2_section_types = {st.value for st in SectionType}
+        # Map SectionType values for reference
+        section_types = {st.value for st in SectionType}
         
         for chunk in chunks:
             # Get section type from DocumentChunk
             section_type = chunk.section_type
             
-            # Normalize to v2 SectionType or use "unknown"
-            if section_type and section_type.lower() in v2_section_types:
+            # Normalize to SectionType or use "unknown"
+            if section_type and section_type.lower() in section_types:
                 section_key = section_type.lower()
             elif section_type:
                 section_key = section_type.lower()
@@ -469,7 +420,7 @@ class RelationshipExtractorGlobal:
             if section_key not in section_groups:
                 section_groups[section_key] = []
             
-            # Build chunk data with v2 metadata
+            # Build chunk data with metadata
             chunk_data = {
                 "chunk_id": str(chunk.id),
                 "stable_chunk_id": chunk.stable_chunk_id,
@@ -503,19 +454,19 @@ class RelationshipExtractorGlobal:
         document_tables: List[DocumentTable],
         include_chunk_candidates: bool = False
     ) -> Dict[str, Any]:
-        """Build global context for LLM using v2 section-aware architecture.
+        """Build global context for LLM using section-aware.
         
         This method builds a comprehensive context including:
         - Canonical entities with their attributes
-        - Section-grouped chunks (v2 super-chunk style)
+        - Section-grouped chunks (super-chunk style)
         - All table data (SOV items, Loss Run claims, DocumentTables)
-        - Section processing priorities from v2 config
+        - Section processing priorities from config
         
         Args:
             document: Document record
             canonical_entities: List of canonical entities
             chunks: List of normalized chunks (for fallback)
-            section_chunks: Chunks grouped by section type (v2 style)
+            section_chunks: Chunks grouped by section type
             sov_items: SOV items extracted from tables
             loss_run_claims: Loss Run claims extracted from tables
             document_tables: All DocumentTable records
@@ -553,8 +504,8 @@ class RelationshipExtractorGlobal:
                 }
             )
         
-        # Build section-aware chunks text (v2 super-chunk style)
-        # Prioritize sections based on v2 SECTION_CONFIG
+        # Build section-aware chunks text (super-chunk style)
+        # Prioritize sections based on SECTION_CONFIG
         section_priority = {}
         for section_type in SectionType:
             config = SECTION_CONFIG.get(section_type, SECTION_CONFIG[SectionType.UNKNOWN])
@@ -566,7 +517,7 @@ class RelationshipExtractorGlobal:
             key=lambda s: section_priority.get(s, 10)
         )
         
-        # Format chunks by section with v2 metadata
+        # Format chunks by section with metadata
         chunks_by_section_list = []
         for section_key in sorted_sections:
             section_data = section_chunks[section_key]
@@ -685,8 +636,6 @@ class RelationshipExtractorGlobal:
             "sov_items_count": len(sov_items_list),
             "loss_run_claims_count": len(loss_run_list),
             "document_tables_count": len(document_tables_list),
-            # v2 architecture metadata
-            "architecture_version": "v2",
             "section_aware_chunking": True,
         }
     
@@ -700,11 +649,8 @@ class RelationshipExtractorGlobal:
             List of chunk-level entity candidates with temporary IDs
         """
         # Fetch entity mentions for this document
-        stmt = select(EntityMention).where(
-            EntityMention.document_id == document_id
-        )
-        result = await self.session.execute(stmt)
-        mentions = list(result.scalars().all())
+        mention_repo = EntityMentionRepository(self.session)
+        mentions = await mention_repo.get_by_document(document_id)
         
         candidates = []
         
@@ -733,19 +679,19 @@ class RelationshipExtractorGlobal:
         return candidates
     
     async def _call_llm_api(self, context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Call LLM API for relationship extraction using v2 section-aware context.
+        """Call LLM API for relationship extraction using section-aware context.
         
         Args:
-            context: Global context dictionary with v2 section-aware data
+            context: Global context dictionary with section-aware data
             
         Returns:
             List of relationship dictionaries
         """
-        # Build user message with v2 section-aware context data
+        # Build user message with section-aware context data
         user_message = f"""
 Please extract relationships from the following insurance document data.
 
-**Architecture**: v2 Section-Aware Processing
+**Processing Type**: Section-Aware Processing
 **Document Type**: {context['document_type']}
 
 **Section Summary** (ordered by processing priority):
@@ -756,7 +702,7 @@ Please extract relationships from the following insurance document data.
 
 {"**Note**: Some entities are chunk-level candidates (source='chunk_level') because canonical entities are sparse. Prefer canonical entities but use candidates when needed." if context.get('has_chunk_candidates') else ""}
 
-**Document Chunks by Section** (v2 super-chunk style):
+**Document Chunks by Section** (super-chunk style):
 {context['chunks_by_section']}
 
 **Table Data Summary**:
@@ -829,7 +775,8 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         document_id: UUID,
         relationship_data: Dict[str, Any],
         canonical_entities: List[CanonicalEntity],
-        chunks: Optional[List[NormalizedChunk]] = None
+        chunks: Optional[List[DocumentChunk]] = None,
+        workflow_id: Optional[UUID] = None
     ) -> Optional[EntityRelationship]:
         """Create EntityRelationship record with flexible entity matching.
         
@@ -894,6 +841,7 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         
         # Create relationship
         relationship = EntityRelationship(
+            document_id=document_id,
             source_entity_id=source_entity.id,
             target_entity_id=target_entity.id,
             relationship_type=rel_type,
@@ -902,7 +850,14 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         )
         
         self.session.add(relationship)
+        await self.session.flush() # Ensure ID is generated
         
+        # Add to workflow scope if provided
+        if workflow_id:
+            from app.repositories.entity_repository import EntityRelationshipRepository
+            rel_repo = EntityRelationshipRepository(self.session)
+            await rel_repo.add_to_workflow_scope(workflow_id, relationship.id)
+            
         LOGGER.info(
             f"Created relationship: {source_entity.entity_type}({source_entity.canonical_key[:8]}) "
             f"--{rel_type}--> {target_entity.entity_type}({target_entity.canonical_key[:8]})"
@@ -914,7 +869,7 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         self,
         entity_identifier: str,
         canonical_entities: List[CanonicalEntity],
-        chunks: Optional[List[NormalizedChunk]] = None
+        chunks: Optional[List[DocumentChunk]] = None
     ) -> Optional[CanonicalEntity]:
         """Find entity using flexible matching strategies.
         
@@ -982,7 +937,7 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         self,
         temp_id: str,
         canonical_entities: List[CanonicalEntity],
-        chunks: List[NormalizedChunk]
+        chunks: List[DocumentChunk]
     ) -> Optional[CanonicalEntity]:
         """Reconcile temporary chunk-level entity to canonical entity.
         

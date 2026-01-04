@@ -11,12 +11,6 @@ from app.services.extracted.services.extraction.section.section_extraction_orche
     SectionExtractionResult,
     DocumentExtractionResult,
 )
-from app.services.extracted.services.extraction.section.cross_section_validator import (
-    CrossSectionValidator,
-    CrossSectionValidationResult,
-    ValidationIssue,
-    ReconciledValue,
-)
 from app.services.extracted.services.extraction.section.extractors import (
     DeclarationsExtractor,
     CoveragesExtractor,
@@ -32,10 +26,6 @@ __all__ = [
     "SectionExtractionOrchestrator",
     "SectionExtractionResult",
     "DocumentExtractionResult",
-    "CrossSectionValidator",
-    "CrossSectionValidationResult",
-    "ValidationIssue",
-    "ReconciledValue",
     "DeclarationsExtractor",
     "CoveragesExtractor",
     "ConditionsExtractor",

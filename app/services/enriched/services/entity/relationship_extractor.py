@@ -11,41 +11,12 @@ from typing import Dict, List, Any, Optional
 from uuid import UUID
 
 from app.core.unified_llm import UnifiedLLMClient
-from app.utils.exceptions import APIClientError, OCRTimeoutError
+from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 
+from app.prompts import VALID_ENTITY_TYPES, VALID_RELATIONSHIP_TYPES
+
 LOGGER = get_logger(__name__)
-
-# Valid entity types (from Neo4j ontology)
-VALID_ENTITY_TYPES = {
-    "POLICY_NUMBER",
-    "CLAIM_NUMBER",
-    "INSURED_NAME",
-    "ADDRESS",
-    "COVERAGE_TYPE",
-    "LIMIT",
-    "DEDUCTIBLE",
-    "EFFECTIVE_DATE",
-    "EXPIRY_DATE",
-    "CARRIER",
-    "BROKER",
-    "PREMIUM",
-    "LOCATION",
-}
-
-# Valid relationship types (from Neo4j ontology)
-VALID_RELATIONSHIP_TYPES = {
-    "HAS_INSURED",
-    "HAS_COVERAGE",
-    "HAS_LIMIT",
-    "HAS_DEDUCTIBLE",
-    "HAS_CLAIM",
-    "LOCATED_AT",
-    "EFFECTIVE_FROM",
-    "EXPIRES_ON",
-    "ISSUED_BY",
-    "BROKERED_BY",
-}
 
 
 class EntityRelationshipExtractor:
@@ -298,12 +269,12 @@ Now extract entities from the following text:
     
     def __init__(
         self,
-        provider: str = "gemini",
+        provider: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.0-flash",
+        gemini_model: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-oss-20b:free",
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        openrouter_model: Optional[str] = None,
+        openrouter_api_url: Optional[str] = None,
         timeout: int = 60,
         max_retries: int = 3,
     ):

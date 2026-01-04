@@ -40,12 +40,12 @@ class BaseExtractor(BaseService):
     def __init__(
         self,
         session: AsyncSession,
-        provider: str = "gemini",
+        provider: Optional[str] = None,
         gemini_api_key: Optional[str] = None,
-        gemini_model: str = "gemini-2.0-flash",
+        gemini_model: Optional[str] = None,
         openrouter_api_key: Optional[str] = None,
-        openrouter_model: str = "openai/gpt-oss-20b:free",
-        openrouter_api_url: str = "https://openrouter.ai/api/v1/chat/completions",
+        openrouter_model: Optional[str] = None,
+        openrouter_api_url: Optional[str] = None,
     ):
         """Initialize base extractor.
         
