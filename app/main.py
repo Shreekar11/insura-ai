@@ -8,7 +8,7 @@ from fastapi import FastAPI, APIRouter, Request
 from fastapi.routing import APIRoute
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from app.api.routes import workflows, health, documents, stages
+from app.api.routes import workflows, health, documents
 from app.config import settings
 from app.utils.logging import get_logger
 from app.database.client import init_database, close_database
@@ -131,7 +131,6 @@ api_router = APIRouter()
 api_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
 api_router.include_router(health.router, prefix="", tags=["Health"])
 api_router.include_router(documents.router, prefix="/documents", tags=["Documents"])
-api_router.include_router(stages.router, prefix="/stages", tags=["Stages"])
 
 # Include routers
 app.include_router(api_router, prefix=settings.api_v1_prefix)
