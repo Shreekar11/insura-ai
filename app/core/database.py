@@ -1,15 +1,63 @@
-"""Database client for PostgreSQL connection and migration management."""
+"""Database session dependency for FastAPI.
 
-import asyncio
-from typing import Optional
+This module centralizes the async SQLAlchemy session dependency in the
+core layer so it can be reused across the application.
+"""
 
+from collections.abc import AsyncGenerator
+from sqlalchemy.orm import DeclarativeBase
+from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker, create_async_engine
+from app.core.config import settings
 from sqlalchemy import text
-from sqlalchemy.ext.asyncio import AsyncEngine
 
-from app.database.base import Base, engine
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+class Base(DeclarativeBase):
+    """Base class for all SQLAlchemy models."""
+
+    pass
+
+async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
+    """FastAPI dependency for getting async database session.
+
+    Yields:
+        AsyncSession: Database session
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
+
+# Create async engine
+engine = create_async_engine(
+    settings.database_url,
+    pool_size=settings.database_pool_size,
+    max_overflow=settings.database_max_overflow,
+    echo=settings.database_echo,
+    future=True,
+)
+
+# Create async session factory
+async_session_maker = async_sessionmaker(
+    engine, class_=AsyncSession, expire_on_commit=False
+)
+
+
+async def get_db_session() -> AsyncSession:
+    """Get async database session.
+
+    Yields:
+        AsyncSession: Database session
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
 
 
 class DatabaseClient:

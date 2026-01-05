@@ -7,10 +7,9 @@ Provides a unified interface for interacting with different LLM providers
 from enum import Enum
 from typing import Any, Dict, List, Optional, Union
 
-from app.core.models.gemini_client import GeminiClient
-from app.core.models.openrouter_client import OpenRouterClient
+from app.core.llm_client import GeminiClient, OpenRouterClient
 from app.utils.logging import get_logger
-from app.utils.exceptions import APIClientError
+from app.core.exceptions import APIClientError
 
 LOGGER = get_logger(__name__)
 

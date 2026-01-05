@@ -9,12 +9,11 @@ from typing import Annotated
 from fastapi import Depends
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.session import get_async_session
+from app.core.database import get_async_session
 from app.repositories.chunk_repository import ChunkRepository
-from app.repositories.ocr_repository import OCRRepository
 from app.services.processed.services.chunking.chunking_service import ChunkingService
 from app.services.processed.services.ocr.ocr_service import OCRService
-from app.config import settings
+from app.core.config import settings
 
 
 async def get_chunk_repository(
@@ -29,20 +28,6 @@ async def get_chunk_repository(
         ChunkRepository: Repository for chunk CRUD operations
     """
     return ChunkRepository(db_session)
-
-
-async def get_ocr_repository(
-    db_session: Annotated[AsyncSession, Depends(get_async_session)]
-) -> OCRRepository:
-    """Get OCR repository instance.
-    
-    Args:
-        db_session: Database session from dependency injection
-        
-    Returns:
-        OCRRepository: Repository for OCR data operations
-    """
-    return OCRRepository(db_session)
 
 
 async def get_chunking_service() -> ChunkingService:

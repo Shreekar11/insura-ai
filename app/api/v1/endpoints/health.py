@@ -1,17 +1,22 @@
 """Health check API endpoints."""
 
 from fastapi import APIRouter
-from app.models.response.response import HealthCheckResponse
-from app.config import settings
-from app.database.client import db_client
+from app.core.config import settings
+from app.core.database import db_client
 from app.utils.logging import get_logger
 from temporalio.client import Client
 import os
+
+from pydantic import BaseModel, Field
 
 LOGGER = get_logger(__name__)
 
 router = APIRouter()
 
+class HealthCheckResponse(BaseModel):
+    status: str = Field(..., description="Health check status")
+    version: str = Field(..., description="Running application version")
+    service: str = Field(..., description="Service name")
 
 @router.get(
     "/health",

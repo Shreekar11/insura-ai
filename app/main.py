@@ -4,14 +4,13 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from uuid import uuid4
-from fastapi import FastAPI, APIRouter, Request
-from fastapi.routing import APIRoute
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from app.api.routes import workflows, health, documents
-from app.config import settings
+from app.api.v1.router import api_router
+from app.core.config import settings
 from app.utils.logging import get_logger
-from app.database.client import init_database, close_database
+from app.core.database import init_database, close_database
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -125,12 +124,6 @@ async def root() -> RootResponse:
         health="/health",
     )
 
-
-# Create API router
-api_router = APIRouter()
-api_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
-api_router.include_router(health.router, prefix="", tags=["Health"])
-api_router.include_router(documents.router, prefix="/documents", tags=["Documents"])
 
 # Include routers
 app.include_router(api_router, prefix=settings.api_v1_prefix)

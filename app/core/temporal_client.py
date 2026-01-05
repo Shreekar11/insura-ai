@@ -1,14 +1,21 @@
-"""Temporal client configuration and connection management."""
+"""Temporal client configuration and connection management.
 
+This module centralizes Temporal client access in the core layer so that
+services and background workers can share a single connection manager.
+"""
+
+from typing import Optional
 from temporalio.client import Client as TemporalClient
-
-from app.config import settings
+from app.core.config import settings
 
 
 class TemporalClientManager:
-    """Manages Temporal client connection."""
+    """Manages Temporal client connection.
 
-    _client: TemporalClient | None = None
+    Lazily creates a Temporal client and keeps it around for reuse.
+    """
+
+    _client: Optional[TemporalClient] = None
 
     async def get_client(self) -> TemporalClient:
         """Get or create Temporal client instance.
@@ -48,7 +55,6 @@ async def close_temporal_client() -> None:
     await _temporal_manager.close()
 
 
-# Convenience property for direct access
 async def temporal_client() -> TemporalClient:
     """Convenience function to get Temporal client.
 
@@ -56,4 +62,3 @@ async def temporal_client() -> TemporalClient:
         TemporalClient: Connected Temporal client
     """
     return await get_temporal_client()
-

@@ -1,7 +1,7 @@
 """Database module for SQLAlchemy models and session management."""
 
-from app.database.base import Base, engine, get_db_session
-from app.database.client import DatabaseClient, db_client, init_database, close_database
+from app.core.database import Base, engine, get_db_session
+from app.core.database import DatabaseClient, db_client, init_database, close_database
 from app.database.models import (
     Document,
     DocumentChunk,
@@ -22,7 +22,7 @@ from app.database.models import (
     Workflow,
     WorkflowRunEvent,
 )
-from app.database.session import get_async_session
+from app.core.database import get_async_session
 
 __all__ = [
     "Base",

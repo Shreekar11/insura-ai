@@ -4,7 +4,7 @@ from fastapi import APIRouter, Depends, HTTPException
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 
-from app.database.session import get_async_session as get_session
+from app.core.database import get_async_session as get_session
 from app.repositories.document_repository import DocumentRepository
 from app.utils.logging import get_logger
 
