@@ -88,8 +88,8 @@ class Document(Base):
     entity_mentions: Mapped[list["EntityMention"]] = relationship(
         "EntityMention", back_populates="document", cascade="all, delete-orphan"
     )
-    readiness: Mapped["DocumentReadiness"] = relationship(
-        "DocumentReadiness", back_populates="document", cascade="all, delete-orphan", uselist=False
+    stage_runs: Mapped[list["WorkflowDocumentStageRun"]] = relationship(
+        "WorkflowDocumentStageRun", back_populates="document", cascade="all, delete-orphan"
     )
 
 
@@ -262,52 +262,6 @@ class DocumentChunk(Base):
     # Relationships
     entity_mentions: Mapped[list["EntityMention"]] = relationship(
         "EntityMention", foreign_keys="EntityMention.source_document_chunk_id", back_populates="source_chunk"
-    )
-
-
-class DocumentReadiness(Base):
-    """Document readiness status."""
-    
-    __tablename__ = "document_readiness"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
-    )
-    processed: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    processed_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    classified: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    classified_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    extracted: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    extracted_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    enriched: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    enriched_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    summarized: Mapped[bool] = mapped_column(Boolean, nullable=False, default=False)
-    summarized_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
-    )
-
-    # Relationships
-    document: Mapped["Document"] = relationship("Document", back_populates="readiness")
-
-    __table_args__ = (
-        {"comment": "Document readiness status"},
     )
 
 
@@ -557,6 +511,9 @@ class SectionExtraction(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
     section_type: Mapped[str] = mapped_column(
         String, nullable=False, comment="Section type: Declarations, Coverages, SOV, LossRun, etc."
     )
@@ -590,6 +547,7 @@ class SectionExtraction(Base):
     entity_mentions: Mapped[list["EntityMention"]] = relationship(
         "EntityMention", back_populates="section_extraction", cascade="all, delete-orphan"
     )
+    workflow: Mapped["Workflow"] = relationship("Workflow")
 
     __table_args__ = (
         {"comment": "Raw section-level extraction output store"},
@@ -666,9 +624,6 @@ class EntityRelationship(Base):
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
-    )
     source_entity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
     )
@@ -689,9 +644,6 @@ class EntityRelationship(Base):
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship(
-        "Document", foreign_keys=[document_id]
-    )
     source_entity: Mapped["CanonicalEntity | None"] = relationship(
         "CanonicalEntity", foreign_keys=[source_entity_id]
     )
@@ -934,30 +886,28 @@ class WorkflowDocument(Base):
     """Join table for workflows and documents.
     
     This table acts as the linking entity between documents and workflows.
-    The workflow_id is nullable to support the transactional creation flow:
-    1. Create document
-    2. Create workflow_document with document_id and workflow_id=NULL
-    3. Create workflow with workflow_document_id
-    4. Update workflow_document.workflow_id to complete the link
+    The document_id and workflow_id are both primary keys.
     """
 
     __tablename__ = "workflow_documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), 
         ForeignKey("documents.id", ondelete="CASCADE"),
-        nullable=False
+        nullable=False,
+        primary_key=True
     )
-    workflow_id: Mapped[uuid.UUID | None] = mapped_column(
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), 
         ForeignKey("workflows.id", ondelete="CASCADE"),
-        nullable=True  # CHANGED: Now nullable to support initial creation
+        nullable=False,
+        primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
     )
 
     # Relationships
@@ -979,11 +929,6 @@ class Workflow(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    workflow_document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), 
-        ForeignKey("workflow_documents.id", ondelete="CASCADE"), 
-        nullable=False
     )
     workflow_definition_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), 
@@ -1010,11 +955,6 @@ class Workflow(Base):
     )
 
     # Relationships
-    workflow_documents: Mapped[list["WorkflowDocument"]] = relationship(
-        "WorkflowDocument", 
-        back_populates="workflow",
-        foreign_keys="[WorkflowDocument.workflow_id]"
-    )
     workflow_definition: Mapped["WorkflowDefinition | None"] = relationship(
         "WorkflowDefinition", 
         back_populates="workflows"
@@ -1026,6 +966,16 @@ class Workflow(Base):
     )
     stage_runs: Mapped[list["WorkflowStageRun"]] = relationship(
         "WorkflowStageRun", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+    workflow_documents: Mapped[list["WorkflowDocument"]] = relationship(
+        "WorkflowDocument", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+    section_extractions: Mapped[list["SectionExtraction"]] = relationship(
+        "SectionExtraction", 
         back_populates="workflow", 
         cascade="all, delete-orphan"
     )
@@ -1049,6 +999,11 @@ class WorkflowRunEvent(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        server_default="NOW()", 
+        onupdate=datetime.utcnow
+    )
 
     # Relationships
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="events")
@@ -1069,6 +1024,9 @@ class WorkflowDefinition(Base):
     supported_steps: Mapped[list | None] = mapped_column(JSONB, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
     )
 
     # Relationships
@@ -1108,6 +1066,45 @@ class WorkflowStageRun(Base):
         back_populates="stage_runs"
     )
 
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "stage_name", name="uq_workflow_stage_run"),
+    )
+
+
+class WorkflowDocumentStageRun(Base):
+    """Document-level stage tracking within a workflow."""
+    
+    __tablename__ = "workflow_document_stage_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="stage_runs")
+    workflow: Mapped["Workflow"] = relationship("Workflow")
+
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "document_id", "stage_name", name="uq_workflow_doc_stage"),
+        {"comment": "Document-level stage tracking within a workflow"},
+    )
+
+
 class WorkflowEntityScope(Base):
     """Entities scoped to a specific workflow run."""
 
@@ -1118,6 +1115,12 @@ class WorkflowEntityScope(Base):
     )
     canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
     )
 
 
@@ -1131,4 +1134,10 @@ class WorkflowRelationshipScope(Base):
     )
     relationship_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("entity_relationships.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
     )

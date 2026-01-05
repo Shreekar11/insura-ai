@@ -34,6 +34,7 @@ class TableExtractionWorkflow:
     async def run(
         self,
         document_id: str,
+        workflow_id: Optional[str] = None,
         page_numbers: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """Execute table extraction workflow.
@@ -49,7 +50,8 @@ class TableExtractionWorkflow:
             f"Starting table extraction workflow for document: {document_id}",
             extra={
                 "document_id": document_id,
-                "page_numbers": page_numbers
+                "page_numbers": page_numbers,
+                "workflow_id": workflow_id
             }
         )
         

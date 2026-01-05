@@ -10,11 +10,11 @@ from temporalio import activity
 from typing import Dict, List, Optional
 from uuid import UUID
 
+from sqlalchemy import select
 from app.database.base import async_session_maker
-from app.services.extracted.services.extraction.document import DocumentClassificationService
+from app.database.models import Workflow
 from app.services.extracted.services.extraction.section import (
     SectionExtractionOrchestrator,
-    CrossSectionValidator,
 )
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
@@ -64,92 +64,6 @@ def _normalize_section_type(section_type_str: Optional[str]) -> str:
     # Use canonical mapper to normalize
     section_type = SectionTypeMapper.string_to_section_type(section_type_str)
     return section_type.value
-
-
-@activity.defn
-async def classify_document_and_map_sections(document_id: str) -> Dict:
-    """Classify document type and map section boundaries.
-    
-    This activity:
-    1. Retrieves initial pages (typically first 5-10 pages)
-    2. Uses LLM to classify document type
-    3. Maps section boundaries across the document
-    4. Persists classification results
-    
-    Args:
-        document_id: UUID of the document to classify
-        
-    Returns:
-        Dictionary with classification results and section map
-    """
-    try:
-        activity.logger.info(
-            f"Starting document classification for: {document_id}"
-        )
-        activity.heartbeat("Starting document classification")
-        
-        async with async_session_maker() as session:
-            # Fetch initial pages for classification (first 10 pages)
-            doc_repo = DocumentRepository(session)
-            all_pages = await doc_repo.get_pages_by_document(UUID(document_id))
-            
-            if not all_pages:
-                raise ValueError(f"No pages found for document {document_id}")
-            
-            # Use first 10 pages for classification
-            initial_pages = all_pages[:10]
-            
-            activity.logger.info(
-                f"Using {len(initial_pages)} initial pages for classification"
-            )
-            activity.heartbeat(f"Analyzing {len(initial_pages)} pages")
-            
-            # Determine timeout based on provider (Ollama needs more time for local models)
-            classification_timeout = _get_timeout_for_provider(
-                provider=settings.llm_provider,
-                default_timeout=300,  # 5 minutes default
-                ollama_timeout=600,  # 10 minutes for Ollama
-            )
-            
-            activity.logger.info(
-                f"Using timeout: {classification_timeout}s "
-                f"(provider: {settings.llm_provider})"
-            )
-            
-            # Perform classification
-            classification_service = DocumentClassificationService(
-                session=session,
-                provider=settings.llm_provider,
-                gemini_api_key=settings.gemini_api_key,
-                gemini_model=settings.gemini_model,
-                openrouter_api_key=settings.openrouter_api_key,
-                openrouter_api_url=settings.openrouter_api_url,
-                openrouter_model=settings.openrouter_model,
-                timeout=classification_timeout,
-            )
-            
-            classification_result = await classification_service.run(
-                pages=initial_pages,
-                document_id=UUID(document_id)
-            )
-            
-            await session.commit()
-            
-            activity.logger.info(
-                f"Classification complete: "
-                f"type={classification_result.document_type}, "
-                f"subtype={classification_result.document_subtype}, "
-                f"sections={len(classification_result.section_boundaries)}"
-            )
-            
-            return classification_result.to_dict()
-            
-    except Exception as e:
-        activity.logger.error(
-            f"Document classification failed for {document_id}: {e}",
-            exc_info=True
-        )
-        raise
 
 
 @activity.defn
@@ -212,10 +126,25 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
                 timeout=extraction_timeout,
             )
             
+            # Fetch active workflow ID
+            stmt = select(Workflow).where(
+                Workflow.document_id == UUID(document_id)
+            ).order_by(Workflow.created_at.desc()).limit(1)
+            
+            workflow_result = await session.execute(stmt)
+            workflow_obj = workflow_result.scalar_one_or_none()
+            workflow_id_uuid = workflow_obj.id if workflow_obj else None
+            
+            if not workflow_id_uuid:
+                activity.logger.warning(
+                    f"No active workflow found for document {document_id}, step outputs will not be persisted"
+                )
+
             # Perform extraction
             extraction_result = await extraction_orchestrator.run(
                 super_chunks=super_chunks,
-                document_id=UUID(document_id)
+                document_id=UUID(document_id),
+                workflow_id=workflow_id_uuid,
             )
             
             await session.commit()
@@ -234,149 +163,3 @@ async def extract_section_fields(document_id: str, classification_result: Dict) 
             exc_info=True
         )
         raise
-
-
-@activity.defn
-async def validate_and_reconcile_data(
-    document_id: str,
-    classification_result: Dict,
-    extraction_result: Dict
-) -> Dict:
-    """Cross-section validation and data reconciliation.
-    
-    This activity:
-    1. Validates extracted data across sections
-    2. Reconciles conflicting values
-    3. Identifies data quality issues
-    4. Produces final validated dataset
-    
-    Args:
-        document_id: UUID of the document
-        classification_result: Classification result
-        extraction_result: Extraction result
-        
-    Returns:
-        Dictionary with validation results
-    """
-    try:
-        activity.logger.info(
-            f"Starting cross-section validation for: {document_id}"
-        )
-        activity.heartbeat("Starting validation")
-        
-        async with async_session_maker() as session:
-            # Reconstruct classification result
-            from app.services.extracted.services.extraction.document import DocumentClassificationResult, SectionBoundary
-            from app.services.processed.services.chunking.hybrid_models import SectionType
-            
-            section_boundaries = []
-            for sb in classification_result["section_boundaries"]:
-                try:
-                    # Normalize section type string before creating enum
-                    section_type_value = sb.get("section_type") or "unknown"
-                    section_type_str = _normalize_section_type(section_type_value)
-                    section_type = SectionType(section_type_str)
-                except (ValueError, KeyError) as e:
-                    logger.warning(
-                        f"Invalid section type '{sb.get('section_type')}', using UNKNOWN: {e}"
-                    )
-                    section_type = SectionType.UNKNOWN
-                
-                section_boundaries.append(
-                    SectionBoundary(
-                        section_type=section_type,
-                        start_page=sb["start_page"],
-                        end_page=sb["end_page"],
-                        confidence=sb["confidence"],
-                        anchor_text=sb.get("anchor_text")
-                    )
-                )
-            
-            classification_obj = DocumentClassificationResult(
-                document_type=classification_result["document_type"],
-                document_id=document_id,
-                document_subtype=classification_result.get("document_subtype"),
-                confidence=classification_result["confidence"],
-                section_boundaries=section_boundaries,
-                metadata=classification_result.get("metadata", {})
-            )
-            
-            # Reconstruct extraction result
-            from app.services.extracted.services.extraction.section import DocumentExtractionResult, SectionExtractionResult
-            
-            section_results = []
-            for sr in extraction_result["section_results"]:
-                try:
-                    # Normalize section type string before creating enum
-                    section_type_value = sr.get("section_type") or "unknown"
-                    section_type_str = _normalize_section_type(section_type_value)
-                    section_type = SectionType(section_type_str)
-                except (ValueError, KeyError) as e:
-                    logger.warning(
-                        f"Invalid section type '{sr.get('section_type')}', using UNKNOWN: {e}"
-                    )
-                    section_type = SectionType.UNKNOWN
-                
-                section_results.append(
-                    SectionExtractionResult(
-                        section_type=section_type,
-                        extracted_data=sr["extracted_data"],
-                        entities=sr["entities"],
-                        confidence=sr["confidence"],
-                        token_count=sr["token_count"],
-                        processing_time_ms=sr["processing_time_ms"]
-                    )
-                )
-            
-            extraction_obj = DocumentExtractionResult(
-                document_id=document_id,
-                section_results=section_results,
-                all_entities=extraction_result.get("all_entities", []),
-                total_tokens=extraction_result.get("total_tokens", 0),
-                total_processing_time_ms=extraction_result.get("total_processing_time_ms", 0)
-            )
-            
-            # Determine timeout based on provider (Ollama needs more time for local models)
-            validation_timeout = _get_timeout_for_provider(
-                provider=settings.llm_provider,
-                default_timeout=90,  # 90 seconds default
-                ollama_timeout=180,  # 3 minutes for Ollama
-            )
-            
-            activity.logger.info(
-                f"Using timeout: {validation_timeout}s "
-                f"(provider: {settings.llm_provider})"
-            )
-            
-            # Perform validation
-            validator = CrossSectionValidator(
-                session=session,
-                provider=settings.llm_provider,
-                gemini_api_key=settings.gemini_api_key,
-                gemini_model=settings.gemini_model,
-                openrouter_api_key=settings.openrouter_api_key,
-                openrouter_api_url=settings.openrouter_api_url,
-                openrouter_model=settings.openrouter_model,
-                timeout=validation_timeout,
-            )
-            
-            validation_result = await validator.validate(
-                extraction_result=extraction_obj
-            )
-            
-            await session.commit()
-            
-            activity.logger.info(
-                f"Validation complete: "
-                f"{len(validation_result.issues)} issues found"
-            )
-            
-            return validation_result.to_dict()
-            
-    except Exception as e:
-        activity.logger.error(
-            f"Validation failed for {document_id}: {e}",
-            exc_info=True
-        )
-        raise
-

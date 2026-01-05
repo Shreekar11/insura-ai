@@ -84,7 +84,7 @@ class EntityAggregator:
         """Aggregate entities from all chunks of a document.
         
         Args:
-            document_id: Document ID to aggregate entities for
+            document_id: Document ID to aggregate entities
             
         Returns:
             AggregatedEntities: Aggregated and deduplicated entities
@@ -94,7 +94,7 @@ class EntityAggregator:
             extra={"document_id": str(document_id)}
         )
         
-        # Strategy 1: Try fetching from entity_mentions (preferred - doc-aligned)
+        # Strategy 1: Try fetching from entity_mentions
         entity_mentions = await self._fetch_entity_mentions(document_id)
         
         if entity_mentions:

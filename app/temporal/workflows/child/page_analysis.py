@@ -9,7 +9,7 @@ Now returns full manifest with document_profile and page_section_map
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from datetime import timedelta
-from typing import Dict
+from typing import Dict, Optional
 
 from app.utils.workflow_schemas import (
     PageAnalysisOutputSchema,
@@ -41,7 +41,7 @@ class PageAnalysisWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str) -> Dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> Dict:
         """Execute page analysis and create processing manifest with document profile.
         
         Args:
@@ -62,7 +62,7 @@ class PageAnalysisWorkflow:
                     - page_section_map: Dict[int, str]
                 - page_section_map: Dict[int, str] (for OCR/chunking)
         """
-        workflow.logger.info(f"Starting page analysis for document: {document_id}")
+        workflow.logger.info(f"Starting page analysis for document: {document_id}", extra={"workflow_id": workflow_id})
         
         # Activity 1: Extract signals from all pages
         # Uses Docling's selective extraction (bounding boxes) to get top lines,

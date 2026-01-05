@@ -39,6 +39,7 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
     async def create_section_extraction(
         self,
         document_id: UUID,
+        workflow_id: UUID,
         section_type: str,
         extracted_fields: Dict[str, Any],
         page_range: Optional[Dict[str, int]] = None,
@@ -52,6 +53,7 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         
         Args:
             document_id: Document ID
+            workflow_id: Workflow ID
             section_type: Section type (e.g., "declarations", "coverages")
             extracted_fields: Raw extracted fields from LLM (JSONB)
             page_range: Page range dict with start/end
@@ -66,6 +68,7 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         """
         extraction = SectionExtraction(
             document_id=document_id,
+            workflow_id=workflow_id,
             section_type=section_type,
             extracted_fields=extracted_fields,
             page_range=page_range,
@@ -93,19 +96,22 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
     async def get_by_document(
         self,
         document_id: UUID,
+        workflow_id: UUID,
         section_type: Optional[str] = None,
     ) -> List[SectionExtraction]:
         """Get section extractions for a document.
         
         Args:
             document_id: Document ID
+            workflow_id: Workflow ID
             section_type: Optional section type filter
             
         Returns:
             List of SectionExtraction records
         """
         stmt = select(SectionExtraction).where(
-            SectionExtraction.document_id == document_id
+            SectionExtraction.document_id == document_id,
+            SectionExtraction.workflow_id == workflow_id,
         )
         
         if section_type:

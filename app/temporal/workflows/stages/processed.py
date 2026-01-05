@@ -23,6 +23,18 @@ class ProcessedStageWorkflow:
     @workflow.run
     async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
+
+        # Initialize processed and classified stages as running
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "processed", "running", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "classified", "running", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
         
         # Phase 1: Page Analysis (includes page classification + document profile)
         page_manifest = await workflow.execute_child_workflow(
@@ -67,12 +79,12 @@ class ProcessedStageWorkflow:
         # Mark processed and classified stages complete
         await workflow.execute_activity(
             "update_stage_status",
-            args=[document_id, "processed", True],
+            args=[document_id, "processed", "completed", workflow_id],
             start_to_close_timeout=timedelta(seconds=30),
         )
         await workflow.execute_activity(
             "update_stage_status",
-            args=[document_id, "classified", True],
+            args=[document_id, "classified", "completed", workflow_id],
             start_to_close_timeout=timedelta(seconds=30),
         )
         

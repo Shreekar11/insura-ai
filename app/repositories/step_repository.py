@@ -1,5 +1,5 @@
 from typing import Sequence
-import uuid
+from uuid import UUID
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -15,7 +15,7 @@ class StepSectionOutputRepository(BaseRepository[StepSectionOutput]):
         super().__init__(session, StepSectionOutput)
 
     async def get_by_document_and_workflow(
-        self, document_id: uuid.UUID, workflow_id: uuid.UUID
+        self, document_id: UUID, workflow_id: UUID
     ) -> Sequence[StepSectionOutput]:
         """Get all section outputs for a specific document and workflow run.
         
@@ -41,7 +41,7 @@ class StepEntityOutputRepository(BaseRepository[StepEntityOutput]):
         super().__init__(session, StepEntityOutput)
 
     async def get_by_document_and_workflow(
-        self, document_id: uuid.UUID, workflow_id: uuid.UUID
+        self, document_id: UUID, workflow_id: UUID
     ) -> Sequence[StepEntityOutput]:
         """Get all entity outputs for a specific document and workflow run.
         

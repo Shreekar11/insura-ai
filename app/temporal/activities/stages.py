@@ -3,68 +3,57 @@
 from datetime import datetime
 from uuid import UUID
 from temporalio import activity
+from typing import Optional, Dict
 from sqlalchemy.orm import Session
 from sqlalchemy import select
 
 from app.database.session import async_session_maker
-from app.database.models import DocumentReadiness
+from app.repositories.stages_repository import StagesRepository
 
 
 @activity.defn
 async def update_stage_status(
     document_id: str,
     stage_name: str,
-    is_complete: bool
+    status: str,  # running | completed | failed
+    workflow_id: str,
+    error_message: Optional[str] = None
 ) -> bool:
-    """Updates the completion status of a processing stage."""
-    activity.logger.info(f"Updating stage {stage_name} for {document_id} to {is_complete}")
+    """Updates the completion status of a processing stage for a document and aggregates workflow status."""
+    activity.logger.info(f"Updating stage {stage_name} for doc {document_id} in workflow {workflow_id} to {status}")
     
-    db_id = UUID(document_id)
+    doc_uuid = UUID(document_id)
+    wf_uuid = UUID(workflow_id)
+    
     async with async_session_maker() as session:
-        query = select(DocumentReadiness).where(DocumentReadiness.document_id == db_id)
-        result = await session.execute(query)
-
-        readiness = result.scalar_one_or_none()
-        
-        if not readiness:
-            readiness = DocumentReadiness(document_id=db_id)
-            session.add(readiness)
-        
-        # Set stage flag and timestamp
-        field_name = stage_name.lower()
-        if hasattr(readiness, field_name):
-            setattr(readiness, field_name, is_complete)
-            if is_complete:
-                setattr(readiness, f"{field_name}_at", datetime.utcnow())
-            
-            await session.commit()
-            return True
-        
-        return False
+        stage_repo = StagesRepository(session)
+        result = await stage_repo.update_stage_status(
+            document_id=doc_uuid,
+            workflow_id=wf_uuid,
+            stage_name=stage_name,
+            status=status,
+            error_message=error_message
+        )
+        await session.commit()
+        return result
 
 
 @activity.defn
-async def check_stage_readiness(document_id: str) -> dict:
-    """Checks the readiness status of all stages for a document."""
-    db_id = UUID(document_id)
+async def check_stage_readiness(document_id: str, workflow_id: str) -> dict:
+    """Checks the readiness status of all stages for a document in a specific workflow."""
+    doc_uuid = UUID(document_id)
+    wf_uuid = UUID(workflow_id)
+    
     async with async_session_maker() as session:
-        query = select(DocumentReadiness).where(DocumentReadiness.document_id == db_id)
-        result = await session.execute(query)
-        readiness = result.scalar_one_or_none()
+        stage_repo = StagesRepository(session)
+        runs = await stage_repo.get_document_stage(doc_uuid, wf_uuid)
         
-        if not readiness:
-            return {
-                "processed": False,
-                "classified": False,
-                "extracted": False,
-                "enriched": False,
-                "summarized": False
-            }
+        status_map = {run.stage_name: run.status == "completed" for run in runs}
         
         return {
-            "processed": readiness.processed,
-            "classified": readiness.classified,
-            "extracted": readiness.extracted,
-            "enriched": readiness.enriched,
-            "summarized": readiness.summarized
+            "processed": status_map.get("processed", False),
+            "classified": status_map.get("classified", False),
+            "extracted": status_map.get("extracted", False),
+            "enriched": status_map.get("enriched", False),
+            "summarized": status_map.get("summarized", False)
         }

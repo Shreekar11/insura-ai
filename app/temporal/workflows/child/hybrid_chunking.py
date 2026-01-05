@@ -25,6 +25,7 @@ class HybridChunkingWorkflow:
         self, 
         document_id: str,
         page_section_map: Optional[Dict[int, str]] = None,
+        workflow_id: Optional[str] = None,
     ) -> dict:
         """
         Perform hybrid chunking on document pages.
@@ -52,7 +53,12 @@ class HybridChunkingWorkflow:
         has_section_map = page_section_map is not None
         workflow.logger.info(
             f"Starting hybrid chunking workflow for document: {document_id} "
-            f"(section_map: {'provided' if has_section_map else 'auto-detect'})"
+            f"(section_map: {'provided' if has_section_map else 'auto-detect'})",
+            extra={
+                "document_id": document_id,
+                "page_section_map": page_section_map,
+                "workflow_id": workflow_id
+            }
         )
         
         # Execute hybrid chunking activity with section map

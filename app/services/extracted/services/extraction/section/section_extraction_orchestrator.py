@@ -301,7 +301,7 @@ class SectionExtractionOrchestrator:
         
         for super_chunk in sorted_sections:
             try:
-                result = await self._extract_section(super_chunk, document_id)
+                result = await self._extract_section(super_chunk, document_id, workflow_id)
                 section_results.append(result)
                 all_entities.extend(result.entities)
                 total_tokens += result.token_count
@@ -334,6 +334,10 @@ class SectionExtractionOrchestrator:
             total_tokens=total_tokens,
             total_processing_time_ms=total_time_ms,
         )
+
+        # Persist extraction results
+        if workflow_id and document_id:
+            await self._persist_step_outputs(result, workflow_id)
         
         LOGGER.info(
             "Section extraction completed",
@@ -344,10 +348,6 @@ class SectionExtractionOrchestrator:
                 "total_tokens": total_tokens,
             }
         )
-        
-        # Persist step outputs if workflow_id is provided
-        if workflow_id and document_id:
-            await self._persist_step_outputs(result, workflow_id)
         
         return result
     
@@ -375,10 +375,10 @@ class SectionExtractionOrchestrator:
                 await self.step_section_repo.create(
                     document_id=result.document_id,
                     workflow_id=workflow_id,
-                    section_type=section_res.section_type.value,
+                    section_type=section_res.section_type,
                     display_payload=section_res.extracted_data,
                     confidence=confidence_dict,
-                    page_range=None, # Populate if available in result, but SectionExtractionResult doesn't have it explicitly besides in internal structure
+                    page_range=None,
                     source_section_extraction_id=section_res.extraction_id,
                 )
                 
@@ -433,7 +433,7 @@ class SectionExtractionOrchestrator:
         
         for super_chunk in batch.super_chunks:
             try:
-                result = await self._extract_section(super_chunk, document_id)
+                result = await self._extract_section(super_chunk, document_id, workflow_id)
                 results.append(result)
             except Exception as e:
                 LOGGER.error(f"Batch extraction failed for {super_chunk.section_type}: {e}")
@@ -448,6 +448,7 @@ class SectionExtractionOrchestrator:
         self,
         super_chunk: SectionSuperChunk,
         document_id: Optional[UUID],
+        workflow_id: Optional[UUID],
     ) -> SectionExtractionResult:
         """Extract data from a single section super-chunk using factory pattern.
         
@@ -563,6 +564,7 @@ class SectionExtractionOrchestrator:
                     
                     extraction = await self.section_extraction_repo.create_section_extraction(
                         document_id=document_id,
+                        workflow_id=workflow_id,
                         section_type=super_chunk.section_type.value,
                         extracted_fields=extracted_fields_with_entities,
                         page_range=page_range_dict,
@@ -648,6 +650,7 @@ class SectionExtractionOrchestrator:
         chunks: List[HybridChunk],
         section_type: SectionType,
         document_id: Optional[UUID] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> SectionExtractionResult:
         """Extract from chunks of a specific section type.
         
@@ -669,5 +672,5 @@ class SectionExtractionOrchestrator:
             document_id=document_id,
         )
         
-        return await self._extract_section(super_chunk, document_id)
+        return await self._extract_section(super_chunk, document_id, workflow_id)
 

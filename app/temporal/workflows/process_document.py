@@ -27,7 +27,6 @@ from datetime import timedelta
 from typing import Optional, Dict
 
 from .stages.processed import ProcessedStageWorkflow
-from .stages.classified import ClassifiedStageWorkflow
 from .stages.extracted import ExtractedStageWorkflow
 from .stages.enriched import EnrichedStageWorkflow
 from .stages.summarized import SummarizedStageWorkflow
@@ -66,7 +65,7 @@ class ProcessDocumentWorkflow:
         }
     
     @workflow.run
-    async def run(self, document_id: str) -> dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         """
         Execute the complete document processing pipeline.
         
@@ -84,8 +83,9 @@ class ProcessDocumentWorkflow:
         self._progress = 0.0
 
         processed_result = await workflow.execute_child_workflow(
-            ProcessDocumentWorkflow.run,
+            ProcessedStageWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"gate-processed-{document_id}",
             task_queue="documents-queue",
         )
@@ -93,34 +93,64 @@ class ProcessDocumentWorkflow:
         self._progress = 0.2
         self._current_phase = "classified"
 
-        # Stage 2: Extracted (Section fields + Entities)
-        self._progress = 0.4
-        self._current_phase = "extracted"
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "extracted", "running", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
         extracted_result = await workflow.execute_child_workflow(
             ExtractedStageWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"gate-extracted-{document_id}",
             task_queue="documents-queue",
         )
 
-        # Stage 3: Enriched (Canonical resolution + Relationships)
-        self._progress = 0.6
-        self._current_phase = "enriched"
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "extracted", "completed", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "enriched", "running", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
         enriched_result = await workflow.execute_child_workflow(
             EnrichedStageWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"gate-enriched-{document_id}",
             task_queue="documents-queue",
         )
 
-        # Stage 4: Summarized (Summaries + Embeddings)
-        self._progress = 0.8
-        self._current_phase = "summarized"
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "enriched", "completed", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "summarized", "running", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
         summarized_result = await workflow.execute_child_workflow(
             SummarizedStageWorkflow.run,
             document_id,
+            workflow_id=workflow_id,
             id=f"gate-summarized-{document_id}",
             task_queue="documents-queue",
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[document_id, "summarized", "completed", workflow_id],
+            start_to_close_timeout=timedelta(seconds=30),
         )
 
         # Complete
@@ -137,5 +167,4 @@ class ProcessDocumentWorkflow:
                 "enriched": enriched_result,
                 "summarized": summarized_result,
             }
-        }   
-
+        }

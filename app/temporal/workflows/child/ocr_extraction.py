@@ -26,6 +26,7 @@ class OCRExtractionWorkflow:
     async def run(
         self, 
         document_id: str,
+        workflow_id: Optional[str] = None,
         pages_to_process: Optional[List[int]] = None,
         page_section_map: Optional[Dict[int, str]] = None,
     ) -> dict:
@@ -36,7 +37,7 @@ class OCRExtractionWorkflow:
             document_id: UUID of the document to process
             pages_to_process: Optional list of page numbers to OCR.
                 If None, processes all pages (legacy behavior).
-                If provided, only OCRs the specified pages (v2 architecture).
+                If provided, only OCRs the specified pages.
             page_section_map: Optional mapping of page numbers to section types
                 from Phase 0 page analysis manifest. If provided, stores
                 page_type metadata with each extracted page.
@@ -53,12 +54,14 @@ class OCRExtractionWorkflow:
         if pages_to_process:
             workflow.logger.info(
                 f"Starting selective OCR for {len(pages_to_process)} pages "
-                f"(section_map: {'provided' if has_section_map else 'none'})"
+                f"(section_map: {'provided' if has_section_map else 'none'})",
+                extra={"workflow_id": workflow_id}
             )
         else:
             workflow.logger.info(
                 f"Starting full OCR extraction (all pages, "
-                f"section_map: {'provided' if has_section_map else 'none'})"
+                f"section_map: {'provided' if has_section_map else 'none'})",
+                extra={"workflow_id": workflow_id}
             )
         
         # Extract OCR using existing OCRService with page_section_map

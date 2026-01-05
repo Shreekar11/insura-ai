@@ -2,6 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, Dict
 
 
 @workflow.defn
@@ -14,7 +15,7 @@ class SummarizedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str) -> dict:
+    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
         workflow.logger.info(f"Starting SummarizedStage for {document_id}")
         
         # Phase 1: Summarization & Embeddings (placeholder for actual implementation)
