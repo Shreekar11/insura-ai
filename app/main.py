@@ -3,14 +3,14 @@
 from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
-from fastapi import FastAPI
-from fastapi.routing import APIRoute
+from uuid import uuid4
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
-from app.api.main import api_router
-from app.config import settings
+from app.api.v1.router import api_router
+from app.core.config import settings
 from app.utils.logging import get_logger
-from app.database.client import init_database, close_database
+from app.core.database import init_database, close_database
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -26,17 +26,12 @@ class RootResponse(BaseModel):
 
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
-    """Application lifespan manager.
-
-    Handles startup and shutdown events for the FastAPI application.
-
-    Args:
-        app: FastAPI application instance
-
-    Yields:
-        None
-    """
+    """Application lifespan manager."""
     # Startup
+    LOGGER.info("Validating configuration...")
+    if not settings.gemini_api_key:
+        LOGGER.error("GEMINI_API_KEY is missing")
+
     LOGGER.info(
         "Starting application",
         extra={
@@ -77,7 +72,6 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         )
 
 
-
 # Create FastAPI application
 app = FastAPI(
     title=settings.app_name,
@@ -88,6 +82,15 @@ app = FastAPI(
     openapi_url="/openapi.json",
     lifespan=lifespan,
 )
+
+
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid4()))
+    request.state.correlation_id = correlation_id
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
 
 # Add CORS middleware
 app.add_middleware(
@@ -135,4 +138,3 @@ if __name__ == "__main__":
         reload=settings.debug,
         log_level=settings.log_level.lower(),
     )
-

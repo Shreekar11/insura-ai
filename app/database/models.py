@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.base import Base
+from app.core.database import Base
 
 if TYPE_CHECKING:
     from collections.abc import Sequence
@@ -79,19 +79,17 @@ class Document(Base):
     pages: Mapped[list["DocumentPage"]] = relationship(
         "DocumentPage", back_populates="document", cascade="all, delete-orphan"
     )
-    ocr_results: Mapped[list["OCRResult"]] = relationship(
-        "OCRResult", back_populates="document", cascade="all, delete-orphan"
+    workflow_documents: Mapped[list["WorkflowDocument"]] = relationship(
+        "WorkflowDocument", back_populates="document", cascade="all, delete-orphan"
     )
-    classifications: Mapped[list["DocumentClassification"]] = relationship(
-        "DocumentClassification",
-        back_populates="document",
-        cascade="all, delete-orphan",
+    section_extractions: Mapped[list["SectionExtraction"]] = relationship(
+        "SectionExtraction", back_populates="document", cascade="all, delete-orphan"
     )
-    extracted_fields: Mapped[list["ExtractedField"]] = relationship(
-        "ExtractedField", back_populates="document", cascade="all, delete-orphan"
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", back_populates="document", cascade="all, delete-orphan"
     )
-    workflows: Mapped[list["Workflow"]] = relationship(
-        "Workflow", back_populates="document", cascade="all, delete-orphan"
+    stage_runs: Mapped[list["WorkflowDocumentStageRun"]] = relationship(
+        "WorkflowDocumentStageRun", back_populates="document", cascade="all, delete-orphan"
     )
 
 
@@ -119,43 +117,18 @@ class DocumentPage(Base):
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="pages")
-    raw_texts: Mapped[list["DocumentRawText"]] = relationship(
-        "DocumentRawText", back_populates="page", cascade="all, delete-orphan"
-    )
-    ocr_tokens: Mapped[list["OCRToken"]] = relationship(
-        "OCRToken", back_populates="page", cascade="all, delete-orphan"
-    )
 
 
-class DocumentRawText(Base):
-    """OCR text per page."""
+class DocumentTable(Base):
+    """First-class table representation with full structural information.
+    
+    Stores TableJSON data for any detected table, preserving:
+    - Cell-level structure (rows, cols, spans, bboxes)
+    - Extraction provenance and confidence metrics
+    - Classification and canonicalization results
+    """
 
-    __tablename__ = "document_raw_text"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_page_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("document_pages.id", ondelete="CASCADE"),
-        nullable=False,
-    )
-    text_content: Mapped[str] = mapped_column(Text, nullable=False)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    page: Mapped["DocumentPage"] = relationship(
-        "DocumentPage", back_populates="raw_texts"
-    )
-
-
-class OCRResult(Base):
-    """Document-level full OCR result."""
-
-    __tablename__ = "ocr_results"
+    __tablename__ = "document_tables"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -163,131 +136,81 @@ class OCRResult(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    ocr_provider: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # mistral_ocr | tesseract | gcv
-    raw_text: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    
-    # Provenance tracking
-    model_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="OCR engine version"
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
     )
-    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="Links to specific pipeline execution"
+    table_index: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="0-indexed table position on page"
     )
-    source_stage: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Pipeline stage: ocr"
+    stable_table_id: Mapped[str] = mapped_column(
+        String, unique=True, nullable=False, comment="Deterministic ID: tbl_{doc_id}_p{page}_t{index}"
     )
     
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
+    # Table structure as JSON
+    table_json: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Full TableJSON with cells, headers, spans, bboxes"
     )
-
-    # Relationships
-    document: Mapped["Document"] = relationship("Document", back_populates="ocr_results")
-
-
-class OCRToken(Base):
-    """Token-level OCR structure for layout understanding."""
-
-    __tablename__ = "ocr_tokens"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    
+    # Bounding box for table region
+    table_bbox: Mapped[list | None] = mapped_column(
+        JSONB, nullable=True, comment="[x1, y1, x2, y2] coordinates on page"
     )
-    document_page_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True),
-        ForeignKey("document_pages.id", ondelete="CASCADE"),
-        nullable=False,
+    
+    # Structure metrics
+    num_rows: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="Total row count"
     )
-    token: Mapped[str] = mapped_column(String, nullable=False)
-    x_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    y_min: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    x_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    y_max: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
+    num_cols: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, comment="Total column count"
     )
-
-    # Relationships
-    page: Mapped["DocumentPage"] = relationship("DocumentPage", back_populates="ocr_tokens")
-
-
-class DocumentClassification(Base):
-    """Document classification results."""
-
-    __tablename__ = "document_classifications"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    header_rows: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="Indices of header rows"
     )
-    document_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    canonical_headers: Mapped[list] = mapped_column(
+        JSONB, nullable=False, default=list, comment="Reconstructed header strings"
     )
-    classified_type: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # policy | claim | quote | submission | SOV | proposal | audit | financials | loss_run | endorsement | invoice | correspondence
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    classifier_model: Mapped[str | None] = mapped_column(
-        String, nullable=True
-    )  # rules | gpt_zero_shot | claude_zero_shot | mistral_zero_shot | chunk_aggregator_v1 | llm_fallback_v1
-    decision_details: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="Aggregation details: scores, method, chunks_used, fallback_used"
+    
+    # Classification
+    table_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="property_sov, loss_run, premium_schedule, etc."
     )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
+    classification_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Classification confidence (0.0-1.0)"
     )
-
-    # Relationships
-    document: Mapped["Document"] = relationship(
-        "Document", back_populates="classifications"
+    classification_reasoning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Human-readable classification reasoning"
     )
-
-
-class ExtractedField(Base):
-    """Extracted fields from documents."""
-
-    __tablename__ = "extracted_fields"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    
+    # Extraction provenance
+    extraction_source: Mapped[str] = mapped_column(
+        String, nullable=False, default="docling_structural",
+        comment="docling_structural, docling_markdown, camelot, tabula, etc."
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    extractor_version: Mapped[str] = mapped_column(
+        String, nullable=False, default="1.0.0", comment="Version of extractor"
     )
-    field_name: Mapped[str] = mapped_column(String, nullable=False)
-    field_value: Mapped[str | None] = mapped_column(Text, nullable=True)
-    confidence: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
+    
+    # Confidence metrics
+    confidence_overall: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall extraction confidence"
     )
-
-    # Relationships
-    document: Mapped["Document | None"] = relationship(
-        "Document", back_populates="extracted_fields"
+    confidence_metrics: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Detailed confidence metrics"
     )
-
-
-class Workflow(Base):
-    """Temporal workflow instances."""
-
-    __tablename__ = "workflows"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    
+    # Raw data for debugging
+    raw_markdown: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Original markdown representation"
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    notes: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Footer/footnote text"
     )
-    workflow_type: Mapped[str] = mapped_column(
-        String, nullable=False
-    )  # claims_intake | policy_comparison | submission | proposal_generation
-    temporal_workflow_id: Mapped[str | None] = mapped_column(String, unique=True, nullable=True)
-    status: Mapped[str] = mapped_column(
-        String, nullable=False, default="running"
-    )  # running | completed | failed
+    
+    # Additional metadata
+    additional_metadata: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional extraction metadata"
+    )
+    
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -296,163 +219,11 @@ class Workflow(Base):
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship(
-        "Document", back_populates="workflows"
-    )
-    events: Mapped[list["WorkflowRunEvent"]] = relationship(
-        "WorkflowRunEvent", back_populates="workflow", cascade="all, delete-orphan"
-    )
+    document: Mapped["Document"] = relationship("Document")
 
-
-class WorkflowRunEvent(Base):
-    """Audit trail for workflow runs."""
-
-    __tablename__ = "workflow_run_events"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    workflow_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
-    )
-    event_type: Mapped[str] = mapped_column(String, nullable=False)
-    event_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="events")
-
-
-class Submission(Base):
-    """Submissions workflow table."""
-
-    __tablename__ = "submissions"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    submission_type: Mapped[str | None] = mapped_column(
-        String, nullable=True
-    )  # property | auto | commercial
-    agent_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    insured_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    effective_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
-    expiration_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class PolicyComparison(Base):
-    """Policy comparison workflow output."""
-
-    __tablename__ = "policy_comparisons"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    comparison_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class Claim(Base):
-    """Claims intake workflow output."""
-
-    __tablename__ = "claims"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    claim_number: Mapped[str | None] = mapped_column(String, nullable=True)
-    insured_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    loss_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
-    loss_description: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class Quote(Base):
-    """Quote comparison workflow table."""
-
-    __tablename__ = "quotes"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    carrier_name: Mapped[str | None] = mapped_column(String, nullable=True)
-    premium: Mapped[Decimal | None] = mapped_column(Numeric, nullable=True)
-    details: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class Proposal(Base):
-    """Proposal generation workflow table."""
-
-    __tablename__ = "proposals"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    proposal_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    generated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class FinancialAnalysis(Base):
-    """Financial analysis workflow table."""
-
-    __tablename__ = "financial_analysis"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    extracted_metrics: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    risk_assessment: Mapped[str | None] = mapped_column(Text, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-
-class PropertySOV(Base):
-    """Statement of Values (SOV) table."""
-
-    __tablename__ = "property_sov"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    sov_json: Mapped[dict | None] = mapped_column(JSON, nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", "table_index", name="uq_document_table_position"),
+        {"comment": "First-class table storage with full structural information"},
     )
 
 
@@ -472,8 +243,6 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    
-    # New columns for vector/graph support
     section_type: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="High-level section: Declarations, Coverages, etc."
     )
@@ -489,284 +258,15 @@ class DocumentChunk(Base):
     )
 
     # Relationships
-    normalized_chunks: Mapped[list["NormalizedChunk"]] = relationship(
-        "NormalizedChunk", back_populates="chunk", cascade="all, delete-orphan"
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", foreign_keys="EntityMention.source_document_chunk_id", back_populates="source_chunk"
     )
 
 
-class NormalizedChunk(Base):
-    """Normalized chunks after LLM processing."""
+class PageAnalysis(Base):
+    """Lightweight signals extracted from PDF pages for classification."""
 
-    __tablename__ = "normalized_chunks"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False
-    )
-    normalized_text: Mapped[str] = mapped_column(Text, nullable=False)
-    normalization_method: Mapped[str] = mapped_column(
-        String, nullable=False, default="llm"
-    )  # llm | hybrid | rule_based
-    processing_time_ms: Mapped[int | None] = mapped_column(Integer, nullable=True)
-    extracted_fields: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
-    
-    # New columns for vector/graph support
-    entities: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Structured entity mentions extracted from chunk"
-    )
-    relationships: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Structured relationships between entities"
-    )
-    
-    # Provenance tracking
-    content_hash: Mapped[str | None] = mapped_column(
-        String(64), nullable=True, index=True, comment="SHA256 hash of normalized_text for change detection"
-    )
-    model_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="LLM/normalizer version for provenance"
-    )
-    prompt_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Prompt template version used"
-    )
-    pipeline_run_id: Mapped[str | None] = mapped_column(
-        String, nullable=True, index=True, comment="Pipeline execution identifier"
-    )
-    source_stage: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Pipeline stage that created this (normalization, extraction, etc.)"
-    )
-    quality_score: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Confidence/quality metric for normalization"
-    )
-    extracted_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True, comment="When extraction was performed"
-    )
-    
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    chunk: Mapped["DocumentChunk"] = relationship(
-        "DocumentChunk", back_populates="normalized_chunks"
-    )
-
-
-class ChunkClassificationSignal(Base):
-    """Classification signals extracted from document chunks."""
-
-    __tablename__ = "chunk_classification_signals"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="CASCADE"), nullable=False
-    )
-    signals: Mapped[dict] = mapped_column(
-        JSON, nullable=False, comment="Per-class confidence scores: {policy: 0.12, claim: 0.78, ...}"
-    )
-    keywords: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="Extracted keywords/phrases indicating document type"
-    )
-    entities: Mapped[dict | None] = mapped_column(
-        JSON, nullable=True, comment="Extracted entities: policy_number, claim_number, dates, amounts"
-    )
-    model_name: Mapped[str] = mapped_column(String, nullable=False)
-    model_confidence: Mapped[Decimal | None] = mapped_column(
-        Numeric(5, 4), nullable=True, comment="LLM confidence in signal extraction"
-    )
-    
-    # Provenance tracking
-    model_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Classifier model version"
-    )
-    pipeline_run_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), nullable=True, comment="Links to specific pipeline execution"
-    )
-    source_stage: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Pipeline stage: classification"
-    )
-    
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    chunk: Mapped["DocumentChunk"] = relationship("DocumentChunk")
-
-
-# ============================================================================
-# Vector Indexing & Knowledge Graph Models
-# ============================================================================
-
-
-class ChunkEmbedding(Base):
-    """Embeddings for normalized chunks with versioning support."""
-
-    __tablename__ = "chunk_embeddings"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("normalized_chunks.id", ondelete="CASCADE"), nullable=False
-    )
-    embedding_model: Mapped[str] = mapped_column(
-        String, nullable=False, comment="Model name: text-embedding-3-large, etc."
-    )
-    embedding_version: Mapped[str] = mapped_column(
-        String, nullable=False, comment="Model version for tracking updates"
-    )
-    embedding_dimension: Mapped[int] = mapped_column(
-        Integer, nullable=False, comment="Vector dimension: 1536, 3072, etc."
-    )
-    embedding: Mapped[dict] = mapped_column(
-        JSONB, nullable=False, comment="JSONB array of floats representing the vector"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    chunk: Mapped["NormalizedChunk"] = relationship("NormalizedChunk")
-
-
-class CanonicalEntity(Base):
-    """Unique, deduplicated entities across all documents."""
-
-    __tablename__ = "canonical_entities"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    entity_type: Mapped[str] = mapped_column(
-        String, nullable=False, comment="POLICY, CLAIM, INSURED, ADDRESS, CARRIER, etc."
-    )
-    canonical_key: Mapped[str] = mapped_column(
-        String, nullable=False, comment="Unique identifier: policy number, claim number, etc."
-    )
-    attributes: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Entity properties: name, dates, amounts, etc."
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-    updated_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
-    )
-
-    # Unique constraint
-    __table_args__ = (
-        UniqueConstraint("entity_type", "canonical_key", name="uq_entity_type_canonical_key"),
-        {"comment": "Canonical entities with unique (entity_type, canonical_key)"},
-    )
-
-
-class ChunkEntityMention(Base):
-    """Fine-grained entity mentions detected in chunks."""
-
-    __tablename__ = "chunk_entity_mentions"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("normalized_chunks.id", ondelete="CASCADE"), nullable=False
-    )
-    entity_type: Mapped[str] = mapped_column(
-        String, nullable=False, comment="Type of entity mentioned"
-    )
-    raw_value: Mapped[str] = mapped_column(
-        Text, nullable=False, comment="Original text as it appears in chunk"
-    )
-    normalized_value: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Cleaned/standardized value"
-    )
-    confidence: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Detection confidence (0.0-1.0)"
-    )
-    span_start: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Character offset start"
-    )
-    span_end: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Character offset end"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    chunk: Mapped["NormalizedChunk"] = relationship("NormalizedChunk")
-
-
-class EntityRelationship(Base):
-    """Structured relationships extracted by LLM/normalizer."""
-
-    __tablename__ = "entity_relationships"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    source_entity_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
-    )
-    target_entity_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
-    )
-    relationship_type: Mapped[str] = mapped_column(
-        String, nullable=False, comment="HAS_CLAIM, INSURED_BY, HAS_COVERAGE, LOCATED_AT, etc."
-    )
-    attributes: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Relationship metadata"
-    )
-    confidence: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Extraction confidence"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    source_entity: Mapped["CanonicalEntity | None"] = relationship(
-        "CanonicalEntity", foreign_keys=[source_entity_id]
-    )
-    target_entity: Mapped["CanonicalEntity | None"] = relationship(
-        "CanonicalEntity", foreign_keys=[target_entity_id]
-    )
-
-
-class ChunkEntityLink(Base):
-    """Maps chunk-level mentions to canonical entities after resolution."""
-
-    __tablename__ = "chunk_entity_links"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("normalized_chunks.id", ondelete="CASCADE"), nullable=False
-    )
-    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
-    )
-    confidence: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Linking confidence"
-    )
-    created_at: Mapped[datetime] = mapped_column(
-        TIMESTAMP(timezone=True), server_default="NOW()"
-    )
-
-    # Relationships
-    chunk: Mapped["NormalizedChunk"] = relationship("NormalizedChunk")
-    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
-
-
-class DocumentEntityLink(Base):
-    """Links canonical entities to entire documents."""
-
-    __tablename__ = "document_entity_links"
+    __tablename__ = "page_analysis"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
@@ -774,78 +274,105 @@ class DocumentEntityLink(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
     )
-    confidence: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Linking confidence"
+    top_lines: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="First 5-10 lines of text from page"
+    )
+    text_density: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Text density ratio (0.0 to 1.0)"
+    )
+    has_tables: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, comment="Whether page contains tables"
+    )
+    max_font_size: Mapped[Decimal | None] = mapped_column(
+        Numeric(6, 2), nullable=True, comment="Largest font size (indicates headers)"
+    )
+    page_hash: Mapped[str] = mapped_column(
+        String(64), nullable=False, comment="Hash for duplicate detection"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
-    # Relationships
-    document: Mapped["Document"] = relationship("Document")
-    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
-
-
-class GraphSyncState(Base):
-    """Tracks synchronization of SQL entities with Neo4j graph database."""
-
-    __tablename__ = "graph_sync_state"
-
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
-    )
-    source_table: Mapped[str] = mapped_column(
-        String, nullable=False, comment="Table name: canonical_entities, entity_relationships, etc."
-    )
-    source_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), nullable=False, comment="Record ID in source table"
-    )
-    neo4j_node_id: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Neo4j internal node/relationship ID"
-    )
-    last_sync_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True, comment="Last successful sync time"
-    )
-    sync_status: Mapped[str] = mapped_column(
-        String, nullable=False, default="pending", comment="pending, synced, failed"
-    )
-    sync_error: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Error message if sync failed"
+    # Unique constraint: one analysis per page per document
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_page_analysis_doc_page"),
+        {"comment": "Lightweight page signals for classification"},
     )
 
 
-class EmbeddingSyncState(Base):
-    """Tracks embedding sync status with Neo4j vector index."""
+class PageClassificationResult(Base):
+    """Classification results for document pages."""
 
-    __tablename__ = "embedding_sync_state"
+    __tablename__ = "page_classifications"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    chunk_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("normalized_chunks.id", ondelete="CASCADE"), nullable=False
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    last_embedding_at: Mapped[datetime | None] = mapped_column(
-        TIMESTAMP(timezone=True), nullable=True, comment="When embedding was last generated"
+    page_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="1-indexed page number"
     )
-    embedding_model: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Model used"
+    page_type: Mapped[str] = mapped_column(
+        String(50), nullable=False, comment="declarations | coverages | conditions | exclusions | endorsement | sov | loss_run | invoice | boilerplate | duplicate | unknown"
     )
-    embedding_version: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Version used"
+    confidence: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Classification confidence (0.0 to 1.0)"
     )
-    sync_status: Mapped[str] = mapped_column(
-        String, nullable=False, default="pending", comment="pending, synced, failed"
+    should_process: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, comment="Whether to perform full OCR on this page"
     )
-    sync_error: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Error message if sync failed"
+    duplicate_of: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, comment="Page number this is a duplicate of"
+    )
+    reasoning: Mapped[str | None] = mapped_column(
+        Text, nullable=True, comment="Human-readable classification reasoning"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
-    # Relationships
-    chunk: Mapped["NormalizedChunk"] = relationship("NormalizedChunk")
+    # Unique constraint: one classification per page per document
+    __table_args__ = (
+        UniqueConstraint("document_id", "page_number", name="uq_page_classification_doc_page"),
+        {"comment": "Page classification results"},
+    )
+
+
+class PageManifestRecord(Base):
+    """Page manifest summary for documents (determines which pages to process)."""
+
+    __tablename__ = "page_manifests"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False, unique=True
+    )
+    total_pages: Mapped[int] = mapped_column(
+        Integer, nullable=False, comment="Total number of pages in document"
+    )
+    pages_to_process: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="Array of page numbers to process"
+    )
+    pages_skipped: Mapped[list] = mapped_column(
+        JSONB, nullable=False, comment="Array of page numbers to skip"
+    )
+    processing_ratio: Mapped[Decimal] = mapped_column(
+        Numeric(5, 3), nullable=False, comment="Percentage of pages to process (0.0 to 1.0)"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    __table_args__ = (
+        {"comment": "Page processing manifest for cost optimization"},
+    )
 
 
 class SOVItem(Base):
@@ -967,468 +494,648 @@ class LossRunClaim(Base):
     document: Mapped["Document | None"] = relationship("Document")
 
 
-class PolicyItem(Base):
-    """Structured extraction of policy information."""
+class SectionExtraction(Base):
+    """Raw section-level extraction output store (Layer 1).
+    
+    Stores raw LLM extraction output per section without forcing rigid schemas.
+    This is the extraction source of truth for section-level data.
+    """
 
-    __tablename__ = "policy_items"
+    __tablename__ = "section_extractions"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
-    policy_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Policy identification number"
+    section_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Section type: Declarations, Coverages, SOV, LossRun, etc."
     )
-    policy_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type of policy (Property, Auto, GL, etc.)"
+    page_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Page range: {start: int, end: int}"
     )
-    insured_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Name of insured party"
+    extracted_fields: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Raw extracted fields from LLM (JSONB)"
     )
-    effective_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Policy effective date"
+    confidence: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Confidence metrics per field"
     )
-    expiration_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Policy expiration date"
+    source_chunks: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Source chunk references: {chunk_ids: [], stable_chunk_ids: []}"
     )
-    premium_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Total premium"
+    pipeline_run_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, comment="Pipeline execution identifier"
     )
-    coverage_limits: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Coverage limits by type"
+    model_version: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="LLM model version for provenance"
     )
-    deductibles: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Deductibles by coverage type"
-    )
-    carrier_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Insurance carrier"
-    )
-    agent_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Agent/broker name"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    prompt_version: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Prompt template version used"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    document: Mapped["Document"] = relationship("Document")
+    entity_mentions: Mapped[list["EntityMention"]] = relationship(
+        "EntityMention", back_populates="section_extraction", cascade="all, delete-orphan"
+    )
+    workflow: Mapped["Workflow"] = relationship("Workflow")
+
+    __table_args__ = (
+        {"comment": "Raw section-level extraction output store"},
+    )
 
 
-class EndorsementItem(Base):
-    """Structured extraction of policy endorsement/amendment information."""
+class EntityMention(Base):
+    """Document-scoped entity mentions (Layer 1 for entities).
+    
+    Stores raw entity mentions extracted from documents/sections.
+    Multiple mentions per entity are allowed (ambiguity preserved).
+    """
 
-    __tablename__ = "endorsement_items"
+    __tablename__ = "entity_mentions"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    section_extraction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("section_extractions.id", ondelete="SET NULL"), nullable=True
     )
-    endorsement_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Endorsement identifier"
+    entity_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Entity type: INSURED, CARRIER, POLICY, CLAIM, etc."
     )
-    policy_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Associated policy number"
+    mention_text: Mapped[str] = mapped_column(
+        Text, nullable=False, comment="Original text as it appears in document"
     )
-    effective_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Endorsement effective date"
+    extracted_fields: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Raw mention payload from LLM extraction"
     )
-    change_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type of change (Addition, Deletion, Modification)"
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall confidence (0.0-1.0)"
     )
-    description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Description of change"
+    confidence_details: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Detailed confidence metrics"
     )
-    premium_change: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Premium impact (positive or negative)"
+    source_document_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"), nullable=True
     )
-    coverage_changes: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Coverage modifications"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    source_stable_chunk_id: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Deterministic chunk ID for provenance"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    document: Mapped["Document"] = relationship("Document")
+    section_extraction: Mapped["SectionExtraction | None"] = relationship(
+        "SectionExtraction", back_populates="entity_mentions"
+    )
+    source_chunk: Mapped["DocumentChunk | None"] = relationship("DocumentChunk")
+    evidence_records: Mapped[list["EntityEvidence"]] = relationship(
+        "EntityEvidence", back_populates="entity_mention", cascade="all, delete-orphan"
+    )
+    entity_attributes: Mapped[list["EntityAttribute"]] = relationship(
+        "EntityAttribute", back_populates="source_entity_mention", cascade="all, delete-orphan"
+    )
 
 
-class InvoiceItem(Base):
-    """Structured extraction of invoice and payment information."""
+    __table_args__ = (
+        {"comment": "Document-scoped entity mentions with ambiguity allowed"},
+    )
 
-    __tablename__ = "invoice_items"
+
+class EntityRelationship(Base):
+    """Structured relationships extracted by LLM/normalizer."""
+
+    __tablename__ = "entity_relationships"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    source_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    target_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
     )
-    invoice_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Invoice identifier"
+    relationship_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="HAS_CLAIM, INSURED_BY, HAS_COVERAGE, LOCATED_AT, etc."
     )
-    policy_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Associated policy number"
+    attributes: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Relationship metadata"
     )
-    invoice_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Invoice date"
-    )
-    due_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Payment due date"
-    )
-    total_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Total invoice amount"
-    )
-    amount_paid: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Amount paid to date"
-    )
-    balance_due: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Remaining balance"
-    )
-    payment_status: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Status (Paid, Pending, Overdue)"
-    )
-    payment_method: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Payment method if paid"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric, nullable=True, comment="Extraction confidence"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    source_entity: Mapped["CanonicalEntity | None"] = relationship(
+        "CanonicalEntity", foreign_keys=[source_entity_id]
+    )
+    target_entity: Mapped["CanonicalEntity | None"] = relationship(
+        "CanonicalEntity", foreign_keys=[target_entity_id]
+    )
 
 
-class ConditionItem(Base):
-    """Structured extraction of policy conditions."""
+class CanonicalEntity(Base):
+    """Unique, deduplicated entities across all documents."""
 
-    __tablename__ = "condition_items"
+    __tablename__ = "canonical_entities"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    entity_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="POLICY, CLAIM, INSURED, ADDRESS, CARRIER, etc."
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    canonical_key: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Unique identifier: policy number, claim number, etc."
     )
-    condition_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type of condition"
+    attributes: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Entity properties: name, dates, amounts, etc."
     )
-    title: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Condition title"
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
     )
-    description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Full description"
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
     )
-    applies_to: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="What it applies to"
+
+    # Relationships
+    source_relationships: Mapped[list["EntityRelationship"]] = relationship(
+        "EntityRelationship", foreign_keys="EntityRelationship.source_entity_id", back_populates="source_entity"
     )
-    requirements: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, comment="List of requirements"
+    target_relationships: Mapped[list["EntityRelationship"]] = relationship(
+        "EntityRelationship", foreign_keys="EntityRelationship.target_entity_id", back_populates="target_entity"
     )
-    consequences: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Consequences of non-compliance"
+    evidence_records: Mapped[list["EntityEvidence"]] = relationship(
+        "EntityEvidence", back_populates="canonical_entity", cascade="all, delete-orphan"
     )
-    reference: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Section reference"
+    entity_attributes: Mapped[list["EntityAttribute"]] = relationship(
+        "EntityAttribute", back_populates="canonical_entity", cascade="all, delete-orphan"
     )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+
+    # Unique constraint
+    __table_args__ = (
+        UniqueConstraint("entity_type", "canonical_key", name="uq_entity_type_canonical_key"),
+        {"comment": "Canonical entities with unique (entity_type, canonical_key)"},
+    )
+
+
+class EntityEvidence(Base):
+    """Entity evidence mapping (Layer 3).
+    
+    Maps canonical entities to their source mentions, providing explainability
+    and audit trail for why canonical entities exist.
+    """
+
+    __tablename__ = "entity_evidence"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
+    )
+    entity_mention_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_mentions.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Evidence confidence (0.0-1.0)"
+    )
+    evidence_type: Mapped[str] = mapped_column(
+        String, nullable=False, default="extracted",
+        comment="Evidence type: extracted, inferred, human_verified"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
+    entity_mention: Mapped["EntityMention"] = relationship(
+        "EntityMention", back_populates="evidence_records"
+    )
+    document: Mapped["Document"] = relationship("Document")
+
+    __table_args__ = (
+        {"comment": "Evidence mapping for canonical entities (explainability/audit)"},
+    )
 
 
-class CoverageItem(Base):
-    """Structured extraction of coverage information."""
+class EntityAttribute(Base):
+    """Entity attributes (Layer 4, optional).
+    
+    Attribute-level provenance for canonical entities, enabling temporal
+    tracking and conflicting value management.
+    """
 
-    __tablename__ = "coverage_items"
+    __tablename__ = "entity_attributes"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), nullable=False
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    attribute_name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Attribute name"
     )
-    coverage_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Name of coverage"
+    attribute_value: Mapped[str | dict] = mapped_column(
+        JSONB, nullable=False, comment="Attribute value (text or JSONB)"
     )
-    coverage_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type/category"
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Attribute confidence (0.0-1.0)"
     )
-    limit_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Coverage limit"
+    source_document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="SET NULL"), nullable=True
     )
-    deductible_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Deductible amount"
-    )
-    premium_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Premium for this coverage"
-    )
-    description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Coverage description"
-    )
-    sub_limits: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Sub-limits"
-    )
-    exclusions: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, comment="Specific exclusions"
-    )
-    conditions: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, comment="Specific conditions"
-    )
-    per_occurrence: Mapped[bool | None] = mapped_column(
-        Boolean, nullable=True, comment="Is per occurrence"
-    )
-    aggregate: Mapped[bool | None] = mapped_column(
-        Boolean, nullable=True, comment="Is aggregate limit"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    source_entity_mention_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_mentions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    canonical_entity: Mapped["CanonicalEntity"] = relationship("CanonicalEntity")
+    source_document: Mapped["Document | None"] = relationship("Document")
+    source_entity_mention: Mapped["EntityMention | None"] = relationship(
+        "EntityMention", back_populates="entity_attributes"
+    )
 
 
-class ExclusionItem(Base):
-    """Structured extraction of policy exclusions."""
+    __table_args__ = (
+        {"comment": "Attribute-level provenance for canonical entities"},
+    )
 
-    __tablename__ = "exclusion_items"
+
+class StepSectionOutput(Base):
+    """Step-scoped section output.
+    
+    Stores normalized section-level results for a specific workflow step.
+    This creates a clean boundary after raw extraction.
+    """
+
+    __tablename__ = "step_section_outputs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
-    exclusion_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type of exclusion"
+    section_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Section type: Declarations, Coverages, etc."
     )
-    title: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Exclusion title"
+    display_payload: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Normalized display payload"
     )
-    description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Full description"
+    confidence: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Confidence metrics"
     )
-    applies_to: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="What it applies to"
+    page_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Page range: {start: int, end: int}"
     )
-    scope: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Scope (Total/Partial)"
-    )
-    exceptions: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, comment="Exceptions to exclusion"
-    )
-    rationale: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Reason for exclusion"
-    )
-    reference: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Section reference"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    source_section_extraction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("section_extractions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    document: Mapped["Document"] = relationship("Document")
+    workflow: Mapped["Workflow"] = relationship("Workflow")
+    section_extraction: Mapped["SectionExtraction | None"] = relationship("SectionExtraction")
+
+    __table_args__ = (
+        {"comment": "Step-scoped section level outputs"},
+    )
 
 
-class KYCItem(Base):
-    """Structured extraction of KYC information."""
+class StepEntityOutput(Base):
+    """Step-scoped entity output."
+    
+    Stores normalized entity-level results for a specific workflow step.
+    Separates entity mentions from user-facing entity lists per step.
+    """
 
-    __tablename__ = "kyc_items"
+    __tablename__ = "step_entity_outputs"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
-    customer_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Customer/Entity name"
+    entity_type: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Entity type: Insured, Carrier, etc."
     )
-    customer_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type (Individual/Entity)"
+    entity_label: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Display label for the entity"
     )
-    date_of_birth: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="DOB for individuals"
+    display_payload: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Normalized display payload"
     )
-    incorporation_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Incorporation date for entities"
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall confidence (0.0-1.0)"
     )
-    tax_id: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Tax ID / SSN / EIN"
-    )
-    business_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Business type"
-    )
-    industry: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Industry sector"
-    )
-    address: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Full address"
-    )
-    city: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="City"
-    )
-    state: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="State"
-    )
-    zip_code: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="ZIP code"
-    )
-    country: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Country"
-    )
-    phone: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Phone number"
-    )
-    email: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Email address"
-    )
-    website: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Website URL"
-    )
-    identification_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="ID type"
-    )
-    identification_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="ID number"
-    )
-    identification_issuer: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Issuing authority"
-    )
-    identification_expiry: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="ID expiry date"
-    )
-    authorized_signers: Mapped[list | None] = mapped_column(
-        JSONB, nullable=True, comment="List of authorized signers"
-    )
-    ownership_structure: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Ownership details"
-    )
-    annual_revenue: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Annual revenue"
-    )
-    employee_count: Mapped[int | None] = mapped_column(
-        Integer, nullable=True, comment="Number of employees"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    source_section_extraction_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("section_extractions.id", ondelete="SET NULL"), nullable=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    document: Mapped["Document"] = relationship("Document")
+    workflow: Mapped["Workflow"] = relationship("Workflow")
+    section_extraction: Mapped["SectionExtraction | None"] = relationship("SectionExtraction")
+
+    __table_args__ = (
+        {"comment": "Step-scoped entity level outputs"},
+    )
 
 
-class ClaimItem(Base):
-    """Structured extraction of claims information from documents."""
+class WorkflowDocument(Base):
+    """Join table for workflows and documents.
+    
+    This table acts as the linking entity between documents and workflows.
+    The document_id and workflow_id are both primary keys.
+    """
 
-    __tablename__ = "claim_items"
+    __tablename__ = "workflow_documents"
 
-    id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("documents.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True
     )
-    document_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("documents.id"), nullable=True
-    )
-    chunk_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("document_chunks.id"), nullable=True
-    )
-    claim_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Claim identifier"
-    )
-    policy_number: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Associated policy number"
-    )
-    claimant_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Name of claimant"
-    )
-    loss_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Date of loss"
-    )
-    report_date: Mapped[datetime | None] = mapped_column(
-        Date, nullable=True, comment="Date claim was reported"
-    )
-    claim_type: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Type of claim"
-    )
-    loss_description: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Description of loss"
-    )
-    loss_location: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Location of loss"
-    )
-    claim_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Claimed amount"
-    )
-    paid_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Amount paid"
-    )
-    reserve_amount: Mapped[Decimal | None] = mapped_column(
-        Numeric, nullable=True, comment="Reserve amount"
-    )
-    claim_status: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Status (Open, Closed, etc.)"
-    )
-    adjuster_name: Mapped[str | None] = mapped_column(
-        String, nullable=True, comment="Name of adjuster"
-    )
-    denial_reason: Mapped[str | None] = mapped_column(
-        Text, nullable=True, comment="Reason for denial"
-    )
-    additional_data: Mapped[dict | None] = mapped_column(
-        JSONB, nullable=True, comment="Additional fields"
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("workflows.id", ondelete="CASCADE"),
+        nullable=False,
+        primary_key=True
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
 
     # Relationships
-    document: Mapped["Document | None"] = relationship("Document")
+    document: Mapped["Document"] = relationship(
+        "Document", 
+        back_populates="workflow_documents"
+    )
+    workflow: Mapped["Workflow | None"] = relationship(
+        "Workflow", 
+        back_populates="workflow_documents",
+        foreign_keys=[workflow_id]
+    )
+
+
+class Workflow(Base):
+    """Temporal workflow instances."""
+
+    __tablename__ = "workflows"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_definition_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("workflow_definitions.id"), 
+        nullable=True
+    )
+    temporal_workflow_id: Mapped[str | None] = mapped_column(
+        String, 
+        unique=True, 
+        nullable=True
+    )
+    status: Mapped[str] = mapped_column(
+        String, 
+        nullable=False, 
+        default="running"
+    )  # running | completed | failed
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        server_default="NOW()", 
+        onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflow_definition: Mapped["WorkflowDefinition | None"] = relationship(
+        "WorkflowDefinition", 
+        back_populates="workflows"
+    )
+    events: Mapped[list["WorkflowRunEvent"]] = relationship(
+        "WorkflowRunEvent", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+    stage_runs: Mapped[list["WorkflowStageRun"]] = relationship(
+        "WorkflowStageRun", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+    workflow_documents: Mapped[list["WorkflowDocument"]] = relationship(
+        "WorkflowDocument", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+    section_extractions: Mapped[list["SectionExtraction"]] = relationship(
+        "SectionExtraction", 
+        back_populates="workflow", 
+        cascade="all, delete-orphan"
+    )
+
+
+class WorkflowRunEvent(Base):
+    """Audit trail for workflow runs."""
+
+    __tablename__ = "workflow_run_events"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("workflows.id", ondelete="CASCADE"), 
+        nullable=False
+    )
+    event_type: Mapped[str] = mapped_column(String, nullable=False)
+    event_payload: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        server_default="NOW()", 
+        onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="events")
+
+
+class WorkflowDefinition(Base):
+    """Static workflow definitions."""
+
+    __tablename__ = "workflow_definitions"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_key: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    display_name: Mapped[str] = mapped_column(String, nullable=False)
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    supports_multi_docs: Mapped[bool] = mapped_column(Boolean, default=False)
+    supported_steps: Mapped[list | None] = mapped_column(JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflows: Mapped[list["Workflow"]] = relationship(
+        "Workflow", 
+        back_populates="workflow_definition"
+    )
+
+
+class WorkflowStageRun(Base):
+    """Stages within a workflow execution."""
+
+    __tablename__ = "workflow_stage_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("workflows.id", ondelete="CASCADE"), 
+        nullable=False
+    )
+    stage_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="pending")
+    started_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        nullable=True
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), 
+        nullable=True
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship(
+        "Workflow", 
+        back_populates="stage_runs"
+    )
+
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "stage_name", name="uq_workflow_stage_run"),
+    )
+
+
+class WorkflowDocumentStageRun(Base):
+    """Document-level stage tracking within a workflow."""
+    
+    __tablename__ = "workflow_document_stage_runs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    stage_name: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="running")
+    started_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(
+        TIMESTAMP(timezone=True), nullable=True
+    )
+    error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="stage_runs")
+    workflow: Mapped["Workflow"] = relationship("Workflow")
+
+    __table_args__ = (
+        UniqueConstraint("workflow_id", "document_id", "stage_name", name="uq_workflow_doc_stage"),
+        {"comment": "Document-level stage tracking within a workflow"},
+    )
+
+
+class WorkflowEntityScope(Base):
+    """Entities scoped to a specific workflow run."""
+
+    __tablename__ = "workflow_entity_scope"
+
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), primary_key=True
+    )
+    canonical_entity_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("canonical_entities.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+
+class WorkflowRelationshipScope(Base):
+    """Relationships scoped to a specific workflow run."""
+
+    __tablename__ = "workflow_relationship_scope"
+
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), primary_key=True
+    )
+    relationship_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("entity_relationships.id", ondelete="CASCADE"), primary_key=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )

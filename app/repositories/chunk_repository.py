@@ -11,12 +11,13 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import DocumentChunk
+from app.repositories.base_repository import BaseRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
 
-class ChunkRepository:
+class ChunkRepository(BaseRepository[DocumentChunk]):
     """Repository for managing document chunks.
     
     This repository provides data access methods for document chunk operations,
@@ -210,7 +211,6 @@ class ChunkRepository:
         return created_chunks
 
     async def get_chunk_by_id(
-
         self, 
         chunk_id: UUID
     ) -> Optional[DocumentChunk]:

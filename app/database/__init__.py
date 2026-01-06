@@ -1,27 +1,28 @@
 """Database module for SQLAlchemy models and session management."""
 
-from app.database.base import Base, engine, get_db_session
-from app.database.client import DatabaseClient, db_client, init_database, close_database
+from app.core.database import Base, engine, get_db_session
+from app.core.database import DatabaseClient, db_client, init_database, close_database
 from app.database.models import (
-    Claim,
     Document,
-    DocumentClassification,
+    DocumentChunk,
     DocumentPage,
-    DocumentRawText,
-    ExtractedField,
-    FinancialAnalysis,
-    OCRResult,
-    OCRToken,
-    PolicyComparison,
-    Proposal,
-    PropertySOV,
-    Quote,
-    Submission,
+    WorkflowDocumentStageRun,
+    DocumentTable,
+    CanonicalEntity,
+    EntityAttribute,
+    EntityEvidence,
+    EntityMention,
+    PageAnalysis,
+    PageClassificationResult,
+    PageManifestRecord,
+    SectionExtraction,
+    StepEntityOutput,
+    StepSectionOutput,
     User,
     Workflow,
     WorkflowRunEvent,
 )
-from app.database.session import get_async_session
+from app.core.database import get_async_session
 
 __all__ = [
     "Base",
@@ -35,19 +36,20 @@ __all__ = [
     "User",
     "Document",
     "DocumentPage",
-    "DocumentRawText",
-    "OCRResult",
-    "OCRToken",
-    "DocumentClassification",
-    "ExtractedField",
+    "DocumentChunk",
+    "WorkflowDocumentStageRun",
+    "DocumentTable",
+    "PageAnalysis",
+    "PageClassificationResult",
+    "PageManifestRecord",
+    "SectionExtraction",
+    "CanonicalEntity",
+    "EntityMention",
+    "EntityEvidence",
+    "EntityAttribute",
+    "StepSectionOutput",
+    "StepEntityOutput",
     "Workflow",
     "WorkflowRunEvent",
-    "Submission",
-    "PolicyComparison",
-    "Claim",
-    "Quote",
-    "Proposal",
-    "FinancialAnalysis",
-    "PropertySOV",
 ]
 

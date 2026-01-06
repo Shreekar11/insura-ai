@@ -6,8 +6,8 @@ from sqlalchemy import pool
 from alembic import context
 
 # Import app config and models
-from app.config import settings
-from app.database.base import Base
+from app.core.config import settings
+from app.core.database import Base
 from app.database import models  # noqa: F401 - Import to register all models
 
 # this is the Alembic Config object, which provides

@@ -1,0 +1,244 @@
+"""Entity resolution service for canonical entity management.
+
+This service resolves entity mentions to canonical entities, creating new
+canonical entities when needed and linking chunks to them.
+"""
+
+from typing import Dict, Any, Optional
+from uuid import UUID
+import hashlib
+
+from sqlalchemy import select
+from sqlalchemy.ext.asyncio import AsyncSession
+
+from app.database.models import (
+    CanonicalEntity,
+    EntityEvidence,    
+)
+from app.repositories.entity_mention_repository import EntityMentionRepository
+from app.repositories.entity_evidence_repository import EntityEvidenceRepository
+from app.utils.logging import get_logger
+from decimal import Decimal
+
+LOGGER = get_logger(__name__)
+
+
+class EntityResolver:
+    """Resolves entity mentions to canonical entities.
+    
+    This service manages the creation and linking of canonical entities,
+    ensuring that multiple mentions of the same entity (e.g., "POL123456")
+    are resolved to a single canonical entity record.
+    
+    Attributes:
+        session: SQLAlchemy async session
+    """
+    
+    def __init__(self, session: AsyncSession):
+        """Initialize entity resolver.
+        
+        Args:
+            session: SQLAlchemy async session
+        """
+        self.session = session
+        self.mention_repo = EntityMentionRepository(session)
+        self.evidence_repo = EntityEvidenceRepository(session)
+    
+    async def resolve_entity(
+        self,
+        entity_mention: Dict[str, Any],
+        chunk_id: Optional[UUID],
+        document_id: UUID,
+        workflow_id: Optional[UUID] = None
+    ) -> UUID:
+        """Resolve entity mention to canonical entity.
+        
+        Creates new canonical entity if it doesn't exist, otherwise returns
+        existing entity ID. Also creates chunk-entity link if chunk_id provided.
+        
+        Args:
+            entity_mention: Entity mention dict with entity_type, normalized_value, etc.
+            chunk_id: ID of the chunk containing this mention (None for document-level entities)
+            document_id: ID of the document
+            workflow_id: ID of the workflow
+            
+        Returns:
+            UUID: Canonical entity ID
+        """
+        entity_type = entity_mention.get("entity_type")
+        normalized_value = entity_mention.get("normalized_value")
+        
+        if not entity_type or not normalized_value:
+            LOGGER.warning("Invalid entity mention, missing type or value")
+            raise ValueError("Entity mention must have entity_type and normalized_value")
+        
+        # Generate canonical key
+        canonical_key = self._generate_canonical_key(entity_type, normalized_value)
+        
+        # Check if canonical entity exists
+        canonical_entity = await self._get_or_create_canonical_entity(
+            entity_type=entity_type,
+            canonical_key=canonical_key,
+            normalized_value=normalized_value,
+            raw_value=entity_mention.get("raw_value", normalized_value)
+        )
+        
+        # Create entity mention (document-scoped) and evidence
+        source_document_chunk_id = None
+        source_stable_chunk_id = None
+        
+        if chunk_id is not None:
+            from app.repositories.chunk_repository import ChunkRepository
+            chunk_repo = ChunkRepository(self.session)
+            document_chunk = await chunk_repo.get_chunk_by_id(chunk_id)
+            
+            if document_chunk:
+                source_document_chunk_id = document_chunk.id
+                source_stable_chunk_id = document_chunk.stable_chunk_id
+        
+        # Create EntityMention record (document-scoped)
+        mention = await self.mention_repo.create_entity_mention(
+            document_id=document_id,
+            entity_type=entity_type,
+            mention_text=entity_mention.get("raw_value", normalized_value),
+            extracted_fields={
+                "normalized_value": normalized_value,
+                "raw_value": entity_mention.get("raw_value", normalized_value),
+                **{k: v for k, v in entity_mention.items() if k not in ["entity_type", "normalized_value", "raw_value", "confidence"]}
+            },
+            confidence=Decimal(str(entity_mention.get("confidence", 0.8))),
+            source_document_chunk_id=source_document_chunk_id,
+            source_stable_chunk_id=source_stable_chunk_id,
+        )
+        
+        # Create EntityEvidence record linking canonical entity to mention
+        await self.evidence_repo.create_entity_evidence(
+            canonical_entity_id=canonical_entity.id,
+            entity_mention_id=mention.id,
+            document_id=document_id,
+            confidence=Decimal(str(entity_mention.get("confidence", 0.8))),
+            evidence_type="extracted",
+        )
+        
+        LOGGER.debug(
+            "Resolved entity mention to canonical entity",
+            extra={
+                "entity_type": entity_type,
+                "canonical_key": canonical_key,
+                "canonical_entity_id": str(canonical_entity.id),
+                "chunk_id": str(chunk_id),
+                "workflow_id": str(workflow_id) if workflow_id else None
+            }
+        )
+        
+        # Add to workflow scope if provided
+        if workflow_id:
+            from app.repositories.entity_repository import EntityRepository
+            entity_repo = EntityRepository(self.session)
+            await entity_repo.add_to_workflow_scope(workflow_id, canonical_entity.id)
+        
+        return canonical_entity.id
+    
+    async def resolve_entities_batch(
+        self,
+        entities: list[Dict[str, Any]],
+        chunk_id: Optional[UUID],
+        document_id: UUID,
+        workflow_id: UUID
+    ) -> list[UUID]:
+        """Resolve multiple entity mentions in batch.
+        
+        Args:
+            entities: List of entity mention dicts
+            chunk_id: ID of the chunk (None for document-level entities)
+            document_id: ID of the document
+            workflow_id: ID of the workflow
+        Returns:
+            list[UUID]: List of canonical entity IDs
+        """
+        canonical_entity_ids = []
+        
+        for entity in entities:
+            try:
+                entity_id = await self.resolve_entity(entity, chunk_id, document_id, workflow_id)
+                canonical_entity_ids.append(entity_id)
+            except Exception as e:
+                LOGGER.error(
+                    f"Failed to resolve entity: {e}",
+                    extra={"entity": entity, "chunk_id": str(chunk_id)}
+                )
+                continue
+        
+        return canonical_entity_ids
+    
+    def _generate_canonical_key(self, entity_type: str, normalized_value: str) -> str:
+        """Generate canonical key for entity.
+        
+        The canonical key is a hash of entity_type + normalized_value,
+        ensuring uniqueness across entity types.
+        
+        Args:
+            entity_type: Type of entity
+            normalized_value: Normalized value
+            
+        Returns:
+            str: Canonical key (hash)
+        """
+        # Use SHA256 hash of type:value
+        key_input = f"{entity_type}:{normalized_value}".lower()
+        return hashlib.sha256(key_input.encode()).hexdigest()[:32]
+    
+    async def _get_or_create_canonical_entity(
+        self,
+        entity_type: str,
+        canonical_key: str,
+        normalized_value: str,
+        raw_value: str
+    ) -> CanonicalEntity:
+        """Get existing or create new canonical entity.
+        
+        Args:
+            entity_type: Type of entity
+            canonical_key: Canonical key
+            normalized_value: Normalized value
+            raw_value: Raw value
+            
+        Returns:
+            CanonicalEntity: The canonical entity
+        """
+        # Try to find existing entity
+        query = select(CanonicalEntity).where(
+            CanonicalEntity.entity_type == entity_type,
+            CanonicalEntity.canonical_key == canonical_key
+        )
+        result = await self.session.execute(query)
+        existing = result.scalar_one_or_none()
+        
+        if existing:
+            LOGGER.debug(f"Found existing canonical entity: {existing.id}")
+            return existing
+        
+        # Create new canonical entity
+        canonical_entity = CanonicalEntity(
+            entity_type=entity_type,
+            canonical_key=canonical_key,
+            attributes={
+                "normalized_value": normalized_value,
+                "raw_value": raw_value
+            }
+        )
+        
+        self.session.add(canonical_entity)
+        await self.session.flush()
+        
+        LOGGER.info(
+            "Created new canonical entity",
+            extra={
+                "entity_id": str(canonical_entity.id),
+                "entity_type": entity_type,
+                "canonical_key": canonical_key
+            }
+        )
+        
+        return canonical_entity
+
