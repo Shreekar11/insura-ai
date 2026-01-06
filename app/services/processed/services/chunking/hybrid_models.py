@@ -21,7 +21,7 @@ class SectionType(str, Enum):
     CONDITIONS = "conditions"
     EXCLUSIONS = "exclusions"
     ENDORSEMENTS = "endorsements"
-    SCHEDULE_OF_VALUES = "schedule_of_values"
+    SOV = "sov"
     LOSS_RUN = "loss_run"
     INSURING_AGREEMENT = "insuring_agreement"
     PREMIUM_SUMMARY = "premium_summary"
@@ -286,7 +286,7 @@ SECTION_CONFIG = {
         "requires_llm": True,
         "table_only": False,
     },
-    SectionType.SCHEDULE_OF_VALUES: {
+    SectionType.SOV: {
         "max_chunks": 5,
         "max_tokens": 5000,
         "priority": 2,

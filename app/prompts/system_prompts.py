@@ -769,6 +769,7 @@ VALID_SECTION_TYPES = {
     # Tables and schedules level sections
     "sov",
     "schedule_of_values",
+    "statement_of_values",
     "loss_runs",
     "premium_schedule",
     "rate_schedule",

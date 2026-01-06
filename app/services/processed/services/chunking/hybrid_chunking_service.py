@@ -59,7 +59,7 @@ SECTION_ANCHORS = {
         r'^\s*POLICY\s+ENDORSEMENTS?\s*$',
         r'^\s*FORMS?\s+AND\s+ENDORSEMENTS?\s*$',
     ],
-    SectionType.SCHEDULE_OF_VALUES: [
+    SectionType.SOV: [
         r'^\s*SCHEDULE\s+OF\s+VALUES?\s*$',
         r'^\s*SOV\s*$',
         r'^\s*PROPERTY\s+SCHEDULE\s*$',
@@ -260,7 +260,7 @@ class HybridChunkingService:
         
         Uses SectionTypeMapper to ensure consistent taxonomy, handling both
         PageType values (e.g., "endorsement", "sov") and SectionType values
-        (e.g., "endorsements", "schedule_of_values").
+        (e.g., "endorsements", "sov").
         
         Args:
             page_section_map: Mapping of page numbers to section type strings
