@@ -15,14 +15,8 @@ LOGGER = get_logger(__name__)
 class TokenCounter:
     """Token counter for estimating token counts in text.
     
-    Uses a simple heuristic-based approach that approximates tiktoken behavior
-    without requiring the tiktoken library. This is faster and sufficient for
-    chunking purposes where exact token counts are not critical.
-    
-    The estimation uses:
-    - Average of 4 characters per token for English text
-    - Special handling for whitespace and punctuation
-    - Adjustment factors for insurance document patterns
+    Uses tiktoken for accurate token counting where possible,
+    falling back to a heuristic-based approach if needed.
     """
     
     # Average characters per token (empirically derived for insurance docs)
@@ -35,45 +29,51 @@ class TokenCounter:
         """Initialize token counter.
         
         Args:
-            model: Model name for token counting (for future tiktoken integration)
+            model: Model name for token counting
         """
         self.model = model
+        self.encoder = None
+        try:
+            import tiktoken
+            try:
+                self.encoder = tiktoken.encoding_for_model(model)
+                LOGGER.debug(f"Initialized tiktoken encoder for model: {model}")
+            except KeyError:
+                self.encoder = tiktoken.get_encoding("cl100k_base")
+                LOGGER.debug(f"Model {model} not found, using cl100k_base encoding")
+        except ImportError:
+            LOGGER.warning("tiktoken not installed, using heuristic token counting")
+        
         LOGGER.debug(f"Initialized token counter for model: {model}")
     
     def count_tokens(self, text: str) -> int:
-        """Count approximate tokens in text.
+        """Count tokens in text.
         
-        Uses a heuristic approach that estimates token count based on:
-        1. Character count
-        2. Word boundaries
-        3. Special characters
+        Uses tiktoken if available, otherwise falls back to a heuristic approach.
         
         Args:
             text: Text to count tokens for
             
         Returns:
-            int: Estimated token count
-            
-        Example:
-            >>> counter = TokenCounter()
-            >>> counter.count_tokens("Policy Number: 12345")
-            5
+            int: Token count
         """
         if not text:
             return 0
+            
+        if self.encoder:
+            try:
+                return len(self.encoder.encode(text))
+            except Exception as e:
+                LOGGER.warning(f"tiktoken encoding failed: {e}, falling back to heuristic")
         
-        # Basic character-based estimation
+        # Heuristic fallback (original logic)
         char_count = len(text)
         base_estimate = char_count / self.CHARS_PER_TOKEN
         
-        # Adjust for word boundaries (spaces indicate token boundaries)
         word_count = len(text.split())
-        word_based_estimate = word_count * 1.3  # Average token per word
+        word_based_estimate = word_count * 1.3
         
-        # Use average of both methods
         estimate = (base_estimate + word_based_estimate) / 2
-        
-        # Apply insurance document adjustment
         estimate *= self.INSURANCE_DOC_FACTOR
         
         return int(estimate)

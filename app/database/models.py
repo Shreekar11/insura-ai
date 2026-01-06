@@ -243,8 +243,6 @@ class DocumentChunk(Base):
     chunk_index: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
     raw_text: Mapped[str] = mapped_column(Text, nullable=False)
     token_count: Mapped[int] = mapped_column(Integer, nullable=False)
-    
-    # New columns for vector/graph support
     section_type: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="High-level section: Declarations, Coverages, etc."
     )

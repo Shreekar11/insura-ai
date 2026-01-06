@@ -422,6 +422,8 @@ class HybridChunkingService:
     def _detect_section_type(self, text: str) -> SectionType:
         """Detect section type from text content.
         
+        Optimized for paragraph-level header detection.
+        
         Args:
             text: Text content to analyze
             
@@ -432,11 +434,12 @@ class HybridChunkingService:
             return SectionType.UNKNOWN
         
         # Check first few lines for section headers
-        lines = text.split('\n')[:10]
+        # Headers are typically short and at the beginning of a paragraph
+        lines = text.split('\n')[:3]
         
         for line in lines:
             line_stripped = line.strip()
-            if not line_stripped:
+            if not line_stripped or len(line_stripped) > 200:
                 continue
             
             # Remove markdown header markers
@@ -458,11 +461,14 @@ class HybridChunkingService:
         page_sections: Dict[int, SectionType],
         document_id: Optional[UUID],
     ) -> List[HybridChunk]:
-        """Create hybrid chunks from pages with section awareness.
+        """Create hybrid chunks from pages with semantic section awareness.
+        
+        This implementation processes the document as a stream of paragraphs,
+        detecting section transitions within pages and preserving context.
         
         Args:
             pages: List of pages
-            page_sections: Mapping of page numbers to sections
+            page_sections: Initial mapping of page numbers to sections (baselines)
             document_id: Document ID for metadata
             
         Returns:
@@ -471,164 +477,219 @@ class HybridChunkingService:
         chunks = []
         chunk_index = 0
         
-        for page in pages:
-            content = page.get_content()
-            section_type = page_sections.get(page.page_number, SectionType.UNKNOWN)
-            
-            # Check if page has tables
-            has_tables = page.metadata.get("has_tables", False)
-            table_count = page.metadata.get("table_count", 0)
-            
-            # Determine chunk role
-            if has_tables and table_count > 0:
-                chunk_role = ChunkRole.TABLE if table_count > 2 else ChunkRole.MIXED
-            else:
-                chunk_role = ChunkRole.TEXT
-            
-            # Token count for page
-            page_tokens = self.token_counter.count_tokens(content)
-            
-            if page_tokens <= self.max_tokens:
-                # Page fits in single chunk
-                metadata = HybridChunkMetadata(
-                    document_id=document_id,
-                    page_number=page.page_number,
-                    page_range=[page.page_number],
-                    section_type=section_type,
-                    section_name=section_type.value.replace("_", " ").title(),
-                    chunk_index=chunk_index,
-                    token_count=page_tokens,
-                    start_char=0,
-                    end_char=len(content),
-                    stable_chunk_id=self._generate_stable_id(document_id, chunk_index),
-                    chunk_role=chunk_role,
-                    has_tables=has_tables,
-                    table_count=table_count,
-                    context_header=self._build_context_header(section_type, page.page_number),
-                    source="hybrid_chunker",
-                )
-                
-                chunk = HybridChunk(
-                    text=content,
-                    contextualized_text=f"{metadata.context_header}\n{content}" if metadata.context_header else content,
-                    metadata=metadata,
-                )
-                chunks.append(chunk)
-                chunk_index += 1
-            else:
-                # Split large page into multiple chunks
-                page_chunks = self._split_page_content(
-                    content=content,
-                    page_number=page.page_number,
-                    section_type=section_type,
-                    document_id=document_id,
-                    base_index=chunk_index,
-                    has_tables=has_tables,
-                    table_count=table_count,
-                )
-                chunks.extend(page_chunks)
-                chunk_index += len(page_chunks)
-        
-        return chunks
-    
-    def _split_page_content(
-        self,
-        content: str,
-        page_number: int,
-        section_type: SectionType,
-        document_id: Optional[UUID],
-        base_index: int,
-        has_tables: bool,
-        table_count: int,
-    ) -> List[HybridChunk]:
-        """Split large page content into multiple chunks.
-        
-        Args:
-            content: Page content to split
-            page_number: Page number
-            section_type: Section type
-            document_id: Document ID
-            base_index: Starting chunk index
-            has_tables: Whether page has tables
-            table_count: Number of tables
-            
-        Returns:
-            List of HybridChunks
-        """
-        chunks = []
-        
-        # Split by paragraphs first
-        paragraphs = self._split_by_paragraphs(content)
-        
-        current_text = ""
+        current_section = SectionType.UNKNOWN
+        current_buffer = []
         current_tokens = 0
-        chunk_idx = 0
+        current_page_range = set()
         
-        for para in paragraphs:
-            para_tokens = self.token_counter.count_tokens(para)
+        # State tracking for current chunk
+        current_has_tables = False
+        current_table_count = 0
+        
+        for page in pages:
+            page_num = page.page_number
+            content = page.get_content()
+            paragraphs = self._split_by_paragraphs(content)
             
-            if current_tokens + para_tokens > self.max_tokens:
-                # Save current chunk
-                if current_text.strip():
-                    metadata = HybridChunkMetadata(
-                        document_id=document_id,
-                        page_number=page_number,
-                        page_range=[page_number],
-                        section_type=section_type,
-                        section_name=f"{section_type.value.replace('_', ' ').title()} (Part {chunk_idx + 1})",
-                        chunk_index=base_index + chunk_idx,
-                        token_count=current_tokens,
-                        stable_chunk_id=self._generate_stable_id(document_id, base_index + chunk_idx),
-                        chunk_role=ChunkRole.MIXED if has_tables else ChunkRole.TEXT,
-                        has_tables=has_tables,
-                        table_count=table_count if chunk_idx == 0 else 0,
-                        context_header=self._build_context_header(section_type, page_number),
-                        source="hybrid_chunker",
+            # Baseline section from manifest/OCR metadata for this page
+            manifest_section = page_sections.get(page_num, SectionType.UNKNOWN)
+            
+            # Page-level table info
+            page_has_tables = page.metadata.get("has_tables", False)
+            page_table_count = page.metadata.get("table_count", 0)
+            
+            for para_idx, para in enumerate(paragraphs):
+                para_tokens = self.token_counter.count_tokens(para)
+                
+                # Detect section transition within the paragraph
+                detected_section = self._detect_section_type(para)
+                
+                transition_occurred = False
+                new_section = current_section
+                
+                if detected_section != SectionType.UNKNOWN and detected_section != current_section:
+                    LOGGER.info(
+                        f"Section transition detected via header: {current_section} -> {detected_section}",
+                        extra={"page": page_num, "para_idx": para_idx}
+                    )
+                    transition_occurred = True
+                    new_section = detected_section
+                elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
+                    LOGGER.info(
+                        f"Section transition detected via manifest: {current_section} -> {manifest_section}",
+                        extra={"page": page_num}
+                    )
+                    transition_occurred = True
+                    new_section = manifest_section
+                
+                # Handle oversized paragraph - split it internally
+                if para_tokens > self.max_tokens:
+                    if current_buffer:
+                        chunks.append(self._flush_chunk(
+                            buffer=current_buffer,
+                            section_type=current_section,
+                            page_range=current_page_range,
+                            document_id=document_id,
+                            chunk_index=chunk_index,
+                            tokens=current_tokens,
+                            has_tables=current_has_tables,
+                            table_count=current_table_count,
+                        ))
+                        chunk_index += 1
+                        current_buffer = []
+                        current_tokens = 0
+                        current_page_range = {page_num}
+                        current_has_tables = False
+                        current_table_count = 0
+                    
+                    # Update section if it was detected in this large paragraph
+                    if transition_occurred:
+                        current_section = new_section
+                    
+                    # Split the paragraph
+                    sub_paras = self.token_counter.split_by_token_limit(
+                        para, self.max_tokens, self.overlap_tokens
                     )
                     
-                    context_header = metadata.context_header or ""
-                    chunk = HybridChunk(
-                        text=current_text.strip(),
-                        contextualized_text=f"{context_header}\n{current_text.strip()}" if context_header else current_text.strip(),
-                        metadata=metadata,
+                    for sub_para in sub_paras[:-1]:
+                        sub_tokens = self.token_counter.count_tokens(sub_para)
+                        chunks.append(self._flush_chunk(
+                            buffer=[sub_para],
+                            section_type=current_section,
+                            page_range={page_num},
+                            document_id=document_id,
+                            chunk_index=chunk_index,
+                            tokens=sub_tokens,
+                            has_tables=page_has_tables,
+                            table_count=page_table_count,
+                        ))
+                        chunk_index += 1
+                    
+                    # Last sub-paragraph remains in buffer
+                    last_para = sub_paras[-1]
+                    current_buffer = [last_para]
+                    current_tokens = self.token_counter.count_tokens(last_para)
+                    current_page_range = {page_num}
+                    current_has_tables = page_has_tables
+                    current_table_count = page_table_count
+                    continue
+
+                # Determine if we should flush the current chunk
+                # Flush if: Section transition OR Token limit reached
+                should_flush = current_buffer and (
+                    transition_occurred or 
+                    (current_tokens + para_tokens > self.max_tokens)
+                )
+                
+                if should_flush:
+                    # Create and store the chunk
+                    chunk = self._flush_chunk(
+                        buffer=current_buffer,
+                        section_type=current_section,
+                        page_range=current_page_range,
+                        document_id=document_id,
+                        chunk_index=chunk_index,
+                        tokens=current_tokens,
+                        has_tables=current_has_tables,
+                        table_count=current_table_count,
                     )
                     chunks.append(chunk)
-                    chunk_idx += 1
+                    chunk_index += 1
+                    
+                    # Prepare for next chunk
+                    if transition_occurred:
+                        # Clear buffer on section transition
+                        current_buffer = []
+                        current_tokens = 0
+                        current_page_range = {page_num}
+                    else:
+                        # Token limit reached: use overlap from current buffer
+                        overlap_text = self._get_overlap_text("\n\n".join(current_buffer))
+                        if overlap_text:
+                            current_buffer = [overlap_text.strip()]
+                            current_tokens = self.token_counter.count_tokens(overlap_text)
+                        else:
+                            current_buffer = []
+                            current_tokens = 0
+                        current_page_range = {page_num}
+                    
+                    current_has_tables = False
+                    current_table_count = 0
                 
-                # Start new chunk with overlap
-                overlap_text = self._get_overlap_text(current_text)
-                current_text = overlap_text + para
-                current_tokens = self.token_counter.count_tokens(current_text)
-            else:
-                current_text += "\n\n" + para if current_text else para
+                # Update current state
+                if transition_occurred:
+                    current_section = new_section
+                
+                current_buffer.append(para)
                 current_tokens += para_tokens
+                current_page_range.add(page_num)
+                if page_has_tables:
+                    current_has_tables = True
+                    current_table_count = max(current_table_count, page_table_count)
         
-        # Save final chunk
-        if current_text.strip():
-            metadata = HybridChunkMetadata(
+        # Flush final chunk
+        if current_buffer:
+            chunk = self._flush_chunk(
+                buffer=current_buffer,
+                section_type=current_section,
+                page_range=current_page_range,
                 document_id=document_id,
-                page_number=page_number,
-                page_range=[page_number],
-                section_type=section_type,
-                section_name=f"{section_type.value.replace('_', ' ').title()} (Part {chunk_idx + 1})",
-                chunk_index=base_index + chunk_idx,
-                token_count=self.token_counter.count_tokens(current_text),
-                stable_chunk_id=self._generate_stable_id(document_id, base_index + chunk_idx),
-                chunk_role=ChunkRole.MIXED if has_tables else ChunkRole.TEXT,
-                has_tables=has_tables,
-                context_header=self._build_context_header(section_type, page_number),
-                source="hybrid_chunker",
-            )
-            
-            context_header = metadata.context_header or ""
-            chunk = HybridChunk(
-                text=current_text.strip(),
-                contextualized_text=f"{context_header}\n{current_text.strip()}" if context_header else current_text.strip(),
-                metadata=metadata,
+                chunk_index=chunk_index,
+                tokens=current_tokens,
+                has_tables=current_has_tables,
+                table_count=current_table_count,
             )
             chunks.append(chunk)
-        
+            
         return chunks
+
+    def _flush_chunk(
+        self,
+        buffer: List[str],
+        section_type: SectionType,
+        page_range: set,
+        document_id: Optional[UUID],
+        chunk_index: int,
+        tokens: int,
+        has_tables: bool,
+        table_count: int,
+    ) -> HybridChunk:
+        """Create a HybridChunk from the current buffer and state."""
+        content = "\n\n".join(buffer).strip()
+        sorted_pages = sorted(list(page_range))
+        primary_page = sorted_pages[0] if sorted_pages else 1
+        
+        # Determine chunk role
+        if has_tables and table_count > 0:
+            chunk_role = ChunkRole.TABLE if table_count > 2 else ChunkRole.MIXED
+        else:
+            chunk_role = ChunkRole.TEXT
+            
+        metadata = HybridChunkMetadata(
+            document_id=document_id,
+            page_number=primary_page,
+            page_range=sorted_pages,
+            section_type=section_type,
+            section_name=section_type.value.replace("_", " ").title(),
+            chunk_index=chunk_index,
+            token_count=tokens,
+            stable_chunk_id=self._generate_stable_id(document_id, chunk_index),
+            chunk_role=chunk_role,
+            has_tables=has_tables,
+            table_count=table_count,
+            context_header=self._build_context_header(section_type, primary_page),
+            source="semantic_paragraph_chunker",
+        )
+        
+        # Enrich with contextualized text for better embeddings
+        context_header = metadata.context_header or ""
+        contextualized_text = f"{context_header}\n{content}" if context_header else content
+        
+        return HybridChunk(
+            text=content,
+            contextualized_text=contextualized_text,
+            metadata=metadata,
+        )
     
     def _split_by_paragraphs(self, text: str) -> List[str]:
         """Split text into paragraphs.

@@ -138,8 +138,9 @@ class StagesRepository(BaseRepository[WorkflowDocumentStageRun]):
 
         await self.session.flush()
 
-        doc_query = select(WorkflowDocument.id).where(
-            WorkflowDocument.workflow_id == workflow_id
+        doc_query = select(WorkflowDocument).where(
+            WorkflowDocument.workflow_id == workflow_id,
+            WorkflowDocument.document_id == document_id,
         )
         doc_result = await self.session.execute(doc_query)
         total_docs = len(doc_result.scalars().all())
