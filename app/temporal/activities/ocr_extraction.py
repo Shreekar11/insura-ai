@@ -10,7 +10,7 @@ from typing import Dict, List, Optional
 from uuid import UUID
 import time
 
-from app.database.base import async_session_maker
+from app.core.database import async_session_maker
 from app.pipeline.ocr_extraction import OCRExtractionPipeline
 from app.utils.logging import get_logger
 
@@ -19,6 +19,7 @@ logger = get_logger(__name__)
 
 @activity.defn
 async def extract_ocr(
+    workflow_id: str,
     document_id: str, 
     pages_to_process: Optional[List[int]] = None,
     page_section_map: Optional[Dict[int, str]] = None,

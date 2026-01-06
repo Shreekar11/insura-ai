@@ -60,6 +60,7 @@ class EntityResolver:
             entity_mention: Entity mention dict with entity_type, normalized_value, etc.
             chunk_id: ID of the chunk containing this mention (None for document-level entities)
             document_id: ID of the document
+            workflow_id: ID of the workflow
             
         Returns:
             UUID: Canonical entity ID
@@ -143,7 +144,7 @@ class EntityResolver:
         entities: list[Dict[str, Any]],
         chunk_id: Optional[UUID],
         document_id: UUID,
-        workflow_id: Optional[UUID] = None
+        workflow_id: UUID
     ) -> list[UUID]:
         """Resolve multiple entity mentions in batch.
         
@@ -151,7 +152,7 @@ class EntityResolver:
             entities: List of entity mention dicts
             chunk_id: ID of the chunk (None for document-level entities)
             document_id: ID of the document
-            
+            workflow_id: ID of the workflow
         Returns:
             list[UUID]: List of canonical entity IDs
         """

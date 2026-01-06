@@ -16,10 +16,9 @@ from app.models.table_json import (
     TableJSON,
     TableCellJSON,
     TableExtractionSource,
-    ConfidenceMetrics,
     create_table_id,
 )
-from app.utils.exceptions import OCRExtractionError
+from app.core.exceptions import OCRExtractionError
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

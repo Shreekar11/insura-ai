@@ -23,9 +23,9 @@ class HybridChunkingWorkflow:
     @workflow.run
     async def run(
         self, 
+        workflow_id: str,
         document_id: str,
         page_section_map: Optional[Dict[int, str]] = None,
-        workflow_id: Optional[str] = None,
     ) -> dict:
         """
         Perform hybrid chunking on document pages.
@@ -55,16 +55,16 @@ class HybridChunkingWorkflow:
             f"Starting hybrid chunking workflow for document: {document_id} "
             f"(section_map: {'provided' if has_section_map else 'auto-detect'})",
             extra={
+                "workflow_id": workflow_id,
                 "document_id": document_id,
                 "page_section_map": page_section_map,
-                "workflow_id": workflow_id
             }
         )
         
         # Execute hybrid chunking activity with section map
         result = await workflow.execute_activity(
             "perform_hybrid_chunking",
-            args=[document_id, page_section_map],
+            args=[workflow_id, document_id, page_section_map],
             start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

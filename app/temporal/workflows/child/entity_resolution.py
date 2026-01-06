@@ -19,14 +19,15 @@ class EntityResolutionWorkflow:
     """Child workflow for entity aggregation, canonical resolution, and relationship extraction."""
     
     @workflow.run
-    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
+    async def run(self, workflow_id: str, document_id: str) -> dict:
         """
         Aggregate entities, resolve to canonical forms, and extract relationships.
         
         Implements saga pattern with compensating rollback on failure.
-        
+    
         Args:
-            document_id: UUID of the document to process
+            workflow_id: UUID of the workflow
+            document_id: UUID of the document
             
         Returns:
             Dictionary with entity_count and relationship_count
@@ -37,21 +38,21 @@ class EntityResolutionWorkflow:
             # Aggregate entities from all chunks (already extracted during normalization)
             aggregated = await workflow.execute_activity(
                 "aggregate_document_entities",
-                document_id,
+                args=[workflow_id, document_id],
                 start_to_close_timeout=timedelta(minutes=5),
             )
             
             # Resolve to canonical entities
             entity_ids = await workflow.execute_activity(
                 "resolve_canonical_entities",
-                args=[document_id, aggregated, workflow_id],
+                args=[workflow_id, document_id, aggregated],
                 start_to_close_timeout=timedelta(minutes=3),
             )
             
             # Extract relationships (Pass 2)
             relationships = await workflow.execute_activity(
                 "extract_relationships",
-                args=[document_id, workflow_id],
+                args=[workflow_id, document_id],
                 start_to_close_timeout=timedelta(minutes=10),
             )
             

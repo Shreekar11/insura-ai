@@ -40,7 +40,7 @@ class ProcessDocumentWorkflow:
     The manifest from Phase 0 is passed to all downstream workflows:
     - OCR: receives page_section_map to store page_type metadata
     - Chunking: receives page_section_map for section assignment
-    - Extraction: receives document_profile to skip Tier 1 LLM
+    - Extraction: receives document_profile for section field and entity extraction
     
     All child workflows execute on the same task queue.
     """
@@ -65,93 +65,116 @@ class ProcessDocumentWorkflow:
         }
     
     @workflow.run
-    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
+    async def run(self, payload: Dict) -> dict:
         """
         Execute the complete document processing pipeline.
         
         Args:
-            document_id: UUID of the document to process
+            payload: Dictionary containing:
+                - workflow_id: UUID of the workflow to process
+                - documents: List of dictionaries containing:
+                    - document_id: UUID of the document to process
+                    - url: URL of the document to process
             
         Returns:
             Dictionary with processing results and stage completion info
         """
+
+        workflow_id = payload.get("workflow_id")
+        documents = payload.get("documents")
+
+        # For ProcessDocumentWorkflow, we only reqiure a single document
+        if len(documents) != 1:
+            raise ValueError("ProcessDocumentWorkflow requires exactly one document")
+
+        document_id = documents[0].get("document_id")
+
         workflow.logger.info(f"Starting document processing: {document_id}")
         self._status = "processing"
 
         # Stage 1: Processed (Page Analysis + OCR + Chunking)
-        self._current_phase = "processed"
         self._progress = 0.0
+        self._current_phase = "processed"
 
         processed_result = await workflow.execute_child_workflow(
             ProcessedStageWorkflow.run,
-            document_id,
-            workflow_id=workflow_id,
+            args=[workflow_id, document_id],
             id=f"gate-processed-{document_id}",
             task_queue="documents-queue",
         )
 
+        document_profile = processed_result.get("document_profile")
+
         self._progress = 0.2
         self._current_phase = "classified"
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "extracted", "running", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # Stage 2: Extracted (Section fields + Entities Extraction)
+        # self._progress = 0.4
+        # self._current_phase = "extracted"
 
-        extracted_result = await workflow.execute_child_workflow(
-            ExtractedStageWorkflow.run,
-            document_id,
-            workflow_id=workflow_id,
-            id=f"gate-extracted-{document_id}",
-            task_queue="documents-queue",
-        )
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "extracted", "running"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "extracted", "completed", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # extracted_result = await workflow.execute_child_workflow(
+        #     ExtractedStageWorkflow.run,
+        #     args=[workflow_id, document_id, document_profile],
+        #     id=f"gate-extracted-{document_id}",
+        #     task_queue="documents-queue",
+        # )
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "enriched", "running", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "extracted", "completed"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
 
-        enriched_result = await workflow.execute_child_workflow(
-            EnrichedStageWorkflow.run,
-            document_id,
-            workflow_id=workflow_id,
-            id=f"gate-enriched-{document_id}",
-            task_queue="documents-queue",
-        )
+        # # Stage 3: Enriched (Canonical Resolution + Relationships Extraction)
+        # self._progress = 0.6
+        # self._current_phase = "enriched"
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "enriched", "completed", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "enriched", "running"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "summarized", "running", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # enriched_result = await workflow.execute_child_workflow(
+        #     EnrichedStageWorkflow.run,
+        #     args=[workflow_id, document_id],
+        #     id=f"gate-enriched-{document_id}",
+        #     task_queue="documents-queue",
+        # )
 
-        summarized_result = await workflow.execute_child_workflow(
-            SummarizedStageWorkflow.run,
-            document_id,
-            workflow_id=workflow_id,
-            id=f"gate-summarized-{document_id}",
-            task_queue="documents-queue",
-        )
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "enriched", "completed"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[document_id, "summarized", "completed", workflow_id],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
+        # # Stage 4: Summarized (Document Summary + Embeddings)
+        # self._progress = 0.8
+        # self._current_phase = "summarized"
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "summarized", "running"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
+
+        # summarized_result = await workflow.execute_child_workflow(
+        #     SummarizedStageWorkflow.run,
+        #     args=[workflow_id, document_id],
+        #     id=f"gate-summarized-{document_id}",
+        #     task_queue="documents-queue",
+        # )
+
+        # await workflow.execute_activity(
+        #     "update_stage_status",
+        #     args=[workflow_id, document_id, "summarized", "completed"],
+        #     start_to_close_timeout=timedelta(seconds=30),
+        # )
 
         # Complete
         self._status = "completed"
@@ -159,12 +182,13 @@ class ProcessDocumentWorkflow:
 
         return {
             "status": self._status,
+            "workflow_id": workflow_id,
             "document_id": document_id,
             "document_type": processed_result.get("document_type"),
             "stages": {
                 "processed": processed_result,
-                "extracted": extracted_result,
-                "enriched": enriched_result,
-                "summarized": summarized_result,
+                # "extracted": extracted_result,
+                # "enriched": enriched_result,
+                # "summarized": summarized_result,
             }
         }

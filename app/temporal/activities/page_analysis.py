@@ -14,7 +14,7 @@ from temporalio import activity
 from typing import List, Dict
 from uuid import UUID
 
-from app.database.base import async_session_maker
+from app.core.database import async_session_maker
 from app.pipeline.page_analysis import PageAnalysisPipeline
 from app.models.page_analysis_models import PageSignals, PageClassification
 from app.utils.logging import get_logger
@@ -87,7 +87,7 @@ async def extract_page_signals(document_id: str) -> List[Dict]:
                 extra={"document_id": document_id}
             )
             
-            signals = await pipeline.extract_signals(UUID(document_id), document.file_path)
+            signals = await pipeline.extract_signals(document_id=UUID(document_id), document_url=document.file_path)
             
             activity.logger.info(
                 "Page signals extracted, persisting to database",
@@ -204,7 +204,7 @@ async def classify_pages(document_id: str, page_signals: List[Dict]) -> List[Dic
                 }
             )
             
-            classifications = await pipeline.classify_pages(UUID(document_id), signals_objs)
+            classifications = await pipeline.classify_pages(document_id=UUID(document_id), page_signals=signals_objs)
             
             activity.logger.info(
                 "Page classifications completed, persisting to database",
@@ -331,8 +331,8 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
             )
             
             document_profile = await pipeline.build_document_profile(
-                UUID(document_id), 
-                class_objs
+                document_id=UUID(document_id), 
+                classifications=class_objs,
             )
             
             activity.logger.info(
@@ -347,9 +347,9 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
             
             # Create manifest with document profile
             manifest = await pipeline.create_manifest(
-                UUID(document_id), 
-                class_objs,
-                document_profile=document_profile
+                document_id=UUID(document_id),
+                classifications=class_objs,
+                document_profile=document_profile,
             )
             
             activity.logger.info(

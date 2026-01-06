@@ -128,6 +128,7 @@ class RelationshipExtractorGlobal:
         
         Args:
             document_id: Document ID
+            workflow_id: ID of the workflow
             
         Returns:
             List of created EntityRelationship records
@@ -785,6 +786,7 @@ Return ONLY valid JSON following the schema defined in the system instructions.
             relationship_data: Relationship data from LLM
             canonical_entities: List of canonical entities
             chunks: Optional chunks for temp entity reconciliation
+            workflow_id: ID of the workflow
             
         Returns:
             Created relationship or None if invalid

@@ -51,6 +51,9 @@ from app.temporal.activities.entity_resolution import (
     extract_relationships,
     rollback_entities,
 )
+from app.temporal.activities.stages import (
+    update_stage_status,
+)
 
 from app.utils.logging import get_logger
 
@@ -101,6 +104,7 @@ async def main():
             resolve_canonical_entities,
             extract_relationships,
             rollback_entities,
+            update_stage_status,
         ],
         max_concurrent_activities=5,
         max_concurrent_workflow_tasks=10,

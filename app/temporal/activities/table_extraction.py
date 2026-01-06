@@ -7,10 +7,8 @@ the TableExtractionPipeline.
 from temporalio import activity
 from typing import Dict, Any, Optional, List
 from uuid import UUID
-from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.pipeline.table_extraction import TableExtractionPipeline
-from app.dependencies import get_async_session
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -18,6 +16,7 @@ LOGGER = get_logger(__name__)
 
 @activity.defn
 async def extract_tables(
+    workflow_id: str,
     document_id: str,
     document_url: Optional[str] = None,
     page_numbers: Optional[List[int]] = None
@@ -46,15 +45,14 @@ async def extract_tables(
         - validation_results: List of validation results per table
         - errors: List of processing errors
     """
-    from app.database.base import async_session_maker
+    from app.core.database import async_session_maker
     from app.repositories.document_repository import DocumentRepository
     from app.models.page_data import PageData
-    
-    document_uuid = UUID(document_id)
     
     LOGGER.info(
         f"[Phase 5: Table Extraction] Starting table extraction for document: {document_id}",
         extra={
+            "workflow_id": workflow_id,
             "document_id": document_id,
             "page_numbers": page_numbers
         }
@@ -64,7 +62,7 @@ async def extract_tables(
         try:
             # Get pages from database
             doc_repo = DocumentRepository(session)
-            pages = await doc_repo.get_pages_by_document(document_uuid)
+            pages = await doc_repo.get_pages_by_document(document_id=UUID(document_id))
             
             if not pages:
                 LOGGER.warning(
@@ -145,7 +143,7 @@ async def extract_tables(
             
             # Extract and process tables from pages
             result = await pipeline.extract_and_process_tables(
-                document_id=document_uuid,
+                document_id=UUID(document_id),
                 document_url=document_url or "",
                 docling_result=None,  # Extract from pages instead
                 pages=page_data_list,

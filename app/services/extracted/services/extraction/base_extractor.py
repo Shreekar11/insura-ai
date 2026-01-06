@@ -13,11 +13,10 @@ from datetime import datetime
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.core.base_service import BaseService
 from app.core.unified_llm import UnifiedLLMClient
-from app.utils.exceptions import APIClientError
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
+from app.services.base_service import BaseService
 
 LOGGER = get_logger(__name__)
 

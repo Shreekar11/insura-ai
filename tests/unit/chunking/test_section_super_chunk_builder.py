@@ -86,7 +86,7 @@ class TestSectionSuperChunkBuilder:
             metadata=HybridChunkMetadata(
                 document_id=document_id,
                 page_number=8,
-                section_type=SectionType.SCHEDULE_OF_VALUES,
+                section_type=SectionType.SOV,
                 chunk_index=0,
                 token_count=1000,
             ),
@@ -114,7 +114,7 @@ class TestSectionSuperChunkBuilder:
         assert SectionType.DECLARATIONS in section_types
         assert SectionType.COVERAGES in section_types
         assert SectionType.CONDITIONS in section_types
-        assert SectionType.SCHEDULE_OF_VALUES in section_types
+        assert SectionType.SOV in section_types
     
     def test_build_super_chunks_correct_chunk_count(self, builder, sample_chunks):
         """Test that super-chunks contain correct number of chunks."""
@@ -175,7 +175,7 @@ class TestSectionSuperChunkBuilder:
         # SOV should be table_only
         sov_sc = next(
             sc for sc in super_chunks 
-            if sc.section_type == SectionType.SCHEDULE_OF_VALUES
+            if sc.section_type == SectionType.SOV
         )
         assert sov_sc.table_only is True
         
@@ -220,7 +220,7 @@ class TestProcessingBatches:
                 requires_llm=True,
             ),
             SectionSuperChunk(
-                section_type=SectionType.SCHEDULE_OF_VALUES,
+                section_type=SectionType.SOV,
                 section_name="SOV",
                 total_tokens=2000,
                 requires_llm=False,
@@ -240,7 +240,7 @@ class TestProcessingBatches:
         # SOV should not be in any batch
         for batch in batches:
             for sc in batch.super_chunks:
-                assert sc.section_type != SectionType.SCHEDULE_OF_VALUES
+                assert sc.section_type != SectionType.SOV
     
     def test_create_batches_respects_token_limit(self, builder, super_chunks):
         """Test that batches respect token limit."""
@@ -345,7 +345,7 @@ class TestExtractionOrder:
         """Test that LLM sections come before table-only."""
         super_chunks = [
             SectionSuperChunk(
-                section_type=SectionType.SCHEDULE_OF_VALUES,
+                section_type=SectionType.SOV,
                 section_name="SOV",
                 requires_llm=False,
                 table_only=True,
@@ -415,7 +415,7 @@ class TestLLMCallEstimation:
                 requires_llm=True,
             ),
             SectionSuperChunk(
-                section_type=SectionType.SCHEDULE_OF_VALUES,
+                section_type=SectionType.SOV,
                 section_name="SOV",
                 total_tokens=1000,
                 requires_llm=False,

@@ -91,7 +91,7 @@ class TestSectionExtractionOrchestrator:
                 requires_llm=True,
             ),
             SectionSuperChunk(
-                section_type=SectionType.SCHEDULE_OF_VALUES,
+                section_type=SectionType.SOV,
                 section_name="SOV",
                 chunks=[],
                 document_id=document_id,

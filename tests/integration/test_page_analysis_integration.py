@@ -6,9 +6,9 @@ through classification to manifest generation.
 
 import pytest
 from uuid import uuid4
-from app.services.page_analysis.lightweight_page_analyzer import LightweightPageAnalyzer
-from app.services.page_analysis.page_classifier import PageClassifier
-from app.services.page_analysis.duplicate_detector import DuplicateDetector
+from app.services.processed.services.analysis.lightweight_page_analyzer import LightweightPageAnalyzer
+from app.services.processed.services.analysis.page_classifier import PageClassifier
+from app.services.processed.services.analysis.duplicate_detector import DuplicateDetector
 from app.models.page_analysis_models import PageSignals, PageClassification, PageManifest, PageType
 
 

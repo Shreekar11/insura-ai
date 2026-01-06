@@ -15,7 +15,7 @@ class SummarizedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> dict:
+    async def run(self, workflow_id: str, document_id: str) -> dict:
         workflow.logger.info(f"Starting SummarizedStage for {document_id}")
         
         # Phase 1: Summarization & Embeddings (placeholder for actual implementation)
@@ -25,7 +25,7 @@ class SummarizedStageWorkflow:
         # Mark summarized stage complete
         await workflow.execute_activity(
             "update_stage_status",
-            args=[document_id, "summarized", True],
+            args=[workflow_id, document_id, "summarized", "completed"],
             start_to_close_timeout=timedelta(seconds=30),
         )
         

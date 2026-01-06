@@ -166,7 +166,7 @@ class TestHybridChunkingService:
         
         sov_chunks = [
             c for c in result.chunks 
-            if c.metadata.section_type == SectionType.SCHEDULE_OF_VALUES
+            if c.metadata.section_type == SectionType.SOV
         ]
         
         assert len(sov_chunks) > 0
@@ -213,7 +213,7 @@ class TestHybridChunkingService:
         
         # Check that SOV is in table_only
         sov_in_table_only = any(
-            sc.section_type == SectionType.SCHEDULE_OF_VALUES 
+            sc.section_type == SectionType.SOV 
             for sc in table_only
         )
         assert sov_in_table_only
@@ -235,8 +235,8 @@ class TestSectionDetection:
         ("GENERAL CONDITIONS\nNotice requirements", SectionType.CONDITIONS),
         ("EXCLUSIONS\nWe do not cover", SectionType.EXCLUSIONS),
         ("ENDORSEMENTS\nEndorsement No. 1", SectionType.ENDORSEMENTS),
-        ("SCHEDULE OF VALUES\nLocation 1", SectionType.SCHEDULE_OF_VALUES),
-        ("SOV\nBuilding values", SectionType.SCHEDULE_OF_VALUES),
+        ("SCHEDULE OF VALUES\nLocation 1", SectionType.SOV),
+        ("SOV\nBuilding values", SectionType.SOV),
         ("LOSS RUN\nClaim history", SectionType.LOSS_RUN),
         ("LOSS HISTORY\nPrior claims", SectionType.LOSS_RUN),
         ("Random text without section header", SectionType.UNKNOWN),

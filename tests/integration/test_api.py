@@ -6,11 +6,12 @@ import pytest
 from fastapi.testclient import TestClient
 
 from app.main import app
-from app.utils.exceptions import (
+from app.core.exceptions import (
     OCRExtractionError,
     OCRTimeoutError,
     InvalidDocumentError,
 )
+from app.services.processed.services.ocr.ocr_service import OCRService
 
 
 class TestOCREndpoints:
@@ -60,7 +61,7 @@ class TestOCREndpoints:
         mock_service.extract_text_from_url.side_effect = InvalidDocumentError(
             "Document not found"
         )
-        app.dependency_overrides[get_ocr_service] = lambda: mock_service
+        app.dependency_overrides[OCRService] = lambda: mock_service
 
         # Execute
         response = test_client.post(
@@ -87,7 +88,7 @@ class TestOCREndpoints:
         mock_service.extract_text_from_url.side_effect = OCRTimeoutError(
             "Processing timed out"
         )
-        app.dependency_overrides[get_ocr_service] = lambda: mock_service
+        app.dependency_overrides[OCRService] = lambda: mock_service
 
         # Execute
         response = test_client.post(
@@ -114,7 +115,7 @@ class TestOCREndpoints:
         mock_service.extract_text_from_url.side_effect = OCRExtractionError(
             "Extraction failed"
         )
-        app.dependency_overrides[get_ocr_service] = lambda: mock_service
+        app.dependency_overrides[OCRService] = lambda: mock_service
 
         # Execute
         response = test_client.post(

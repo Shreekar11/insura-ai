@@ -25,8 +25,8 @@ class OCRExtractionWorkflow:
     @workflow.run
     async def run(
         self, 
+        workflow_id: str,
         document_id: str,
-        workflow_id: Optional[str] = None,
         pages_to_process: Optional[List[int]] = None,
         page_section_map: Optional[Dict[int, str]] = None,
     ) -> dict:
@@ -67,7 +67,7 @@ class OCRExtractionWorkflow:
         # Extract OCR using existing OCRService with page_section_map
         ocr_data = await workflow.execute_activity(
             "extract_ocr",
-            args=[document_id, pages_to_process, page_section_map],
+            args=[workflow_id, document_id, pages_to_process, page_section_map],
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(
                 maximum_attempts=5,

@@ -11,7 +11,7 @@ from typing import Dict, List, Any, Optional
 from uuid import UUID
 
 from app.core.unified_llm import UnifiedLLMClient
-from app.utils.exceptions import APIClientError
+from app.core.exceptions import APIClientError
 from app.utils.logging import get_logger
 
 from app.prompts import VALID_ENTITY_TYPES, VALID_RELATIONSHIP_TYPES

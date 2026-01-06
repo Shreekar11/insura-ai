@@ -34,7 +34,7 @@ class TestOCRService:
     ):
         """OCRService should return a list of PageData objects."""
         # Import will fail until we create the service
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             # Setup mock Docling converter
@@ -59,7 +59,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should have correct 1-indexed page numbers."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_pages = []
@@ -91,7 +91,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Service should only extract specified pages when filter is provided."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         pages_to_extract = [1, 3, 5]
         
@@ -129,7 +129,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should include markdown content when available."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -157,7 +157,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Tables should be extracted as structured data in metadata."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             # Create a mock page with table
@@ -195,7 +195,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Service should handle pages with no text gracefully."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -223,7 +223,7 @@ class TestOCRService:
         self, sample_pdf_path, document_id
     ):
         """Extracted pages should include metadata (coordinates, etc.)."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_page = MagicMock()
@@ -268,8 +268,8 @@ class TestOCRServiceErrorHandling:
         self, sample_pdf_path, document_id
     ):
         """Service should raise appropriate error when conversion fails."""
-        from app.services.ocr.ocr_service import OCRService
-        from app.utils.exceptions import OCRExtractionError
+        from app.services.processed.services.ocr.ocr_service import OCRService
+        from app.core.exceptions import OCRExtractionError
         
         with patch('docling.document_converter.DocumentConverter') as mock_converter_class:
             mock_converter = MagicMock()
@@ -286,7 +286,7 @@ class TestOCRServiceErrorHandling:
         self, sample_pdf_path, document_id
     ):
         """Service should handle invalid page numbers gracefully."""
-        from app.services.ocr.ocr_service import OCRService
+        from app.services.processed.services.ocr.ocr_service import OCRService
         
         # Request pages that don't exist
         pages_to_extract = [1, 100, 200]  # Only page 1 exists

@@ -23,8 +23,8 @@ class ExtractionWorkflow:
     @workflow.run
     async def run(
         self, 
+        workflow_id: str,
         document_id: str,
-        workflow_id: Optional[str] = None,
         document_profile: Optional[Dict] = None,
     ) -> dict:
         """
@@ -43,13 +43,13 @@ class ExtractionWorkflow:
         workflow.logger.info(
             f"Starting extraction workflow for document: {document_id}",
             extra={
+                "workflow_id": workflow_id,
                 "document_id": document_id,
                 "has_document_profile": document_profile is not None,
                 "workflow_id": workflow_id
             }
         )
         
-
         
         if not document_profile:
             workflow.logger.error("Missing document_profile in ExtractionWorkflow")
@@ -77,7 +77,7 @@ class ExtractionWorkflow:
         workflow.logger.info("Extracting section-specific fields...")
         extraction_result = await workflow.execute_activity(
             "extract_section_fields",
-            args=[document_id, classification_result],
+            args=[workflow_id, document_id],
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

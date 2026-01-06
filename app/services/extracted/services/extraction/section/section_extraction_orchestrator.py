@@ -243,25 +243,26 @@ class SectionExtractionOrchestrator:
     async def run(
         self,
         super_chunks: List[SectionSuperChunk],
-        document_id: Optional[UUID] = None,
-        workflow_id: Optional[UUID] = None,
+        workflow_id: UUID,
+        document_id: UUID,
     ) -> DocumentExtractionResult:
         """Run section extraction (BaseService compatibility).
         
         Args:
             super_chunks: List of section super-chunks
+            workflow_id: Workflow ID
             document_id: Document ID
             
         Returns:
             DocumentExtractionResult
         """
-        return await self.extract_all_sections(super_chunks, document_id, workflow_id)
+        return await self.extract_all_sections(super_chunks, workflow_id, document_id)
 
     async def extract_all_sections(
         self,
         super_chunks: List[SectionSuperChunk],
-        document_id: Optional[UUID] = None,
-        workflow_id: Optional[UUID] = None,
+        workflow_id: UUID,
+        document_id: UUID,
     ) -> DocumentExtractionResult:
         """Extract data from all section super-chunks.
         
@@ -269,9 +270,8 @@ class SectionExtractionOrchestrator:
         
         Args:
             super_chunks: List of section super-chunks
-            super_chunks: List of section super-chunks
+            workflow_id: Workflow ID
             document_id: Document ID
-            workflow_id: Workflow ID (optional, for step output persistence)
             
         Returns:
             DocumentExtractionResult with all section extractions
@@ -285,7 +285,8 @@ class SectionExtractionOrchestrator:
         LOGGER.info(
             "Starting section extraction",
             extra={
-                "document_id": str(document_id) if document_id else None,
+                "workflow_id": str(workflow_id),
+                "document_id": str(document_id),
                 "total_super_chunks": len(super_chunks),
                 "llm_sections": len(llm_sections),
             }
@@ -395,7 +396,7 @@ class SectionExtractionOrchestrator:
                         entity_type=entity_type,
                         entity_label=entity_label,
                         display_payload=entity,
-                        confidence=section_res.confidence, # Use section confidence if entity confidence missing
+                        confidence=section_res.confidence,
                         source_section_extraction_id=section_res.extraction_id,
                     )
             
@@ -414,41 +415,12 @@ class SectionExtractionOrchestrator:
                 exc_info=True,
                 extra={"document_id": str(result.document_id)}
             )
-    
-    async def extract_section_batch(
-        self,
-        batch: SuperChunkBatch,
-        document_id: Optional[UUID] = None,
-    ) -> List[SectionExtractionResult]:
-        """Extract from a batch of super-chunks.
         
-        Args:
-            batch: SuperChunkBatch to process
-            document_id: Document ID
-            
-        Returns:
-            List of SectionExtractionResults
-        """
-        results = []
-        
-        for super_chunk in batch.super_chunks:
-            try:
-                result = await self._extract_section(super_chunk, document_id, workflow_id)
-                results.append(result)
-            except Exception as e:
-                LOGGER.error(f"Batch extraction failed for {super_chunk.section_type}: {e}")
-                results.append(SectionExtractionResult(
-                    section_type=super_chunk.section_type,
-                    confidence=0.0,
-                ))
-        
-        return results
-    
     async def _extract_section(
         self,
         super_chunk: SectionSuperChunk,
-        document_id: Optional[UUID],
-        workflow_id: Optional[UUID],
+        document_id: UUID,
+        workflow_id: UUID,
     ) -> SectionExtractionResult:
         """Extract data from a single section super-chunk using factory pattern.
         
@@ -526,7 +498,7 @@ class SectionExtractionOrchestrator:
             extraction_id = None
             
             # Persist section extraction to database
-            if document_id:
+            if document_id and workflow_id:
                 try:
                     # Build source_chunks reference from super_chunk
                     source_chunks = {
@@ -578,6 +550,7 @@ class SectionExtractionOrchestrator:
                     LOGGER.debug(
                         "Persisted section extraction",
                         extra={
+                            "workflow_id": str(workflow_id),
                             "document_id": str(document_id),
                             "section_type": super_chunk.section_type.value,
                         }

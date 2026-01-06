@@ -7,25 +7,26 @@ from temporalio import activity
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from app.database.base import async_session_maker
+from app.core.database import async_session_maker
 from app.pipeline.entity_resolution import EntityResolutionPipeline
+from app.repositories.entity_repository import EntityRepository
 from app.utils.logging import get_logger
 
-logger = get_logger(__name__)
+LOGGER = get_logger(__name__)
 
 
 @activity.defn
-async def aggregate_document_entities(document_id: str) -> Dict:
+async def aggregate_document_entities(workflow_id: str, document_id: str) -> Dict:
     """Aggregate entities from all chunks for the document."""
     try:
         activity.logger.info(f"[Phase 3: Entity Resolution] Aggregating entities for document: {document_id}")
         
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
-            result = await pipeline.aggregate_entities(UUID(document_id))
+            result = await pipeline.aggregate_entities(document_id=UUID(document_id), workflow_id=UUID(workflow_id))
             
             activity.logger.info(
-                f"[Phase 3: Entity Resolution] Entity aggregation complete for {document_id}: "
+                f"[Phase 3: Entity Resolution] Entity aggregation complete for {document_id} with workflow {workflow_id}: "
                 f"{result['unique_entities']} unique entities from {result['total_chunks']} chunks"
             )
             
@@ -37,7 +38,7 @@ async def aggregate_document_entities(document_id: str) -> Dict:
 
 
 @activity.defn
-async def resolve_canonical_entities(document_id: str, aggregated_data: Dict, workflow_id: Optional[str] = None) -> List[str]:
+async def resolve_canonical_entities(workflow_id: str, document_id: str, aggregated_data: Dict) -> List[str]:
     """Resolve aggregated entities to canonical forms."""
     try:
         entities = aggregated_data.get('entities', [])
@@ -46,9 +47,9 @@ async def resolve_canonical_entities(document_id: str, aggregated_data: Dict, wo
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
             canonical_ids = await pipeline.resolve_canonical_entities(
-                UUID(document_id), 
-                entities,
-                workflow_id=UUID(workflow_id) if workflow_id else None
+                document_id=UUID(document_id),
+                workflow_id=UUID(workflow_id),
+                entities=entities,
             )
             
             await session.commit()
@@ -66,7 +67,7 @@ async def resolve_canonical_entities(document_id: str, aggregated_data: Dict, wo
 
 
 @activity.defn
-async def extract_relationships(document_id: str, workflow_id: Optional[str] = None) -> List[Dict]:
+async def extract_relationships(workflow_id: str, document_id: str) -> List[Dict]:
     """Extract relationships between canonical entities (Pass 2)."""
     try:
         activity.logger.info(f"[Phase 3: Entity Resolution] Extracting relationships for document: {document_id}")
@@ -75,8 +76,8 @@ async def extract_relationships(document_id: str, workflow_id: Optional[str] = N
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
             relationship_records = await pipeline.extract_relationships(
-                UUID(document_id),
-                workflow_id=UUID(workflow_id) if workflow_id else None
+                document_id=UUID(document_id),
+                workflow_id=UUID(workflow_id),
             )
             
             await session.commit()
@@ -115,18 +116,11 @@ async def rollback_entities(entity_ids: List[str]) -> None:
             f"SAGA ROLLBACK: Deleting {len(entity_ids)} entities due to workflow failure"
         )
         
-        from app.database.models import CanonicalEntity
-        from sqlalchemy import delete
-        
         async with async_session_maker() as session:
+            entity_repo = EntityRepository(session)
             for entity_id in entity_ids:
-                try:
-                    stmt = delete(CanonicalEntity).where(CanonicalEntity.id == UUID(entity_id))
-                    await session.execute(stmt)
-                except Exception as e:
-                    activity.logger.warning(f"Failed to delete entity {entity_id}: {e}")
-            
+                await entity_repo.delete(UUID(entity_id))
             await session.commit()
-        
     except Exception as e:
         activity.logger.error(f"Entity rollback failed: {e}")
+        raise

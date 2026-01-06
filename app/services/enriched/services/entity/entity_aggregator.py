@@ -12,14 +12,11 @@ from dataclasses import dataclass
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import SectionExtraction, EntityMention
+from app.database.models import EntityMention
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
-
-# Required entity types for minimum coverage
-REQUIRED_ENTITY_TYPES = {"POLICY_NUMBER", "INSURED_NAME"}
 
 
 @dataclass
@@ -37,20 +34,6 @@ class AggregatedEntities:
     total_chunks: int
     total_entities: int
     unique_entities: int
-    coverage_metrics: Optional['EntityCoverageMetrics'] = None
-
-
-@dataclass
-class EntityCoverageMetrics:
-    """Metrics tracking entity coverage and quality."""
-    total_mentions: int
-    unique_entities: int
-    mentions_by_type: Dict[str, int]
-    dropped_mentions: List[Dict[str, Any]]
-    coverage_status: Dict[str, bool]  # e.g., {"POLICY_NUMBER": True, "INSURED_NAME": False}
-    missing_required_types: List[str]
-    fallback_applied: bool = False
-    fallback_entities: List[Dict[str, Any]] = None
 
 
 class EntityAggregator:
@@ -79,19 +62,21 @@ class EntityAggregator:
     
     async def aggregate_entities(
         self,
-        document_id: UUID
+        document_id: UUID,
+        workflow_id: UUID
     ) -> AggregatedEntities:
         """Aggregate entities from all chunks of a document.
         
         Args:
             document_id: Document ID to aggregate entities
+            workflow_id: Workflow ID
             
         Returns:
             AggregatedEntities: Aggregated and deduplicated entities
         """
         LOGGER.info(
             f"Starting entity aggregation for document",
-            extra={"document_id": str(document_id)}
+            extra={"document_id": str(document_id), "workflow_id": str(workflow_id)}
         )
         
         # Strategy 1: Try fetching from entity_mentions
@@ -222,46 +207,7 @@ class EntityAggregator:
         
         # Deduplicate entities
         unique_entities = self._deduplicate_entities(all_entities)
-        
-        # Check minimum coverage and apply fallbacks if needed
-        # chunks may be None if using section_extractions, so use empty list as fallback
-        chunks_for_coverage = chunks if chunks is not None else []
-        coverage_metrics = self._check_minimum_coverage(
-            unique_entities=unique_entities,
-            all_chunk_entities=all_entities,
-            chunks=chunks_for_coverage
-        )
-        
-        # Apply fallback heuristics if required entities are missing
-        if coverage_metrics.missing_required_types:
-            LOGGER.warning(
-                f"Missing required entity types: {coverage_metrics.missing_required_types}",
-                extra={
-                    "document_id": str(document_id),
-                    "missing_types": coverage_metrics.missing_required_types
-                }
-            )
-            
-            fallback_entities = self._apply_fallback_heuristics(
-                unique_entities=unique_entities,
-                all_chunk_entities=all_entities,
-                missing_types=coverage_metrics.missing_required_types
-            )
-            
-            if fallback_entities:
-                unique_entities.extend(fallback_entities)
-                coverage_metrics.fallback_applied = True
-                coverage_metrics.fallback_entities = fallback_entities
                 
-                LOGGER.info(
-                    f"Applied fallback heuristics, added {len(fallback_entities)} entities",
-                    extra={
-                        "document_id": str(document_id),
-                        "fallback_count": len(fallback_entities),
-                        "entity_types": [e.get("entity_type") for e in fallback_entities]
-                    }
-                )
-        
         # Calculate total chunks - use chunk_mappings count if chunks is None
         total_chunks = len(chunks) if chunks is not None else len(set(m.chunk_id for m in chunk_mappings))
         
@@ -271,7 +217,6 @@ class EntityAggregator:
             total_chunks=total_chunks,
             total_entities=len(all_entities),
             unique_entities=len(unique_entities),
-            coverage_metrics=coverage_metrics
         )
         
         LOGGER.info(
@@ -282,8 +227,6 @@ class EntityAggregator:
                 "total_entities": result.total_entities,
                 "unique_entities": result.unique_entities,
                 "deduplication_ratio": f"{(1 - result.unique_entities / max(result.total_entities, 1)) * 100:.1f}%",
-                "coverage_status": coverage_metrics.coverage_status,
-                "fallback_applied": coverage_metrics.fallback_applied
             }
         )
         
@@ -460,190 +403,4 @@ class EntityAggregator:
         # Use first 16 chars of SHA1 hash for shorter IDs
         hash_hex = hashlib.sha1(key.encode()).hexdigest()[:16]
         return f"{entity_type.lower()}_{hash_hex}"
-    
-    def _check_minimum_coverage(
-        self,
-        unique_entities: List[Dict[str, Any]],
-        all_chunk_entities: List[Dict[str, Any]],
-        chunks: Optional[List[NormalizedChunk]] = None
-    ) -> EntityCoverageMetrics:
-        """Check if minimum required entities are present.
-        
-        Args:
-            unique_entities: Deduplicated entities
-            all_chunk_entities: All entities before deduplication
-            chunks: Document chunks
-            
-        Returns:
-            EntityCoverageMetrics with coverage status and diagnostics
-        """
-        # Count mentions by type (handle both formats)
-        mentions_by_type = {}
-        for entity in all_chunk_entities:
-            entity_type = entity.get("entity_type") or entity.get("type") or "UNKNOWN"
-            mentions_by_type[entity_type] = mentions_by_type.get(entity_type, 0) + 1
-        
-        # Check coverage for required types (handle both formats)
-        coverage_status = {}
-        missing_required_types = []
-        
-        for required_type in REQUIRED_ENTITY_TYPES:
-            has_entity = any(
-                (e.get("entity_type") or e.get("type")) == required_type 
-                for e in unique_entities
-            )
-            coverage_status[required_type] = has_entity
-            
-            if not has_entity:
-                missing_required_types.append(required_type)
-        
-        # Track dropped mentions (entities that didn't make it through deduplication)
-        dropped_mentions = []
-        unique_entity_ids = {e.get("entity_id") for e in unique_entities}
-        
-        for entity in all_chunk_entities:
-            if entity.get("entity_id") not in unique_entity_ids:
-                dropped_mentions.append({
-                    "entity_type": entity.get("entity_type") or entity.get("type"),
-                    "normalized_value": entity.get("normalized_value") or entity.get("value"),
-                    "confidence": entity.get("confidence"),
-                    "reason": "deduplication"
-                })
-        
-        metrics = EntityCoverageMetrics(
-            total_mentions=len(all_chunk_entities),
-            unique_entities=len(unique_entities),
-            mentions_by_type=mentions_by_type,
-            dropped_mentions=dropped_mentions,
-            coverage_status=coverage_status,
-            missing_required_types=missing_required_types
-        )
-        
-        # Log detailed coverage report
-        LOGGER.info(
-            "Entity coverage check completed",
-            extra={
-                "total_mentions": metrics.total_mentions,
-                "unique_entities": metrics.unique_entities,
-                "mentions_by_type": metrics.mentions_by_type,
-                "coverage_status": metrics.coverage_status,
-                "missing_required": metrics.missing_required_types,
-                "dropped_count": len(metrics.dropped_mentions)
-            }
-        )
-        
-        return metrics
-    
-    def _apply_fallback_heuristics(
-        self,
-        unique_entities: List[Dict[str, Any]],
-        all_chunk_entities: List[Dict[str, Any]],
-        missing_types: List[str]
-    ) -> List[Dict[str, Any]]:
-        """Apply fallback heuristics to promote missing required entities.
-        
-        Strategy:
-        1. For each missing type, find all chunk-level mentions
-        2. Pick the highest-confidence mention
-        3. Promote it to unique entities even if it was deduplicated
-        
-        Args:
-            unique_entities: Current unique entities
-            all_chunk_entities: All chunk entities
-            missing_types: List of missing required entity types
-            
-        Returns:
-            List of fallback entities to add
-        """
-        fallback_entities = []
-        
-        for missing_type in missing_types:
-            # Find all mentions of this type (handle both formats)
-            type_mentions = [
-                e for e in all_chunk_entities
-                if (e.get("entity_type") or e.get("type")) == missing_type
-            ]
-            
-            if not type_mentions:
-                LOGGER.warning(
-                    f"No mentions found for required type {missing_type}, cannot apply fallback"
-                )
-                continue
-            
-            # Pick highest confidence mention
-            best_mention = max(type_mentions, key=lambda e: e.get("confidence", 0.0))
-            
-            # Check if it's already in unique entities (shouldn't be, but defensive)
-            if any(e.get("entity_id") == best_mention.get("entity_id") for e in unique_entities):
-                LOGGER.debug(
-                    f"Best mention for {missing_type} already in unique entities"
-                )
-                continue
-            
-            # Add to fallback list
-            fallback_entities.append(best_mention)
-            
-            LOGGER.info(
-                f"Fallback heuristic: promoting {missing_type}",
-                extra={
-                    "entity_type": missing_type,
-                    "normalized_value": best_mention.get("normalized_value") or best_mention.get("value"),
-                    "confidence": best_mention.get("confidence"),
-                    "source_chunk_id": best_mention.get("source_chunk_id")
-                }
-            )
-        
-        return fallback_entities
-    
-    def get_coverage_report(self, aggregated: AggregatedEntities) -> Dict[str, Any]:
-        """Generate detailed coverage report for diagnostics.
-        
-        Args:
-            aggregated: AggregatedEntities result
-            
-        Returns:
-            Dictionary with coverage diagnostics
-        """
-        if not aggregated.coverage_metrics:
-            return {"error": "No coverage metrics available"}
-        
-        metrics = aggregated.coverage_metrics
-        
-        return {
-            "summary": {
-                "total_chunks": aggregated.total_chunks,
-                "total_mentions": metrics.total_mentions,
-                "unique_entities": metrics.unique_entities,
-                "deduplication_ratio": f"{(1 - metrics.unique_entities / max(metrics.total_mentions, 1)) * 100:.1f}%"
-            },
-            "coverage": {
-                "required_types": list(REQUIRED_ENTITY_TYPES),
-                "coverage_status": metrics.coverage_status,
-                "missing_required": metrics.missing_required_types,
-                "all_types_covered": len(metrics.missing_required_types) == 0
-            },
-            "mentions_by_type": metrics.mentions_by_type,
-            "dropped_mentions": {
-                "count": len(metrics.dropped_mentions),
-                "by_type": self._group_dropped_by_type(metrics.dropped_mentions)
-            },
-            "fallback": {
-                "applied": metrics.fallback_applied,
-                "entities_added": len(metrics.fallback_entities) if metrics.fallback_entities else 0
-            }
-        }
-    
-    def _group_dropped_by_type(self, dropped_mentions: List[Dict[str, Any]]) -> Dict[str, int]:
-        """Group dropped mentions by entity type.
-        
-        Args:
-            dropped_mentions: List of dropped mention dicts
-            
-        Returns:
-            Dictionary mapping entity type to count
-        """
-        grouped = {}
-        for mention in dropped_mentions:
-            entity_type = mention.get("entity_type", "UNKNOWN")
-            grouped[entity_type] = grouped.get(entity_type, 0) + 1
-        return grouped
+

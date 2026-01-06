@@ -20,7 +20,7 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
-from app.database.base import Base
+from app.core.database import Base
 
 if TYPE_CHECKING:
     from collections.abc import Sequence

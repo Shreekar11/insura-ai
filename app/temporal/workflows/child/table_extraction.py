@@ -33,8 +33,8 @@ class TableExtractionWorkflow:
     @workflow.run
     async def run(
         self,
+        workflow_id: str,
         document_id: str,
-        workflow_id: Optional[str] = None,
         page_numbers: Optional[List[int]] = None
     ) -> Dict[str, Any]:
         """Execute table extraction workflow.
@@ -49,9 +49,9 @@ class TableExtractionWorkflow:
         workflow.logger.info(
             f"Starting table extraction workflow for document: {document_id}",
             extra={
+                "workflow_id": workflow_id,
                 "document_id": document_id,
-                "page_numbers": page_numbers,
-                "workflow_id": workflow_id
+                "page_numbers": page_numbers
             }
         )
         
@@ -59,7 +59,7 @@ class TableExtractionWorkflow:
         # This avoids importing non-deterministic modules in workflows
         result = await workflow.execute_activity(
             "extract_tables",
-            args=[document_id, None, page_numbers],
+            args=[workflow_id, document_id, None, page_numbers],
             start_to_close_timeout=timedelta(minutes=10),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=1),

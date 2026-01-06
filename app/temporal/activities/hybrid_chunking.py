@@ -9,8 +9,8 @@ from temporalio import activity
 from typing import Dict, List, Optional
 from uuid import UUID
 
-from app.config import settings
-from app.database.base import async_session_maker
+from app.core.config import settings
+from app.core.database import async_session_maker
 from app.services.processed.services.chunking.hybrid_chunking_service import HybridChunkingService
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.repositories.document_repository import DocumentRepository
@@ -21,6 +21,7 @@ logger = get_logger(__name__)
 
 @activity.defn
 async def perform_hybrid_chunking(
+    workflow_id: str,
     document_id: str,
     page_section_map: Optional[Dict[int, str]] = None,
 ) -> Dict:
@@ -48,6 +49,7 @@ async def perform_hybrid_chunking(
         activity.logger.info(
             f"[Phase 3: Hybrid Chunking] Starting hybrid chunking for document: {document_id}",
             extra={
+                "workflow_id": workflow_id,
                 "document_id": document_id,
                 "has_section_map": has_section_map,
                 "section_map_size": len(page_section_map) if page_section_map else 0,
@@ -58,7 +60,7 @@ async def perform_hybrid_chunking(
         async with async_session_maker() as session:
             # Fetch OCR pages
             doc_repo = DocumentRepository(session)
-            pages = await doc_repo.get_pages_by_document(UUID(document_id))
+            pages = await doc_repo.get_pages_by_document(document_id=UUID(document_id))
             
             if not pages:
                 raise ValueError(f"No OCR pages found for document {document_id}")
@@ -66,6 +68,7 @@ async def perform_hybrid_chunking(
             activity.logger.info(
                 f"[Phase 3: Hybrid Chunking] Retrieved {len(pages)} pages for chunking",
                 extra={
+                    "workflow_id": workflow_id,
                     "document_id": document_id,
                     "page_count": len(pages),
                     "pages_with_metadata": sum(1 for p in pages if p.metadata),
