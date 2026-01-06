@@ -34,6 +34,7 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         Args:
             session: SQLAlchemy async session
         """
+        super().__init__(session, SectionExtraction)
         self.session = session
     
     async def create_section_extraction(
@@ -66,7 +67,7 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         Returns:
             Created SectionExtraction record
         """
-        extraction = SectionExtraction(
+        extraction = await self.create(
             document_id=document_id,
             workflow_id=workflow_id,
             section_type=section_type,
@@ -78,9 +79,6 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
             model_version=model_version,
             prompt_version=prompt_version,
         )
-        
-        self.session.add(extraction)
-        await self.session.flush()
         
         LOGGER.debug(
             "Created section extraction",
@@ -131,9 +129,5 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         Returns:
             SectionExtraction or None
         """
-        stmt = select(SectionExtraction).where(
-            SectionExtraction.id == extraction_id
-        )
-        result = await self.session.execute(stmt)
-        return result.scalar_one_or_none()
+        return await super().get_by_id(extraction_id)
 
