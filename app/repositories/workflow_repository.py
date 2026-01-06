@@ -117,6 +117,7 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
 
     def __init__(self, session: AsyncSession):
         super().__init__(session, WorkflowDocument)
+        self.session = session
 
     async def create_workflow_document(
         self,
@@ -190,11 +191,7 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         Returns:
             WorkflowDocument if found, None otherwise
         """
-        query = select(WorkflowDocument).where(
-            WorkflowDocument.document_id == document_id
-        )
-        result = await self.session.execute(query)
-        return result.scalar_one_or_none()
+        return await super().get_by_id(document_id)
 
     async def get_by_workflow_id(
         self,

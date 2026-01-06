@@ -7,7 +7,7 @@ from typing import List, Dict, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.config import settings
+from app.core.config import settings
 from app.utils.logging import get_logger
 from app.services.enriched.services.entity.resolver import EntityResolver
 from app.services.enriched.services.entity.entity_aggregator import EntityAggregator
@@ -31,18 +31,19 @@ class EntityResolutionPipeline:
             openrouter_api_url=settings.openrouter_api_url,
         )
 
-    async def aggregate_entities(self, document_id: UUID) -> Dict:
+    async def aggregate_entities(self, document_id: UUID, workflow_id: UUID) -> Dict:
         """Aggregate entities from all chunks."""
-        aggregated = await self.aggregator.aggregate_entities(document_id)
+        aggregated = await self.aggregator.aggregate_entities(document_id, workflow_id)
         return {
             "entities": aggregated.entities,
             "total_chunks": aggregated.total_chunks,
             "total_entities": aggregated.total_entities,
             "unique_entities": aggregated.unique_entities,
             "document_id": str(document_id),
+            "workflow_id": str(workflow_id),
         }
 
-    async def resolve_canonical_entities(self, document_id: UUID, entities: List[Dict], workflow_id: Optional[UUID] = None) -> List[UUID]:
+    async def resolve_canonical_entities(self, document_id: UUID, workflow_id: UUID, entities: List[Dict]) -> List[UUID]:
         """Resolve aggregated entities to canonical forms."""
         canonical_ids = await self.resolver.resolve_entities_batch(
             entities=entities,
@@ -52,7 +53,7 @@ class EntityResolutionPipeline:
         )
         return canonical_ids
 
-    async def extract_relationships(self, document_id: UUID, workflow_id: Optional[UUID] = None) -> List[Any]:
+    async def extract_relationships(self, document_id: UUID, workflow_id: UUID) -> List[Any]:
         """Extract relationships between canonical entities."""
         return await self.relationship_extractor.extract_relationships(document_id, workflow_id)
 

@@ -6,7 +6,7 @@ supporting the section-aware extraction pipeline.
 
 from typing import List, Optional, Dict, Any
 from uuid import UUID
-from datetime import datetime
+from datetime import datetime, timezone
 
 from sqlalchemy import select, and_
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -42,6 +42,7 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
         Args:
             session: SQLAlchemy async session
         """
+        super().__init__(session, DocumentChunk)
         self.session = session
     
     async def save_chunking_result(
@@ -119,7 +120,7 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
             "contextualized_text": hybrid_chunk.contextualized_text,
         }
         
-        chunk = DocumentChunk(
+        chunk = await self.create(
             document_id=document_id,
             page_number=metadata.page_number,
             section_name=metadata.section_name,
@@ -129,10 +130,9 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
             section_type=metadata.section_type.value if metadata.section_type else None,
             subsection_type=metadata.subsection_type,
             stable_chunk_id=metadata.stable_chunk_id,
+            # additional_metadata=additional_metadata,
+            created_at=datetime.now(timezone.utc),
         )
-        
-        self.session.add(chunk)
-        await self.session.flush()
         
         LOGGER.debug(
             "Created hybrid chunk",

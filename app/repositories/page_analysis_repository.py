@@ -35,6 +35,7 @@ class PageAnalysisRepository(BaseRepository[PageAnalysis]):
         Args:
             session: SQLAlchemy async session
         """
+        super().__init__(session, PageAnalysis)
         self.session = session
     
     async def save_page_signals(
@@ -51,7 +52,8 @@ class PageAnalysisRepository(BaseRepository[PageAnalysis]):
         Returns:
             Created PageAnalysis record
         """
-        page_analysis = PageAnalysis(
+
+        page_analysis = await self.create(
             document_id=document_id,
             page_number=signals.page_number,
             top_lines=signals.top_lines,
@@ -60,10 +62,9 @@ class PageAnalysisRepository(BaseRepository[PageAnalysis]):
             max_font_size=Decimal(str(signals.max_font_size)) if signals.max_font_size else None,
             page_hash=signals.page_hash
         )
-        
-        self.session.add(page_analysis)
-        await self.session.flush()
-        
+
+        await self.session.commit()
+
         logger.debug(
             f"Saved page signals for page {signals.page_number}",
             extra={"document_id": str(document_id), "page_number": signals.page_number}
