@@ -111,6 +111,13 @@ class DocumentRepository(BaseRepository[Document]):
         self,
         document_id: UUID
     ) -> List[PageData]:
+        """Fetch OCR pages for a document."""
+        return await self.get_pages(document_id)
+
+    async def get_pages(
+        self,
+        document_id: UUID
+    ) -> List[PageData]:
         """Fetch OCR pages for a document.
         
         Args:
@@ -145,6 +152,35 @@ class DocumentRepository(BaseRepository[Document]):
         
         LOGGER.info(f"Retrieved {len(page_data_list)} pages for document {document_id}")
         return page_data_list
+
+    async def update_page_metadata_bulk(
+        self,
+        document_id: UUID,
+        page_section_map: dict[int, str]
+    ) -> None:
+        """Update metadata for multiple pages in a document.
+        
+        Args:
+            document_id: Document ID
+            page_section_map: Mapping of page number to section type
+        """
+        LOGGER.info(f"Updating metadata for {len(page_section_map)} pages of document {document_id}")
+        
+        result = await self.session.execute(
+            select(DocumentPage)
+            .where(DocumentPage.document_id == document_id)
+        )
+        pages = result.scalars().all()
+        
+        for page in pages:
+            if page.page_number in page_section_map:
+                if page.additional_metadata is None:
+                    page.additional_metadata = {}
+                page.additional_metadata["page_type"] = page_section_map[page.page_number]
+                page.additional_metadata["section_from_manifest"] = True
+                
+        await self.session.flush()
+        LOGGER.info(f"Updated metadata for {len(page_section_map)} pages")
 
     async def get_manifest_pages(
         self,

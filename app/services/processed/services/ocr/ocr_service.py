@@ -10,6 +10,8 @@ import re
 import time
 from typing import Dict, Any, List, Optional, Tuple
 from uuid import UUID
+from itertools import count
+import re
 
 from app.models.page_data import PageData
 from app.models.table_json import (
@@ -65,16 +67,12 @@ class OCRService:
         self,
         document_url: str,
         document_id: UUID,
-        pages_to_process: Optional[List[int]] = None
     ) -> List[PageData]:
         """Extract text from document pages using Docling.
         
         Args:
             document_url: URL or local path to the document
             document_id: Document ID for logging and tracking
-            pages_to_process: Optional list of page numbers to extract.
-                If None, all pages are extracted.
-                If provided, only those pages are returned.
         
         Returns:
             List[PageData]: Extracted page data with text, markdown, and metadata
@@ -88,9 +86,7 @@ class OCRService:
             "Starting Docling extraction",
             extra={
                 "document_url": document_url,
-                "document_id": str(document_id),
-                "pages_to_process": pages_to_process,
-                "selective": pages_to_process is not None
+                "document_id": str(document_id)
             }
         )
         
@@ -105,19 +101,21 @@ class OCRService:
             
             # Cache the result for structural table extraction
             self._docling_result = result
-            
-            document = result.document.export_to_markdown(
-                page_break_placeholder="\n\n<<<DOC_PAGE_BREAK>>>\n\n"
+
+            raw_document_markdown = result.document.export_to_markdown(
+                page_break_placeholder="\n\n<<PAGE_BREAK>>\n\n"
             )
 
-            pages = document.split("<<<DOC_PAGE_BREAK>>>")
+            pages = raw_document_markdown.split("<<PAGE_BREAK>>")
 
             transformed_pages = []
 
             for idx, page in enumerate(pages, start=1):
-                page_with_number = f"[PAGE {idx}]\n\n{page.strip()}"
+                page_with_number = f"\n\n<<PAGE {idx}>>\n\n{page.strip()}"
                 transformed_pages.append(page_with_number)
-                
+
+            document = "".join(transformed_pages)
+
             total_pages = len(transformed_pages)
             
             LOGGER.info(
@@ -155,31 +153,7 @@ class OCRService:
                 tables_by_page
             )
 
-            # Filter pages if selective extraction is requested
-            if pages_to_process is not None:
-                pages_set = set(int(page) for page in pages_to_process)
-                
-                filtered_pages = [
-                    page for page in all_pages
-                    if page.page_number in pages_set
-                ]
-                
-                LOGGER.info(
-                    f"Selective extraction: {len(filtered_pages)}/{len(all_pages)} pages",
-                    extra={
-                        "document_id": str(document_id),
-                        "requested_pages": pages_to_process,
-                        "returned_pages": [p.page_number for p in filtered_pages],
-                        "pages_with_tables": [
-                            p.page_number for p in filtered_pages 
-                            if p.metadata.get("has_tables", False)
-                        ]
-                    }
-                )
-                
-                result_pages = filtered_pages
-            else:
-                result_pages = all_pages
+            result_pages = all_pages
             
             processing_time = time.time() - start_time
             

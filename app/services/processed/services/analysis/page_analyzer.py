@@ -6,6 +6,7 @@ enabling fast page classification and filtering.
 
 from typing import List, Optional
 from app.services.processed.services.analysis.lightweight_page_analyzer import LightweightPageAnalyzer
+from app.services.processed.services.analysis.markdown_page_analyzer import MarkdownPageAnalyzer
 from app.models.page_analysis_models import PageSignals
 from app.utils.logging import get_logger
 
@@ -23,9 +24,10 @@ class PageAnalyzer:
     """
     
     def __init__(self):
-        """Initialize PageAnalyzer with pdfplumber-based analyzer."""
-        self.analyzer = LightweightPageAnalyzer.get_instance()
-        logger.info("Initialized PageAnalyzer with pdfplumber backend")
+        """Initialize PageAnalyzer with backends."""
+        self.pdf_analyzer = LightweightPageAnalyzer.get_instance()
+        self.markdown_analyzer = MarkdownPageAnalyzer()
+        logger.info("Initialized PageAnalyzer with PDF and Markdown backends")
     
     @classmethod
     def get_instance(cls) -> "PageAnalyzer":
@@ -40,15 +42,13 @@ class PageAnalyzer:
         return _page_analyzer_instance
 
     async def analyze_document(self, document_url: str) -> List[PageSignals]:
-        """Analyze full document and extract signals for all pages.
-        
-        Args:
-            document_url: URL or path to PDF document
-            
-        Returns:
-            List of PageSignals objects (one per page)
-            
-        Raises:
-            ValueError: If document processing fails
-        """
-        return await self.analyzer.analyze_document(document_url)
+        """Analyze full document and extract signals for all pages (using PDF)."""
+        return await self.pdf_analyzer.analyze_document(document_url)
+
+    def analyze_markdown(self, markdown_content: str, page_number: int) -> PageSignals:
+        """Analyze markdown content for a specific page."""
+        return self.markdown_analyzer.analyze_markdown(markdown_content, page_number)
+
+    def analyze_markdown_batch(self, pages: List[tuple[str, int]]) -> List[PageSignals]:
+        """Analyze multiple markdown pages."""
+        return [self.analyze_markdown(content, num) for content, num in pages]

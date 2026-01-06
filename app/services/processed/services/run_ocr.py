@@ -15,8 +15,6 @@ class RunOCRService:
     async def execute(
         self, 
         document_id: UUID, 
-        pages_to_process: List[int],
-        page_section_map: Dict[int, str] = None
     ) -> OCRResult:
         """Run OCR on specified pages."""
         # Implementation would call self._ocr_service

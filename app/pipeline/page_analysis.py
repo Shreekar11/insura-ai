@@ -67,8 +67,27 @@ class PageAnalysisPipeline:
         self.repository = PageAnalysisRepository(session)
 
     async def extract_signals(self, document_id: UUID, document_url: str) -> List[PageSignals]:
-        """Extract lightweight signals from all pages."""
+        """Extract lightweight signals from all pages (Legacy - using PDF)."""
         page_signals_list = await self.analyzer.analyze_document(document_url)
+        
+        # Save signals to database
+        for signals in page_signals_list:
+            await self.repository.save_page_signals(document_id, signals)
+            
+        return page_signals_list
+
+    async def extract_signals_from_markdown(
+        self, 
+        document_id: UUID, 
+        pages: List[tuple[str, int]]
+    ) -> List[PageSignals]:
+        """Extract signals from already extracted markdown pages.
+        
+        Args:
+            document_id: Document UUID
+            pages: List of (markdown_content, page_number) tuples
+        """
+        page_signals_list = self.analyzer.analyze_markdown_batch(pages)
         
         # Save signals to database
         for signals in page_signals_list:

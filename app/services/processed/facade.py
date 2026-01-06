@@ -47,15 +47,11 @@ class ProcessedStageFacade(BaseStage):
     
     async def execute(self, document_id: UUID, *args, **kwargs) -> StageResult:
         """Execute the Processed stage."""
-        # 1. Analyze pages
+        # 1. Run OCR
+        ocr_result = await self._ocr.execute(document_id)
+
+        # 2. Analyze pages
         page_manifest = await self._analyze.execute(document_id)
-        
-        # 2. Run OCR
-        ocr_result = await self._ocr.execute(
-            document_id, 
-            page_manifest.pages_to_process,
-            page_manifest.page_section_map
-        )
         
         # 3. Extract tables
         table_result = await self._tables.execute(

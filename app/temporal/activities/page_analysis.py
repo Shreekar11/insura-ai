@@ -81,13 +81,30 @@ async def extract_page_signals(document_id: str) -> List[Dict]:
             activity.logger.debug("Initializing PageAnalysisPipeline")
             pipeline = PageAnalysisPipeline(session)
             
-            # Extract signals from all pages
-            activity.logger.info(
-                "Extracting page signals using Docling selective extraction",
-                extra={"document_id": document_id}
-            )
+            # Check if pages are already extracted (OCR-first strategy)
+            activity.logger.info(f"Checking for existing OCR pages for document {document_id}")
+            existing_pages = await doc_repo.get_pages(UUID(document_id))
             
-            signals = await pipeline.extract_signals(document_id=UUID(document_id), document_url=document.file_path)
+            if existing_pages:
+                activity.logger.info(
+                    f"Found {len(existing_pages)} existing pages. Extracting signals from Markdown.",
+                    extra={"document_id": document_id}
+                )
+                markdown_pages = [(p.markdown, p.page_number) for p in existing_pages]
+                signals = await pipeline.extract_signals_from_markdown(
+                    document_id=UUID(document_id), 
+                    pages=markdown_pages
+                )
+            else:
+                # Fallback to legacy PDF-based extraction if OCR hasn't run yet
+                activity.logger.warning(
+                    "No existing pages found. Falling back to PDF-based signal extraction.",
+                    extra={"document_id": document_id}
+                )
+                signals = await pipeline.extract_signals(
+                    document_id=UUID(document_id), 
+                    document_url=document.file_path
+                )
             
             activity.logger.info(
                 "Page signals extracted, persisting to database",
@@ -350,6 +367,16 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
                 document_id=UUID(document_id),
                 classifications=class_objs,
                 document_profile=document_profile,
+            )
+            
+            # PHASE 4: Persist page types back to document_pages for high-fidelity Markdown
+            # This ensures document_pages table has the correct section metadata
+            # determined during Phase 0 classification.
+            from app.repositories.document_repository import DocumentRepository
+            doc_repo = DocumentRepository(session)
+            await doc_repo.update_page_metadata_bulk(
+                UUID(document_id), 
+                document_profile.page_section_map
             )
             
             activity.logger.info(

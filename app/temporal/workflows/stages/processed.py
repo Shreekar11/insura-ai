@@ -36,7 +36,15 @@ class ProcessedStageWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
         )
         
-        # Phase 1: Page Analysis (includes page classification + document profile)
+        # Phase 1: OCR Extraction
+        ocr_result = await workflow.execute_child_workflow(
+            OCRExtractionWorkflow.run,
+            args=[workflow_id, document_id], 
+            id=f"stage-processed-ocr-{document_id}",
+            task_queue="documents-queue",
+        )
+        
+        # Phase 2: Page Analysis
         page_manifest = await workflow.execute_child_workflow(
             PageAnalysisWorkflow.run,
             args=[document_id, workflow_id],
@@ -47,14 +55,6 @@ class ProcessedStageWorkflow:
         document_profile = page_manifest.get('document_profile', {})
         page_section_map = page_manifest.get('page_section_map')
         pages_to_process = page_manifest.get('pages_to_process', [])
-        
-        # Phase 2: OCR Extraction
-        ocr_result = await workflow.execute_child_workflow(
-            OCRExtractionWorkflow.run,
-            args=[workflow_id, document_id, pages_to_process, page_section_map],
-            id=f"stage-processed-ocr-{document_id}",
-            task_queue="documents-queue",
-        )
         
         # Phase 3: Table Extraction
         table_result = await workflow.execute_child_workflow(
