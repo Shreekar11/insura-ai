@@ -154,7 +154,7 @@ class ProcessDocumentWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        # Stage 4: Summarized (Document Summary + Embeddings)
+        # Stage 4: Summarized (Vector Indexing + Knowledge Graph Construction + Workflow summary)
         self._progress = 0.8
         self._current_phase = "summarized"
         await workflow.execute_activity(

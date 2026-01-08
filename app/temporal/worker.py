@@ -20,6 +20,7 @@ from app.temporal.workflows.child.table_extraction import TableExtractionWorkflo
 from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
 from app.temporal.workflows.child.extraction import ExtractionWorkflow
 from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
+from app.temporal.workflows.child.vector_indexing import VectorIndexingWorkflow
 
 # Import all stages workflows
 from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
@@ -50,6 +51,9 @@ from app.temporal.activities.entity_resolution import (
     resolve_canonical_entities,
     extract_relationships,
     rollback_entities,
+)
+from app.temporal.activities.vector_indexing import (
+    generate_embeddings_activity,
 )
 from app.temporal.activities.stages import (
     update_stage_status,
@@ -91,6 +95,7 @@ async def main():
             ExtractionWorkflow,
             TableExtractionWorkflow,
             EntityResolutionWorkflow,
+            VectorIndexingWorkflow,
         ],
         activities=[
             extract_page_signals,
@@ -104,6 +109,7 @@ async def main():
             resolve_canonical_entities,
             extract_relationships,
             rollback_entities,
+            generate_embeddings_activity,
             update_stage_status,
         ],
         max_concurrent_activities=5,

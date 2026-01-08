@@ -3,6 +3,9 @@
 from temporalio import workflow
 from datetime import timedelta
 from typing import Optional, Dict
+from temporalio.common import RetryPolicy
+
+from app.temporal.workflows.child.vector_indexing import VectorIndexingWorkflow
 
 
 @workflow.defn
@@ -18,9 +21,16 @@ class SummarizedStageWorkflow:
     async def run(self, workflow_id: str, document_id: str) -> dict:
         workflow.logger.info(f"Starting SummarizedStage for {document_id}")
         
-        # Phase 1: Summarization & Embeddings (placeholder for actual implementation)
-        # In a real scenario, this would execute child workflows or activities
-        # for summary and embedding generation.
+        # Phase 1: Vector Embeddings
+        await workflow.execute_child_workflow(
+            VectorIndexingWorkflow.run,
+            args=[workflow_id, document_id],
+            id=f"stage-summarized-vector-indexing-{document_id}",
+            task_queue="documents-queue",
+        )
+
+        # Phase 2: Summarization
+        
         
         # Mark summarized stage complete
         await workflow.execute_activity(
@@ -34,5 +44,5 @@ class SummarizedStageWorkflow:
             "status": "completed",
             "document_id": document_id,
             "summarized": True,
-            "embedded": True,
+            "indexed": True,
         }
