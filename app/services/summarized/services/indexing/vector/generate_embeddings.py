@@ -1,8 +1,9 @@
 import hashlib
 import json
-from typing import List, Dict, Any, Optional
+from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID, uuid4
 from datetime import datetime, timezone
+from abc import ABC, abstractmethod
 
 from sentence_transformers import SentenceTransformer
 
@@ -15,6 +16,78 @@ from app.services.summarized.services.vector_template_service import VectorTempl
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+# Section Processor Strategy Pattern
+class SectionProcessor(ABC):
+    """Abstract base class for processing different section types."""
+    
+    @abstractmethod
+    def get_entities(self, data: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str, str]]:
+        """Extract entities from section data.
+        
+        Returns:
+            List of tuples: (entity_data, entity_id_suffix, entity_type)
+        """
+        pass
+
+
+class ListBasedSectionProcessor(SectionProcessor):
+    """Processor for sections containing lists of entities."""
+    
+    def __init__(self, list_key: str, entity_type: str, id_prefix: str):
+        self.list_key = list_key
+        self.entity_type = entity_type
+        self.id_prefix = id_prefix
+    
+    def get_entities(self, data: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str, str]]:
+        entities = []
+        for idx, entry in enumerate(data.get(self.list_key, [])):
+            entity_id_suffix = f"{self.id_prefix}_{idx}"
+            entities.append((entry, entity_id_suffix, self.entity_type))
+        return entities
+
+
+class SingleSectionProcessor(SectionProcessor):
+    """Processor for sections with single entity (entire section)."""
+    
+    def get_entities(self, data: Dict[str, Any]) -> List[Tuple[Dict[str, Any], str, str]]:
+        return [(data, "section_root", "section")]
+
+
+# Section Processor Factory
+class SectionProcessorFactory:
+    """Factory for creating appropriate section processors."""
+    
+    _processors: Dict[str, SectionProcessor] = {}
+    _default_processor = SingleSectionProcessor()
+    
+    @classmethod
+    def register(cls, section_type: str, processor: SectionProcessor):
+        """Register a processor for a specific section type."""
+        cls._processors[section_type.lower()] = processor
+    
+    @classmethod
+    def get_processor(cls, section_type: str) -> SectionProcessor:
+        """Get the appropriate processor for a section type."""
+        return cls._processors.get(section_type.lower(), cls._default_processor)
+    
+    @classmethod
+    def initialize_default_processors(cls):
+        """Register all default section processors."""
+        # Register list-based processors
+        cls.register("coverages", ListBasedSectionProcessor("coverages", "coverage", "cov"))
+        cls.register("loss_run", ListBasedSectionProcessor("claims", "claim", "claim"))
+        cls.register("schedule_of_values", ListBasedSectionProcessor("locations", "location", "loc"))
+        cls.register("endorsements", ListBasedSectionProcessor("endorsements", "endorsement", "end"))
+        cls.register("exclusions", ListBasedSectionProcessor("exclusions", "exclusion", "excl"))
+        cls.register("definitions", ListBasedSectionProcessor("definitions", "definition", "def"))
+        cls.register("vehicle_schedule", ListBasedSectionProcessor("vehicles", "vehicle", "veh"))
+        cls.register("driver_schedule", ListBasedSectionProcessor("drivers", "driver", "drv"))
+
+
+# Initialize processors on module load
+SectionProcessorFactory.initialize_default_processors()
 
 
 class GenerateEmbeddingsService(BaseService):
@@ -60,85 +133,21 @@ class GenerateEmbeddingsService(BaseService):
         await self.vector_repo.delete_by_document(document_id)
 
         # 1. Fetch the workflow document to get a valid workflow_id if not provided
-        if not workflow_id:
-            msg = f"No workflow_id provided for document {document_id}, trying to find recent one"
-            workflow_docs = await self.workflow_doc_repo.get_by_workflow_and_document_id(workflow_id, document_id)
-            if isinstance(workflow_docs, list) and workflow_docs:
-                workflow_id = workflow_docs[0].workflow_id
-            elif workflow_docs:
-                workflow_id = workflow_docs.workflow_id
-            
-            if workflow_id:
-                LOGGER.info(f"{msg}: found {workflow_id}")
+        workflow_id = await self._resolve_workflow_id(document_id, workflow_id)
 
         # 2. Fetch all section extractions for this document
-        if not workflow_id:
-            LOGGER.warning(f"No workflow_id found for document {document_id}, fetching all sections")
-            from sqlalchemy import select
-            from app.database.models import SectionExtraction
-            stmt = select(SectionExtraction).where(SectionExtraction.document_id == document_id)
-            result = await self.session.execute(stmt)
-            sections = list(result.scalars().all())
-        else:
-            sections = await self.section_repo.get_by_document(document_id, workflow_id)
+        sections = await self._fetch_sections(document_id, workflow_id)
 
         if not sections:
             LOGGER.info(f"No sections found for document {document_id}")
-            return EmbeddingResult(vector_dimension=384, chunks_embedded=0, storage_details={"status": "no_sections"})
+            return EmbeddingResult(
+                vector_dimension=384, 
+                chunks_embedded=0, 
+                storage_details={"status": "no_sections"}
+            )
 
         # 3. Process each section and generate embeddings
-        embeddings_created = 0
-        
-        for section in sections:
-            section_type = section.section_type
-            data = section.extracted_fields
-            
-            # Certain sections contain lists of entities that should be embedded individually
-            if section_type.lower() == "coverages" and "coverages" in data:
-                for idx, entry in enumerate(data.get("coverages", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"cov_{idx}", "coverage", workflow_id
-                    )
-            elif section_type.lower() == "loss_run" and "claims" in data:
-                for idx, entry in enumerate(data.get("claims", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"claim_{idx}", "claim", workflow_id
-                    )
-            elif section_type.lower() == "schedule_of_values" and "locations" in data:
-                for idx, entry in enumerate(data.get("locations", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"loc_{idx}", "location", workflow_id
-                    )
-            elif section_type.lower() == "endorsements" and "endorsements" in data:
-                for idx, entry in enumerate(data.get("endorsements", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"end_{idx}", "endorsement", workflow_id
-                    )
-            elif section_type.lower() == "exclusions" and "exclusions" in data:
-                for idx, entry in enumerate(data.get("exclusions", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"excl_{idx}", "exclusion", workflow_id
-                    )
-            elif section_type.lower() == "definitions" and "definitions" in data:
-                for idx, entry in enumerate(data.get("definitions", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"def_{idx}", "definition", workflow_id
-                    )
-            elif section_type.lower() == "vehicle_schedule" and "vehicles" in data:
-                for idx, entry in enumerate(data.get("vehicles", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"veh_{idx}", "vehicle", workflow_id
-                    )
-            elif section_type.lower() == "driver_schedule" and "drivers" in data:
-                for idx, entry in enumerate(data.get("drivers", [])):
-                    embeddings_created += await self._process_entry(
-                        document_id, section_type, entry, f"drv_{idx}", "driver", workflow_id
-                    )
-            else:
-                # Default case: 1 embedding for the entire section
-                embeddings_created += await self._process_entry(
-                    document_id, section_type, data, "section_root", "section", workflow_id
-                )
+        embeddings_created = await self._process_all_sections(sections, document_id, workflow_id)
 
         await self.session.commit()
         
@@ -147,6 +156,66 @@ class GenerateEmbeddingsService(BaseService):
             chunks_embedded=embeddings_created,
             storage_details={"status": "success", "model": self.model_name}
         )
+
+    async def _resolve_workflow_id(self, document_id: UUID, workflow_id: Optional[UUID]) -> Optional[UUID]:
+        """Resolve workflow_id if not provided."""
+        if workflow_id:
+            return workflow_id
+            
+        msg = f"No workflow_id provided for document {document_id}, trying to find recent one"
+        workflow_docs = await self.workflow_doc_repo.get_by_workflow_and_document_id(None, document_id)
+        
+        if isinstance(workflow_docs, list) and workflow_docs:
+            workflow_id = workflow_docs[0].workflow_id
+        elif workflow_docs:
+            workflow_id = workflow_docs.workflow_id
+        
+        if workflow_id:
+            LOGGER.info(f"{msg}: found {workflow_id}")
+        
+        return workflow_id
+
+    async def _fetch_sections(self, document_id: UUID, workflow_id: Optional[UUID]) -> List:
+        """Fetch section extractions for the document."""
+        if not workflow_id:
+            LOGGER.warning(f"No workflow_id found for document {document_id}, fetching all sections")
+            from sqlalchemy import select
+            from app.database.models import SectionExtraction
+            stmt = select(SectionExtraction).where(SectionExtraction.document_id == document_id)
+            result = await self.session.execute(stmt)
+            return list(result.scalars().all())
+        
+        return await self.section_repo.get_by_document(document_id, workflow_id)
+
+    async def _process_all_sections(
+        self, 
+        sections: List, 
+        document_id: UUID, 
+        workflow_id: Optional[UUID]
+    ) -> int:
+        """Process all sections and return count of embeddings created."""
+        embeddings_created = 0
+        
+        for section in sections:
+            section_type = section.section_type
+            data = section.extracted_fields
+            
+            # Use factory to get appropriate processor
+            processor = SectionProcessorFactory.get_processor(section_type)
+            entities = processor.get_entities(data)
+            
+            # Process each entity
+            for entity_data, entity_id_suffix, entity_type in entities:
+                embeddings_created += await self._process_entry(
+                    document_id, 
+                    section_type, 
+                    entity_data, 
+                    entity_id_suffix, 
+                    entity_type, 
+                    workflow_id
+                )
+        
+        return embeddings_created
 
     async def _process_entry(
         self, 
@@ -173,19 +242,9 @@ class GenerateEmbeddingsService(BaseService):
             # Generate embedding vector
             vector = self.model.encode(text).tolist()
             
-            # Extract metadata if available
-            eff_date = self.template_service.get_field(data, "policy_period_start")
-            exp_date = self.template_service.get_field(data, "policy_period_end")
-            loc_id = self.template_service.get_field(data, "location_id")
+            # Extract and parse metadata
+            metadata = self._extract_metadata(data)
             
-            # Parse dates if they are strings
-            if isinstance(eff_date, str):
-                try: eff_date = datetime.strptime(eff_date.split("T")[0], "%Y-%m-%d").date()
-                except: eff_date = None
-            if isinstance(exp_date, str):
-                try: exp_date = datetime.strptime(exp_date.split("T")[0], "%Y-%m-%d").date()
-                except: exp_date = None
-
             # Save embedding
             await self.vector_repo.create(
                 document_id=document_id,
@@ -198,9 +257,9 @@ class GenerateEmbeddingsService(BaseService):
                 embedding=vector,
                 content_hash=content_hash,
                 workflow_type=str(workflow_id) if workflow_id else None,
-                effective_date=eff_date,
-                expiration_date=exp_date,
-                location_id=str(loc_id) if loc_id else None,
+                effective_date=metadata["effective_date"],
+                expiration_date=metadata["expiration_date"],
+                location_id=metadata["location_id"],
                 status="EMBEDDED",
                 embedded_at=datetime.now(timezone.utc)
             )
@@ -209,3 +268,28 @@ class GenerateEmbeddingsService(BaseService):
         except Exception as e:
             LOGGER.error(f"Failed to process embedding for {section_type}: {e}", exc_info=True)
             return 0
+
+    def _extract_metadata(self, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract and parse metadata from entity data."""
+        eff_date = self.template_service.get_field(data, "policy_period_start")
+        exp_date = self.template_service.get_field(data, "policy_period_end")
+        loc_id = self.template_service.get_field(data, "location_id")
+        
+        # Parse dates if they are strings
+        if isinstance(eff_date, str):
+            try:
+                eff_date = datetime.strptime(eff_date.split("T")[0], "%Y-%m-%d").date()
+            except:
+                eff_date = None
+        
+        if isinstance(exp_date, str):
+            try:
+                exp_date = datetime.strptime(exp_date.split("T")[0], "%Y-%m-%d").date()
+            except:
+                exp_date = None
+        
+        return {
+            "effective_date": eff_date,
+            "expiration_date": exp_date,
+            "location_id": str(loc_id) if loc_id else None
+        }
