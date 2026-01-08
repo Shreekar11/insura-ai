@@ -1,7 +1,7 @@
 from temporalio import activity
 from uuid import UUID
 from app.core.database import async_session_maker
-from app.services.summarized.services.generate_embeddings import GenerateEmbeddingsService
+from app.services.summarized.services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)

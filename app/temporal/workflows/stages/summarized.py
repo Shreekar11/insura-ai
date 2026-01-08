@@ -5,6 +5,8 @@ from datetime import timedelta
 from typing import Optional, Dict
 from temporalio.common import RetryPolicy
 
+from app.temporal.workflows.child.vector_indexing import VectorIndexingWorkflow
+
 
 @workflow.defn
 class SummarizedStageWorkflow:
@@ -20,14 +22,11 @@ class SummarizedStageWorkflow:
         workflow.logger.info(f"Starting SummarizedStage for {document_id}")
         
         # Phase 1: Vector Embeddings
-        embedding_result = await workflow.execute_activity(
-            "generate_embeddings_activity",
-            args=[document_id, workflow_id],
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                initial_interval=timedelta(seconds=5),
-                maximum_attempts=3
-            )
+        await workflow.execute_child_workflow(
+            VectorIndexingWorkflow.run,
+            args=[workflow_id, document_id],
+            id=f"stage-summarized-vector-indexing-{document_id}",
+            task_queue="documents-queue",
         )
 
         # Phase 2: Summarization
@@ -45,6 +44,5 @@ class SummarizedStageWorkflow:
             "status": "completed",
             "document_id": document_id,
             "summarized": True,
-            "embedded": True,
-            "chunks_embedded": embedding_result.get("chunks_embedded", 0),
+            "indexed": True,
         }

@@ -114,6 +114,13 @@ class EntityResolutionOutputSchema(BaseModel):
     entity_count: int = Field(..., ge=0, description="Number of canonical entities")
     relationship_count: int = Field(..., ge=0, description="Number of relationships extracted")
 
+class VectorIndexingOutputSchema(BaseModel):
+    """Schema for VectorIndexingWorkflow output validation."""
+    
+    workflow_id: str = Field(..., description="Workflow UUID as string")
+    document_id: str = Field(..., description="Document UUID as string")
+    indexed: bool = Field(..., description="Whether document was indexed")
+    chunks_indexed: int = Field(..., ge=0, description="Number of chunks indexed")
 
 def validate_workflow_output(
     output: Dict[str, Any],
