@@ -51,10 +51,10 @@ class DatabaseSettings(BaseSettings):
 class LLMSettings(BaseSettings):
     """LLM provider and OCR service settings."""
 
+    provider: str = Field(default="openrouter", validation_alias="LLM_PROVIDER")
+    
     gemini_api_key: str = Field(default="", validation_alias="GEMINI_API_KEY")
     gemini_model: str = Field(default="gemini-2.0-flash", validation_alias="GEMINI_MODEL")
-
-    provider: str = Field(default="openrouter", validation_alias="LLM_PROVIDER")
     
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_api_url: str = Field(default="https://openrouter.ai/api/v1/chat/completions", validation_alias="OPENROUTER_API_URL")
@@ -87,10 +87,14 @@ class LLMSettings(BaseSettings):
     def model_post_init(self, __context) -> None:
         """Log settings after initialization."""
         LOGGER.info(f"LLM Provider: {self.provider}")
-        LOGGER.info(f"OpenRouter API Key present: {bool(self.openrouter_api_key)}")
-        LOGGER.info(f"OpenRouter API Key length: {len(self.openrouter_api_key)}")
-        if self.provider == "openrouter" and not self.openrouter_api_key:
-            LOGGER.error("OpenRouter selected as provider but API key is empty!")
+        if self.provider == "gemini":
+            LOGGER.info(f"Gemini API Key present: {bool(self.gemini_api_key)}")
+            LOGGER.info(f"Gemini API Key length: {len(self.gemini_api_key)}")
+        elif self.provider == "openrouter":
+            LOGGER.info(f"OpenRouter API Key present: {bool(self.openrouter_api_key)}")
+            LOGGER.info(f"OpenRouter API Key length: {len(self.openrouter_api_key)}")
+        else:
+            LOGGER.error("Invalid LLM provider specified!")
 
 class TemporalSettings(BaseSettings):
     """Temporal connection and workflow settings."""
@@ -243,4 +247,9 @@ settings = Settings()
 # Log initialization for debugging
 LOGGER.info(f"Settings initialized with environment: {settings.environment}")
 LOGGER.info(f"LLM Provider: {settings.llm_provider}")
-LOGGER.info(f"OpenRouter API Key loaded: {bool(settings.openrouter_api_key)}")
+if settings.llm_provider == "gemini":
+    LOGGER.info(f"Gemini API Key loaded: {bool(settings.gemini_api_key)}")
+    LOGGER.info(f"Gemini API Key length: {len(settings.gemini_api_key)}")
+else:
+    LOGGER.info(f"OpenRouter API Key loaded: {bool(settings.openrouter_api_key)}")
+    LOGGER.info(f"OpenRouter API Key length: {len(settings.openrouter_api_key)}")

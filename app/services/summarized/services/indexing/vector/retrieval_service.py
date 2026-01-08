@@ -1,21 +1,26 @@
 from typing import List, Optional, Dict, Any, Tuple
 from uuid import UUID
-from sentence_transformers import SentenceTransformer
-import numpy as np
 import re
 from datetime import datetime
+
+from langchain_huggingface import HuggingFaceEmbeddings
+from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_classic.retrievers.multi_query import MultiQueryRetriever
+from langchain_core.documents import Document
 
 from app.services.base_service import BaseService
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.services.summarized.services.indexing.vector.vector_template_service import VectorTemplateService
 from app.services.summarized.services.indexing.vector.intent_classifier_service import IntentClassifierService
+from app.services.summarized.services.indexing.vector.langchain_vector_store import BridgedVectorStore
 from app.services.summarized.constants import (
     DOMAIN_KEYWORDS, 
     TERM_MAPPINGS, 
     QUERY_SECTION_MAPPINGS, 
     GENERAL_SECTION_BOOST
 )
+from app.core.config import settings
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -24,24 +29,26 @@ LOGGER = get_logger(__name__)
 class RetrievalService(BaseService):
     """Service for high-precision semantic retrieval of insurance documents.
     
-    Improvements:
-    1. Query expansion and reformulation
-    2. Hybrid search (semantic + keyword)
-    3. Multi-stage retrieval with reranking
-    4. Context-aware filtering
-    5. Relevance scoring with multiple signals
-    6. Query preprocessing for insurance domain
+    Integrated with LangChain for:
+    1. Advanced query expansion via MultiQueryRetriever
+    2. Standardized VectorStore interface via BridgedVectorStore
+    3. Multi-stage retrieval and reranking
     """
 
     def __init__(self, session):
-        """Initialize retrieval service."""
+        """Initialize retrieval service with LangChain integration."""
         super().__init__(VectorEmbeddingRepository(session))
         self.vector_repo = self.repository
         self.section_repo = SectionExtractionRepository(session)
         self.template_service = VectorTemplateService()
         self.intent_classifier = IntentClassifierService()
         self.model_name = "all-MiniLM-L6-v2"
-        self._model = None
+        
+        # Lazy loaders for LangChain/ML components
+        self._embeddings = None
+        self._vector_store = None
+        self._llm = None
+        self._retriever = None
         
         # Insurance domain constants
         self.domain_keywords = DOMAIN_KEYWORDS
@@ -50,12 +57,43 @@ class RetrievalService(BaseService):
         self.general_section_boost = GENERAL_SECTION_BOOST
 
     @property
-    def model(self) -> SentenceTransformer:
-        """Lazy loader for the SentenceTransformer model."""
-        if self._model is None:
+    def embeddings(self) -> HuggingFaceEmbeddings:
+        """Lazy loader for HuggingFaceEmbeddings."""
+        if self._embeddings is None:
             LOGGER.info(f"Loading embedding model: {self.model_name}")
-            self._model = SentenceTransformer(self.model_name)
-        return self._model
+            self._embeddings = HuggingFaceEmbeddings(model_name=self.model_name)
+        return self._embeddings
+
+    @property
+    def vector_store(self) -> BridgedVectorStore:
+        """Lazy loader for custom BridgedVectorStore."""
+        if self._vector_store is None:
+            self._vector_store = BridgedVectorStore(
+                repository=self.vector_repo,
+                embeddings=self.embeddings
+            )
+        return self._vector_store
+
+    @property
+    def llm(self) -> Any:
+        """Lazy loader for configured LLM for query expansion."""
+        if self._llm is None:
+            if settings.llm_provider == "gemini":
+                self._llm = ChatGoogleGenerativeAI(
+                    model=settings.gemini_model,
+                    google_api_key=settings.gemini_api_key,
+                    temperature=0
+                )
+            else:
+                from langchain_openai import ChatOpenAI
+                self._llm = ChatOpenAI(
+                    model=settings.openrouter_model,
+                    openai_api_key=settings.openrouter_api_key,
+                    openai_api_base=settings.openrouter_api_url.replace("/chat/completions", ""),
+                    temperature=0
+                )
+
+        return self._llm
 
     def preprocess_query(self, query: str) -> str:
         """Preprocess query for better insurance domain understanding.
@@ -68,7 +106,7 @@ class RetrievalService(BaseService):
         """
         query = query.strip().lower()
         
-        # Expand insurance abbreviations
+        # Expand insurance abbreviations using whole-word matching
         for abbrev, expansions in self.term_mappings.items():
             pattern = rf"\b{re.escape(abbrev)}\b"
             if re.search(pattern, query, re.IGNORECASE):
@@ -76,72 +114,21 @@ class RetrievalService(BaseService):
         
         return query
 
-    def expand_query(self, query: str) -> List[str]:
-        """Generate query variations for better recall.
+    async def get_multi_query_retriever(self, **kwargs) -> MultiQueryRetriever:
+        """Configure and return a MultiQueryRetriever with dynamic filters."""
+        # Use our custom vector store as the base retriever
+        base_retriever = self.vector_store.as_retriever(
+            search_kwargs={"k": kwargs.get("top_k", 10), **kwargs}
+        )
         
-        Args:
-            query: Original query
-            
-        Returns:
-            List of query variations including original
-        """
-        queries = [query]
-        query_lower = query.lower()
-        
-        # Add domain-specific expansions
-        for keyword, related in self.domain_keywords.items():
-            if keyword in query_lower:
-                for related_term in related[:2]:  # Limit to top 2
-                    expanded = query.replace(keyword, related_term)
-                    if expanded != query:
-                        queries.append(expanded)
-        
-        return queries[:3]  # Limit total variations
-
-    async def multi_query_retrieval(
-        self,
-        queries: List[str],
-        top_k: int = 10,
-        **kwargs
-    ) -> List[Tuple[Any, float]]:
-        """Retrieve results for multiple query variations and merge with true distances.
-        
-        Returns:
-            Merged list of (match, similarity) tuples
-        """
-        all_results = []
-        seen_ids = set()
-        
-        # Extract filters for the repository call
-        document_id = kwargs.get('document_id')
-        section_type = kwargs.get('section_type')
-        
-        for query in queries:
-            query_vector = self.model.encode(query).tolist()
-            
-            # Use get_embeddings_with_distance to get raw similarity
-            # Threshold is high (0.7) to allow boosting of marginal semantic matches
-            matches_with_dist = await self.vector_repo.get_embeddings_with_distance(
-                embedding=query_vector,
-                document_id=document_id,
-                section_type=section_type,
-                max_distance=0.7
-            )
-            
-            # Limit per query variation
-            for match, distance in matches_with_dist[:top_k]:
-                match_id = (match.document_id, match.entity_id, match.section_type)
-                if match_id not in seen_ids:
-                    seen_ids.add(match_id)
-                    # Convert distance to similarity (0-1)
-                    similarity = max(0, 1.0 - float(distance))
-                    all_results.append((match, similarity))
-        
-        return all_results
+        return MultiQueryRetriever.from_llm(
+            retriever=base_retriever,
+            llm=self.llm,
+        )
 
     def calculate_relevance_score(
         self,
-        match: Any,
+        match_metadata: Dict[str, Any],
         query: str,
         cosine_score: float,
         filters: Optional[Dict[str, Any]] = None
@@ -149,9 +136,9 @@ class RetrievalService(BaseService):
         """Calculate comprehensive relevance score using multiple signals.
         
         Args:
-            match: Vector embedding match
+            match_metadata: Metadata from the retrieved document
             query: Original query
-            cosine_score: Base cosine similarity score
+            cosine_score: Base cosine similarity score (typically 0-1)
             filters: Applied filters
             
         Returns:
@@ -161,7 +148,7 @@ class RetrievalService(BaseService):
         query_lower = query.lower()
         
         # Boost 1: Query-specific section type relevance
-        section_type = match.section_type
+        section_type = match_metadata.get("section_type")
         for query_term, section_boosts in self.query_section_mappings.items():
             if query_term in query_lower:
                 boost = section_boosts.get(section_type, 0.0)
@@ -173,26 +160,15 @@ class RetrievalService(BaseService):
                     )
         
         # Boost 2: General section type importance (fallback)
-        score += self.general_section_boost.get(section_type, 0.0)
+        if section_type:
+            score += self.general_section_boost.get(section_type, 0.0)
         
         # Boost 3: Keyword matching in searchable attributes
         searchable_text = []
-        
-        # Add section_type
-        if hasattr(match, 'section_type') and match.section_type:
-            searchable_text.append(str(match.section_type))
-        
-        # Add entity_type
-        if hasattr(match, 'entity_type') and match.entity_type:
-            searchable_text.append(str(match.entity_type))
-        
-        # Add location_id
-        if hasattr(match, 'location_id') and match.location_id:
-            searchable_text.append(str(match.location_id))
-        
-        # Add workflow_type
-        if hasattr(match, 'workflow_type') and match.workflow_type:
-            searchable_text.append(str(match.workflow_type))
+        for key in ["section_type", "entity_type", "location_id", "workflow_type"]:
+            val = match_metadata.get(key)
+            if val:
+                searchable_text.append(str(val))
         
         if searchable_text:
             combined_text = " ".join(searchable_text).lower()
@@ -210,56 +186,25 @@ class RetrievalService(BaseService):
             score += keyword_matches * 0.03
         
         # Boost 4: Recency (if effective_date available)
-        if hasattr(match, 'effective_date') and match.effective_date:
+        eff_date_str = match_metadata.get("effective_date")
+        if eff_date_str:
             try:
-                days_old = (datetime.now().date() - match.effective_date).days
+                eff_date = datetime.strptime(eff_date_str.split()[0], "%Y-%m-%d").date()
+                days_old = (datetime.now().date() - eff_date).days
                 if days_old < 365:  # Within last year
                     recency_boost = 0.05 * (1 - days_old / 365)
                     score += recency_boost
-            except (TypeError, AttributeError):
-                pass  # Skip if date comparison fails
+            except (ValueError, TypeError, AttributeError):
+                pass
         
         # Boost 5: Filter alignment
         if filters:
-            if filters.get("document_id") == match.document_id:
-                score += 0.02  # Reward document-scoped searches
-            if filters.get("section_type") == match.section_type:
-                score += 0.03  # Reward section-scoped searches
+            if filters.get("document_id") == match_metadata.get("document_id"):
+                score += 0.02
+            if filters.get("section_type") == match_metadata.get("section_type"):
+                score += 0.03
         
-        return min(score, 1.0)  # Cap at 1.0
-
-    def rerank_results(
-        self,
-        results: List[Tuple[Any, float]],
-        query: str,
-        filters: Optional[Dict[str, Any]] = None
-    ) -> List[Tuple[Any, float]]:
-        """Rerank results using true base similarity and section boosts.
-        
-        Args:
-            results: List of (match, base_similarity) tuples
-            query: Original query
-            filters: Applied filters
-            
-        Returns:
-            List of (result, final_score) tuples sorted by relevance
-        """
-        scored_results = []
-        
-        for match, base_similarity in results:
-            relevance_score = self.calculate_relevance_score(
-                match=match,
-                query=query,
-                cosine_score=base_similarity,
-                filters=filters
-            )
-            
-            scored_results.append((match, relevance_score))
-        
-        # Sort by relevance score descending
-        scored_results.sort(key=lambda x: x[1], reverse=True)
-        
-        return scored_results
+        return min(score, 1.0)
 
     async def run(
         self, 
@@ -272,7 +217,7 @@ class RetrievalService(BaseService):
         rerank: bool = True,
         include_entity_data: bool = True
     ) -> List[Dict[str, Any]]:
-        """Retrieval with multiple accuracy improvements.
+        """Retrieval with LangChain-driven multi-query expansion and reranking.
         
         Args:
             query: Natural language question or search term
@@ -280,141 +225,159 @@ class RetrievalService(BaseService):
             document_id: Optional document scope filter
             section_type: Optional section type filter
             filters: Additional metadata filters
-            use_query_expansion: Enable query expansion
-            rerank: Enable result reranking
+            use_query_expansion: Enable LangChain MultiQuery expansion
+            rerank: Enable domain-specific reranking
             include_entity_data: Fetch actual entity data for results
             
         Returns:
             List of relevant results with scores and metadata
         """
-        LOGGER.info(f"Retrieval query: '{query}' (top_k={top_k})")
+        LOGGER.info(f"LangChain Retrieval query: '{query}' (top_k={top_k})")
         
         # Step 1: Preprocess query
         processed_query = self.preprocess_query(query)
         
-        # Step 2: Query intent classification (if section_type NOT explicitly provided)
-        # Filter is applied ONLY if user didn't specify a section_type
+        # Step 2: Intent classification for section filtering
         allowed_sections = None
         if not section_type:
             allowed_sections = self.intent_classifier.classify(processed_query)
-            if allowed_sections:
-                LOGGER.info(f"Intent-based filtering applied: {allowed_sections}")
         
-        # Step 3: Query expansion (if enabled)
-        if use_query_expansion:
-            query_variations = self.expand_query(processed_query)
-            LOGGER.debug(f"Query variations: {query_variations}")
-        else:
-            query_variations = [processed_query]
-        
-        # Step 4: Multi-query retrieval
-        filter_kwargs = {}
+        # Step 3: Configure filters
+        search_kwargs = {}
         if document_id:
-            filter_kwargs['document_id'] = document_id
-        
-        # Use intent-based sections ONLY if explict section_type wasn't provided
-        filter_kwargs['section_type'] = section_type or allowed_sections
-        
+            search_kwargs["document_id"] = document_id
+        search_kwargs["section_type"] = section_type or allowed_sections
         if filters:
-            filter_kwargs['filters'] = filters
-        
-        # Retrieve significantly more results for reranking pool (Precision over throughput)
-        initial_top_k = top_k * 10 if rerank else top_k
-        
-        matches = await self.multi_query_retrieval(
-            queries=query_variations,
-            top_k=initial_top_k,
-            **filter_kwargs
-        )
-        
-        LOGGER.info(f"Retrieved {len(matches)} initial matches for {len(query_variations)} variations")
-        if not matches:
-             LOGGER.warning(f"No semantic matches found for any query variation of: '{query}'")
-        
-        # Step 4: Rerank results (if enabled)
-        if rerank and matches:
-            scored_matches = self.rerank_results(
-                results=matches,
+            search_kwargs["filters"] = filters
+            
+        # Step 4: Retrieval (with optional expansion)
+        docs = []
+        if use_query_expansion:
+            try:
+                # Use MultiQueryRetriever
+                retriever = await self.get_multi_query_retriever(
+                    top_k=top_k * 5 if rerank else top_k,
+                    **search_kwargs
+                )
+                # LangChain's MultiQueryRetriever handles variations and merging
+                docs = await retriever.ainvoke(processed_query)
+            except Exception as e:
+                LOGGER.warning(f"MultiQueryRetriever failed, falling back to direct search: {e}")
+                docs = await self.vector_store.asimilarity_search(
+                    processed_query,
+                    k=top_k * 5 if rerank else top_k,
+                    **search_kwargs
+                )
+        else:
+            # Direct similarity search via VectorStore
+            docs = await self.vector_store.asimilarity_search(
+                processed_query,
+                k=top_k * 5 if rerank else top_k,
+                **search_kwargs
+            )
+
+        # Step 5: Domain-specific Reranking
+        scored_results = []
+        for doc in docs:
+            # Base similarity score
+            query_vec = self.embeddings.embed_query(processed_query)
+            # Use the repository directly for efficiency
+            matches = await self.vector_repo.get_embeddings_with_distance(
+                embedding=query_vec,
+                document_id=UUID(doc.metadata["document_id"]),
+                section_type=doc.metadata["section_type"],
+                max_distance=1.0 # High threshold to ensure we get a score
+            )
+            
+            # Find the match that corresponds to this entity_id
+            base_score = 0.0
+            for match, dist in matches:
+                if match.entity_id == doc.metadata["entity_id"]:
+                    base_score = max(0, 1.0 - float(dist))
+                    break
+            
+            # Calculate final domain-weighted score
+            final_score = self.calculate_relevance_score(
+                match_metadata=doc.metadata,
                 query=query,
+                cosine_score=base_score,
                 filters={'document_id': document_id, 'section_type': section_type}
             )
-            # Take top K after reranking
-            final_matches = [match for match, score in scored_matches[:top_k]]
-            match_scores = {id(match): score for match, score in scored_matches[:top_k]}
-        else:
-            final_matches = matches[:top_k]
-            match_scores = {id(match): 1.0 for match in final_matches}
+            scored_results.append((doc, final_score))
+            
+        # Sort by final score
+        scored_results.sort(key=lambda x: x[1], reverse=True)
+        final_docs = scored_results[:top_k]
         
-        # Step 5: Format results with enhanced metadata
+        # Step 6: Format results
         results = []
-        for match in final_matches:
-            # Safely extract metadata fields
-            effective_date = None
-            if hasattr(match, 'effective_date') and match.effective_date:
-                try:
-                    effective_date = str(match.effective_date)
-                except Exception:
-                    pass
+        for doc, score in final_docs:
+            metadata = doc.metadata
+            entity_id = metadata["entity_id"]
+            section_type_attr = metadata["section_type"]
+            document_id_attr = UUID(metadata["document_id"])
             
-            location_id = getattr(match, 'location_id', None)
-            workflow_type = getattr(match, 'workflow_type', None)
+            # Fetch content preview and entity data
+            evidence = await self._get_content_preview_from_metadata(metadata)
             
-            # Step 7: Normalized response format (Answer, Evidence, Confidence)
-            # Re-mapping fields for deterministic answer extraction
-            relevance_score = match_scores.get(id(match), 0.0)
-            
-            # Extract content preview for evidence
-            evidence = await self._get_content_preview(match)
-            
-            # Fetch entity data for structured answer
             entity_data = None
             if include_entity_data:
-                entity_data = await self._fetch_entity_data(match)
+                entity_data = await self._fetch_entity_data_from_metadata(metadata)
 
-            result = {
-                "document_id": str(match.document_id),
-                "section_type": match.section_type or "unknown",
-                "entity_type": match.entity_type or "unknown",
-                "entity_id": match.entity_id or "unknown",
-                "relevance_score": relevance_score,
-                "metadata": {
-                    "effective_date": effective_date,
-                    "location_id": location_id,
-                    "workflow_type": workflow_type,
-                },
-                # New standard response fields
+            results.append({
+                "document_id": str(document_id_attr),
+                "section_type": section_type_attr or "unknown",
+                "entity_type": metadata.get("entity_type") or "unknown",
+                "entity_id": entity_id,
+                "relevance_score": score,
+                "metadata": metadata,
                 "answer": entity_data,
                 "evidence": evidence,
-                "confidence": "high" if relevance_score > 0.8 else "medium" if relevance_score > 0.6 else "low",
-                
-                # Keep legacy fields for compatibility during transition
+                "confidence": "high" if score > 0.8 else "medium" if score > 0.6 else "low",
                 "entity_data": entity_data,
-            }
-            
-            results.append(result)
+            })
         
-        LOGGER.info(f"Returning {len(results)} final results")
+        LOGGER.info(f"Returning {len(results)} LangChain-optimized results")
         return results
-    
-    async def _fetch_entity_data(self, match: Any) -> Optional[Dict[str, Any]]:
-        """Fetch the actual extracted entity data for a match from section extractions.
+
+    async def _fetch_entity_data_from_metadata(self, metadata: Dict[str, Any]) -> Optional[Dict[str, Any]]:
+        """Adapter to fetch entity data from metadata dict."""
+        # Create a mock match object to satisfy existing _fetch_entity_data interface
+        class MockMatch:
+            def __init__(self, m):
+                self.section_type = m.get("section_type")
+                self.entity_id = m.get("entity_id")
+                self.document_id = UUID(m.get("document_id"))
+                self.workflow_type = m.get("workflow_type")
         
-        Args:
-            match: Vector embedding match
-            
-        Returns:
-            Dictionary of entity data or None
-        """
+        return await self._fetch_entity_data(MockMatch(metadata))
+
+    async def _get_content_preview_from_metadata(self, metadata: Dict[str, Any]) -> Optional[str]:
+        """Adapter to fetch content preview from metadata dict."""
+        class MockMatch:
+            def __init__(self, m):
+                self.section_type = m.get("section_type")
+                self.entity_id = m.get("entity_id")
+                self.document_id = UUID(m.get("document_id"))
+                self.workflow_type = m.get("workflow_type")
+                
+        return await self._get_content_preview(MockMatch(metadata))
+
+    async def _fetch_entity_data(self, match: Any) -> Optional[Dict[str, Any]]:
+        """Fetch the actual extracted entity data for a match from section extractions."""
         try:
             section_type = match.section_type
             entity_id = match.entity_id
             document_id = match.document_id
             
-            # Since embeddings are derived from SectionExtraction.extracted_fields,
-            # we fetch the section extraction record first.
-            sections = await self.section_repo.get_by_document(document_id, UUID(match.workflow_type) if match.workflow_type else None, section_type)
+            sections = await self.section_repo.get_by_document(
+                document_id, 
+                UUID(match.workflow_type) if match.workflow_type and match.workflow_type != "None" else None, 
+                section_type
+            )
+            
             if not sections:
-                # Fallback: get by document_id and section_type only if workflow_type is missing
+                # Fallback: get by document_id and section_type
                 from sqlalchemy import select
                 from app.database.models import SectionExtraction
                 stmt = select(SectionExtraction).where(
@@ -427,57 +390,33 @@ class RetrievalService(BaseService):
             if not sections:
                 return None
 
-            # For root sections, return the fields directly
             section = sections[0]
             data = section.extracted_fields
 
             if entity_id.endswith("_section_root"):
                 return data
 
-            # For nested entities (coverages, claims, locations, etc.), find the specific one
-            if section_type.lower() == "coverages" and "coverages" in data:
-                idx_str = entity_id.split("_")[-1]
-                if idx_str.isdigit():
-                    idx = int(idx_str)
-                    if 0 <= idx < len(data["coverages"]):
-                        return data["coverages"][idx]
+            # Logic for list-based entities
+            mapping = {
+                "coverages": "coverages",
+                "loss_run": "claims",
+                "schedule_of_values": "locations",
+                "endorsements": "endorsements",
+                "exclusions": "exclusions",
+                "definitions": "definitions",
+                "vehicle_schedule": "vehicles",
+                "driver_schedule": "drivers"
+            }
             
-            elif section_type.lower() == "loss_run" and "claims" in data:
+            list_key = mapping.get(section_type.lower())
+            if list_key and list_key in data:
                 idx_str = entity_id.split("_")[-1]
                 if idx_str.isdigit():
                     idx = int(idx_str)
-                    if 0 <= idx < len(data["claims"]):
-                        return data["claims"][idx]
+                    if 0 <= idx < len(data[list_key]):
+                        return data[list_key][idx]
 
-            elif section_type.lower() == "schedule_of_values" and "locations" in data:
-                idx_str = entity_id.split("_")[-1]
-                if idx_str.isdigit():
-                    idx = int(idx_str)
-                    if 0 <= idx < len(data["locations"]):
-                        return data["locations"][idx]
-
-            elif section_type.lower() == "endorsements" and "endorsements" in data:
-                idx_str = entity_id.split("_")[-1]
-                if idx_str.isdigit():
-                    idx = int(idx_str)
-                    if 0 <= idx < len(data["endorsements"]):
-                        return data["endorsements"][idx]
-
-            elif section_type.lower() == "exclusions" and "exclusions" in data:
-                idx_str = entity_id.split("_")[-1]
-                if idx_str.isdigit():
-                    idx = int(idx_str)
-                    if 0 <= idx < len(data["exclusions"]):
-                        return data["exclusions"][idx]
-
-            elif section_type.lower() == "definitions" and "definitions" in data:
-                idx_str = entity_id.split("_")[-1]
-                if idx_str.isdigit():
-                    idx = int(idx_str)
-                    if 0 <= idx < len(data["definitions"]):
-                        return data["definitions"][idx]
-
-            return data  # Default return generic section data
+            return data
             
         except Exception as e:
             LOGGER.warning(f"Failed to fetch entity data: {e}")
@@ -485,26 +424,12 @@ class RetrievalService(BaseService):
         return None
 
     async def _get_content_preview(self, match: Any, max_chars: int = 500) -> Optional[str]:
-        """Extract content preview from match by regenerating template.
-        
-        Since we don't store embedded_text (per architecture), we need to:
-        1. Fetch the source entity data
-        2. Regenerate the template
-        3. Return preview
-        
-        Args:
-            match: Vector embedding match
-            max_chars: Maximum preview length
-            
-        Returns:
-            Content preview string or None
-        """
+        """Extract content preview from match by regenerating template."""
         try:
             entity_data = await self._fetch_entity_data(match)
             if not entity_data:
                 return f"Section: {match.section_type} | ID: {match.entity_id}"
 
-            # Regenerate template text
             preview = await self.template_service.run(match.section_type, entity_data)
             
             if preview and len(preview) > max_chars:
@@ -514,36 +439,3 @@ class RetrievalService(BaseService):
         except Exception as e:
             LOGGER.warning(f"Failed to generate content preview: {e}")
             return f"Section: {match.section_type} | ID: {match.entity_id}"
-
-    async def search_with_context(
-        self,
-        query: str,
-        document_id: UUID,
-        top_k: int = 5,
-        context_window: int = 2
-    ) -> List[Dict[str, Any]]:
-        """Retrieve results with surrounding context sections.
-        
-        Useful for understanding the broader context around matches.
-        
-        Args:
-            query: Search query
-            document_id: Document to search within
-            top_k: Number of primary results
-            context_window: Number of adjacent sections to include
-            
-        Returns:
-            Results with context sections included
-        """
-        # Get primary results
-        primary_results = await self.run(
-            query=query,
-            top_k=top_k,
-            document_id=document_id
-        )
-        
-        # For each result, fetch adjacent sections
-        # This would require additional repository methods
-        # Placeholder for now
-        
-        return primary_results
