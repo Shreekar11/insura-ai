@@ -12,7 +12,7 @@ from app.services.summarized.contracts import EmbeddingResult
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository
-from app.services.summarized.services.vector_template_service import VectorTemplateService
+from app.services.summarized.services.indexing.vector.vector_template_service import VectorTemplateService
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)

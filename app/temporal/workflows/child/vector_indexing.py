@@ -3,9 +3,11 @@ from datetime import timedelta
 from temporalio.common import RetryPolicy
 from app.utils.workflow_schemas import validate_workflow_output, VectorIndexingOutputSchema
 
+@workflow.defn
 class VectorIndexingWorkflow:
     """Child worklfow for generating vector embeddings and storing the embeddings in pgvector as vector database"""
-    @workflow.defn
+
+    @workflow.run
     async def run(self, workflow_id: str, document_id: str) -> dict:
 
         workflow.logger.info(f"Starting vector indexing for document: {document_id}")

@@ -8,8 +8,8 @@ from datetime import datetime
 from app.services.base_service import BaseService
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
-from app.services.summarized.services.vector_template_service import VectorTemplateService
-from app.services.summarized.services.intent_classifier_service import IntentClassifierService
+from app.services.summarized.services.indexing.vector.vector_template_service import VectorTemplateService
+from app.services.summarized.services.indexing.vector.intent_classifier_service import IntentClassifierService
 from app.services.summarized.constants import (
     DOMAIN_KEYWORDS, 
     TERM_MAPPINGS, 

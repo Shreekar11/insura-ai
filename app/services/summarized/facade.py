@@ -2,7 +2,7 @@
 
 from uuid import UUID
 from app.core.base_stage import BaseStage, StageResult, StageStatus
-from .services.indexing.vector.generate_summary import GenerateSummaryService
+from .services.summary.generate_summary import GenerateSummaryService
 from .services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
 
 
