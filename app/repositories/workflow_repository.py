@@ -210,6 +210,26 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
+    
+    async def get_by_workflow_and_document_id(
+        self,
+        workflow_id: uuid.UUID,
+        document_id: uuid.UUID
+    ) -> List[WorkflowDocument]:
+        """Get all workflow_documents for a workflow.
+        
+        Args:
+            workflow_id: Workflow ID
+            
+        Returns:
+            List of WorkflowDocument instances
+        """
+        query = select(WorkflowDocument).where(
+            WorkflowDocument.workflow_id == workflow_id,
+            WorkflowDocument.document_id == document_id
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
 
 
 class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):

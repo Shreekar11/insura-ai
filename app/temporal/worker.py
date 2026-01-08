@@ -51,6 +51,9 @@ from app.temporal.activities.entity_resolution import (
     extract_relationships,
     rollback_entities,
 )
+from app.temporal.activities.summarized import (
+    generate_embeddings_activity,
+)
 from app.temporal.activities.stages import (
     update_stage_status,
 )
@@ -104,6 +107,7 @@ async def main():
             resolve_canonical_entities,
             extract_relationships,
             rollback_entities,
+            generate_embeddings_activity,
             update_stage_status,
         ],
         max_concurrent_activities=5,

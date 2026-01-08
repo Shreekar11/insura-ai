@@ -3,6 +3,7 @@
 from temporalio import workflow
 from datetime import timedelta
 from typing import Optional, Dict
+from temporalio.common import RetryPolicy
 
 
 @workflow.defn
@@ -18,9 +19,19 @@ class SummarizedStageWorkflow:
     async def run(self, workflow_id: str, document_id: str) -> dict:
         workflow.logger.info(f"Starting SummarizedStage for {document_id}")
         
-        # Phase 1: Summarization & Embeddings (placeholder for actual implementation)
-        # In a real scenario, this would execute child workflows or activities
-        # for summary and embedding generation.
+        # Phase 1: Vector Embeddings
+        embedding_result = await workflow.execute_activity(
+            "generate_embeddings_activity",
+            args=[document_id, workflow_id],
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=3
+            )
+        )
+
+        # Phase 2: Summarization
+        
         
         # Mark summarized stage complete
         await workflow.execute_activity(
@@ -35,4 +46,5 @@ class SummarizedStageWorkflow:
             "document_id": document_id,
             "summarized": True,
             "embedded": True,
+            "chunks_embedded": embedding_result.get("chunks_embedded", 0),
         }
