@@ -19,6 +19,7 @@ from sqlalchemy import (
 )
 from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
+from pgvector.sqlalchemy import Vector
 
 from app.core.database import Base
 
@@ -90,6 +91,9 @@ class Document(Base):
     )
     stage_runs: Mapped[list["WorkflowDocumentStageRun"]] = relationship(
         "WorkflowDocumentStageRun", back_populates="document", cascade="all, delete-orphan"
+    )
+    vector_embeddings: Mapped[list["VectorEmbedding"]] = relationship(
+        "VectorEmbedding", back_populates="document", cascade="all, delete-orphan"
     )
 
 
@@ -1138,4 +1142,43 @@ class WorkflowRelationshipScope(Base):
     )
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+
+class VectorEmbedding(Base):
+    """Vector database for high-precision semantic recall."""
+
+    __tablename__ = "vector_embeddings"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    section_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_type: Mapped[str] = mapped_column(String, nullable=False)
+    entity_id: Mapped[str] = mapped_column(String, nullable=False)
+    embedding_model: Mapped[str] = mapped_column(String, nullable=False)
+    embedding_dim: Mapped[int] = mapped_column(Integer, nullable=False)
+    embedding_version: Mapped[str] = mapped_column(String, nullable=False)
+    embedding: Mapped[list[float]] = mapped_column(Vector(384), nullable=True)
+    effective_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    expiration_date: Mapped[datetime | None] = mapped_column(Date, nullable=True)
+    location_id: Mapped[str | None] = mapped_column(String, nullable=True)
+    content_hash: Mapped[str] = mapped_column(String, nullable=False)
+    status: Mapped[str] = mapped_column(String, nullable=False, default="EMBEDDED")
+    embedded_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="vector_embeddings")
+
+    __table_args__ = (
+        {"comment": "Canonical table for pgvector embeddings"},
     )
