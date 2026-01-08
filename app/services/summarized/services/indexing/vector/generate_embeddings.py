@@ -157,13 +157,12 @@ class GenerateEmbeddingsService(BaseService):
             storage_details={"status": "success", "model": self.model_name}
         )
 
-    async def _resolve_workflow_id(self, document_id: UUID, workflow_id: Optional[UUID]) -> Optional[UUID]:
+    async def _resolve_workflow_id(self, document_id: UUID, workflow_id: UUID) -> UUID:
         """Resolve workflow_id if not provided."""
         if workflow_id:
             return workflow_id
             
-        msg = f"No workflow_id provided for document {document_id}, trying to find recent one"
-        workflow_docs = await self.workflow_doc_repo.get_by_workflow_and_document_id(None, document_id)
+        workflow_docs = await self.workflow_doc_repo.get_by_workflow_and_document_id(workflow_id, document_id)
         
         if isinstance(workflow_docs, list) and workflow_docs:
             workflow_id = workflow_docs[0].workflow_id
@@ -171,7 +170,7 @@ class GenerateEmbeddingsService(BaseService):
             workflow_id = workflow_docs.workflow_id
         
         if workflow_id:
-            LOGGER.info(f"{msg}: found {workflow_id}")
+            LOGGER.info(f"Found workflow_id {workflow_id} for document {document_id}")
         
         return workflow_id
 

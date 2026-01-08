@@ -150,20 +150,6 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         keyword_lower = keyword.lower()
         score = 0.0
         
-        # Check embedded_text if available
-        if hasattr(embedding, 'embedded_text') and embedding.embedded_text:
-            text_lower = embedding.embedded_text.lower()
-            
-            # Exact phrase match
-            if keyword_lower in text_lower:
-                score += 0.5
-            
-            # Individual word matches
-            keyword_words = keyword_lower.split()
-            text_words = set(text_lower.split())
-            matches = sum(1 for word in keyword_words if word in text_words)
-            score += (matches / len(keyword_words)) * 0.3
-        
         # Check section_type match
         if embedding.section_type and keyword_lower in embedding.section_type.lower():
             score += 0.2
@@ -289,7 +275,9 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         embedding: List[float],
         document_id: Optional[UUID] = None,
         max_distance: float = 0.5,
-        section_type: Optional[str] = None
+        section_type: Optional[str] = None,
+        entity_id: Optional[str] = None,
+        limit: Optional[int] = None
     ) -> List[Tuple[VectorEmbedding, float]]:
         """Get embeddings within a distance threshold with actual distances.
         
@@ -298,6 +286,8 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
             document_id: Optional document filter
             max_distance: Maximum cosine distance (0-2, lower is more similar)
             section_type: Optional section type filter
+            entity_id: Optional entity ID filter
+            limit: Optional limit on number of results
             
         Returns:
             List of (embedding, distance) tuples
@@ -315,6 +305,8 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
                 query = query.where(self.model.section_type.in_(section_type))
             else:
                 query = query.where(self.model.section_type == section_type)
+        if entity_id:
+            query = query.where(self.model.entity_id == entity_id)
         
         # Apply distance threshold
         query = query.where(
@@ -323,6 +315,9 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         
         # Order by distance
         query = query.order_by('distance')
+        
+        if limit:
+            query = query.limit(limit)
         
         result = await self.session.execute(query)
         return [(row.VectorEmbedding, row.distance) for row in result]

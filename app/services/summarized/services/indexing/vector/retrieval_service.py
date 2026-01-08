@@ -278,23 +278,26 @@ class RetrievalService(BaseService):
 
         # Step 5: Domain-specific Reranking
         scored_results = []
+        if docs:
+            query_vec = self.embeddings.embed_query(processed_query)
+
         for doc in docs:
             # Base similarity score
-            query_vec = self.embeddings.embed_query(processed_query)
             # Use the repository directly for efficiency
             matches = await self.vector_repo.get_embeddings_with_distance(
                 embedding=query_vec,
                 document_id=UUID(doc.metadata["document_id"]),
                 section_type=doc.metadata["section_type"],
-                max_distance=1.0 # High threshold to ensure we get a score
+                entity_id=doc.metadata["entity_id"],
+                max_distance=1.0, # High threshold to ensure we get a score
+                limit=1
             )
             
-            # Find the match that corresponds to this entity_id
+            # Get the score from the matched entity
             base_score = 0.0
-            for match, dist in matches:
-                if match.entity_id == doc.metadata["entity_id"]:
-                    base_score = max(0, 1.0 - float(dist))
-                    break
+            if matches:
+                _, dist = matches[0]
+                base_score = max(0, 1.0 - float(dist))
             
             # Calculate final domain-weighted score
             final_score = self.calculate_relevance_score(
