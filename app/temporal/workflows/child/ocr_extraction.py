@@ -60,6 +60,7 @@ class OCRExtractionWorkflow:
             "document_id": ocr_data.get('document_id'),
             "page_count": ocr_data.get('page_count', 0),
             "pages_processed": ocr_data.get('pages_processed', []),
+            "markdown_pages": ocr_data.get('markdown_pages', []),
             "selective": False,
             "has_section_metadata": False,
             "section_distribution": None,

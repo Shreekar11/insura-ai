@@ -44,10 +44,13 @@ class ProcessedStageWorkflow:
             task_queue="documents-queue",
         )
         
+        # Extract markdown pages from OCR result (if available)
+        markdown_pages = ocr_result.get("markdown_pages", [])
+        
         # Phase 2: Page Analysis
         page_manifest = await workflow.execute_child_workflow(
             PageAnalysisWorkflow.run,
-            args=[document_id, workflow_id],
+            args=[document_id, markdown_pages, workflow_id],
             id=f"stage-processed-page-analysis-{document_id}",
             task_queue="documents-queue",
         )

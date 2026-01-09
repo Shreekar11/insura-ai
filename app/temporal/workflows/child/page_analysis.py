@@ -41,11 +41,18 @@ class PageAnalysisWorkflow:
     """
     
     @workflow.run
-    async def run(self, document_id: str, workflow_id: Optional[str] = None) -> Dict:
+    async def run(
+        self, 
+        document_id: str, 
+        markdown_pages: Optional[list] = None,
+        workflow_id: Optional[str] = None
+    ) -> Dict:
         """Execute page analysis and create processing manifest with document profile.
         
         Args:
             document_id: UUID string of the document to analyze
+            markdown_pages: Optional list of (content, page_num) tuples from OCR
+            workflow_id: Optional parent workflow ID
             
         Returns:
             Dictionary with full manifest including:
@@ -64,20 +71,35 @@ class PageAnalysisWorkflow:
         """
         workflow.logger.info(f"Starting page analysis for document: {document_id}", extra={"workflow_id": workflow_id})
         
-        # Activity 1: Extract signals from all pages
-        # Uses Docling's selective extraction (bounding boxes) to get top lines,
-        # text density, table presence, etc. without full OCR
-        page_signals = await workflow.execute_activity(
-            "extract_page_signals",
-            document_id,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(
-                maximum_attempts=3,
-                initial_interval=timedelta(seconds=5),
-                maximum_interval=timedelta(seconds=30),
-                backoff_coefficient=2.0,
-            ),
-        )
+        # Activity 1: Extract signals from all the pages
+        # Uses the markdown for selective extraction of signals from pages
+        
+        if markdown_pages:
+            workflow.logger.info(f"Using provided markdown for {len(markdown_pages)} pages")
+            page_signals = await workflow.execute_activity(
+                "extract_page_signals_from_markdown",
+                args=[document_id, markdown_pages],
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(seconds=30),
+                    backoff_coefficient=2.0,
+                ),
+            )
+        else:
+            # Legacy path
+            page_signals = await workflow.execute_activity(
+                "extract_page_signals",
+                document_id,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(
+                    maximum_attempts=3,
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(seconds=30),
+                    backoff_coefficient=2.0,
+                ),
+            )
         
         workflow.logger.info(f"Extracted signals from {len(page_signals)} pages")
         

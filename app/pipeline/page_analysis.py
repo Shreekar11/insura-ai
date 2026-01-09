@@ -28,6 +28,7 @@ from app.models.page_analysis_models import (
     PageType, 
     PageManifest,
     DocumentProfile,
+    DocumentType,
 )
 from app.utils.logging import get_logger
 
@@ -80,20 +81,27 @@ class PageAnalysisPipeline:
         self, 
         document_id: UUID, 
         pages: List[tuple[str, int]]
-    ) -> List[PageSignals]:
+    ) -> Tuple[List[PageSignals], DocumentType, float]:
         """Extract signals from already extracted markdown pages.
         
         Args:
             document_id: Document UUID
             pages: List of (markdown_content, page_number) tuples
+            
+        Returns:
+            Tuple of (PageSignals list, document_type, confidence)
         """
+        # Combine all content for document type detection
+        all_content = " ".join(content for content, _ in pages)
+        doc_type, confidence = self.analyzer.markdown_analyzer.detect_document_type(all_content)
+
         page_signals_list = self.analyzer.analyze_markdown_batch(pages)
         
         # Save signals to database
         for signals in page_signals_list:
             await self.repository.save_page_signals(document_id, signals)
             
-        return page_signals_list
+        return page_signals_list, doc_type, confidence
 
     async def classify_pages(self, document_id: UUID, page_signals: List[PageSignals]) -> List[PageClassification]:
         """Classify pages and detect duplicates."""
