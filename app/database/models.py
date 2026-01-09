@@ -632,6 +632,9 @@ class EntityRelationship(Base):
     target_entity_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("canonical_entities.id"), nullable=True
     )
+    document_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=True
+    )
     relationship_type: Mapped[str] = mapped_column(
         String, nullable=False, comment="HAS_CLAIM, INSURED_BY, HAS_COVERAGE, LOCATED_AT, etc."
     )
@@ -933,9 +936,11 @@ class Workflow(Base):
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
     workflow_definition_id: Mapped[uuid.UUID | None] = mapped_column(
-        UUID(as_uuid=True), 
         ForeignKey("workflow_definitions.id"), 
         nullable=True
+    )
+    user_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     temporal_workflow_id: Mapped[str | None] = mapped_column(
         String, 
@@ -980,6 +985,9 @@ class Workflow(Base):
         "SectionExtraction", 
         back_populates="workflow", 
         cascade="all, delete-orphan"
+    )
+    vector_embeddings: Mapped[list["VectorEmbedding"]] = relationship(
+        "VectorEmbedding", back_populates="workflow", cascade="all, delete-orphan"
     )
 
 
@@ -1156,7 +1164,9 @@ class VectorEmbedding(Base):
     document_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
     )
-    workflow_type: Mapped[str | None] = mapped_column(String, nullable=True)
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
     section_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
@@ -1178,6 +1188,7 @@ class VectorEmbedding(Base):
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="vector_embeddings")
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="vector_embeddings")
 
     __table_args__ = (
         {"comment": "Canonical table for pgvector embeddings"},

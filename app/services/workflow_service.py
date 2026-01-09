@@ -222,6 +222,7 @@ class WorkflowService(BaseService):
             workflow_run = await self.wf_repo.create_workflow(
                 workflow_definition_id=definition.id,
                 status="running",
+                user_id=user_id,
             )
             workflow_id = workflow_run.id
 
