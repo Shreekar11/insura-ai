@@ -64,13 +64,15 @@ async def extract_ocr(
             
             await session.commit()
             
-            pages_processed = [p.page_number for p in pages]
+            pages_processed = [int(p.page_number) for p in pages]
+            markdown_pages = [(p.markdown, int(p.page_number)) for p in pages]
             
             activity.logger.info(
-                f"[Phase 2: OCR Extraction] Complete: {len(pages)} pages extracted",
+                "OCR Extraction Complete",
                 extra={
                     "document_id": document_id,
                     "pages_processed": pages_processed,
+                    "markdown_pages": markdown_pages,
                 }
             )
         
@@ -78,6 +80,7 @@ async def extract_ocr(
             "document_id": document_id,
             "page_count": len(pages),
             "pages_processed": pages_processed,
+            "markdown_pages": markdown_pages,
         }
         
     except Exception as e:
