@@ -84,12 +84,12 @@ class BridgedVectorStore(VectorStore):
                 page_content=str(res.entity_id),  # We don't store text, so we return ID
                 metadata={
                     "document_id": str(res.document_id),
+                    "workflow_id": str(res.workflow_id),
                     "section_type": res.section_type,
                     "entity_type": res.entity_type,
                     "entity_id": res.entity_id,
                     "effective_date": str(res.effective_date) if res.effective_date else None,
                     "location_id": res.location_id,
-                    "workflow_type": res.workflow_type,
                 }
             )
             for res in results
@@ -118,12 +118,12 @@ class BridgedVectorStore(VectorStore):
                     page_content=str(res.entity_id),
                     metadata={
                         "document_id": str(res.document_id),
+                        "workflow_id": str(res.workflow_id),
                         "section_type": res.section_type,
                         "entity_type": res.entity_type,
                         "entity_id": res.entity_id,
                         "effective_date": str(res.effective_date) if res.effective_date else None,
                         "location_id": res.location_id,
-                        "workflow_type": res.workflow_type,
                     }
                 ),
                 float(dist)

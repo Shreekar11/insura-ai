@@ -154,9 +154,9 @@ class GenerateEmbeddingsService(BaseService):
             storage_details={"status": "success", "model": self.model_name}
         )
 
-    async def _fetch_sections(self, document_id: UUID, workflow_id: UUID) -> List:
+    async def _fetch_sections(self, document_id: UUID) -> List:
         """Fetch section extractions for the document."""
-        return await self.section_repo.get_by_document(document_id, workflow_id)
+        return await self.section_repo.get_by_document(document_id)
 
     async def _process_all_sections(
         self, 
@@ -179,11 +179,11 @@ class GenerateEmbeddingsService(BaseService):
             for entity_data, entity_id_suffix, entity_type in entities:
                 embeddings_created += await self._process_entry(
                     document_id, 
+                    workflow_id,
                     section_type, 
                     entity_data, 
                     entity_id_suffix, 
                     entity_type, 
-                    workflow_id
                 )
         
         return embeddings_created
@@ -191,11 +191,11 @@ class GenerateEmbeddingsService(BaseService):
     async def _process_entry(
         self, 
         document_id: UUID, 
+        workflow_id: UUID,
         section_type: str, 
         data: Dict[str, Any],
         entity_id_suffix: str,
         entity_type: str,
-        workflow_id: Optional[UUID] = None
     ) -> int:
         """Process a single unit of data, generate embedding and save."""
         try:
@@ -227,7 +227,7 @@ class GenerateEmbeddingsService(BaseService):
                 embedding_version="v1",
                 embedding=vector,
                 content_hash=content_hash,
-                workflow_type=str(workflow_id) if workflow_id else None,
+                workflow_id=workflow_id,
                 effective_date=metadata["effective_date"],
                 expiration_date=metadata["expiration_date"],
                 location_id=metadata["location_id"],
