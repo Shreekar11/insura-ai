@@ -249,7 +249,7 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         source_result = await self.session.execute(source_query)
         source = source_result.scalar_one_or_none()
         
-        if not source:
+        if not source or source.embedding is None:
             return []
         
         # Build search query

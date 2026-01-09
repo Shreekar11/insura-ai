@@ -34,7 +34,7 @@ class BridgedVectorStore(VectorStore):
         """Not implemented as we handle indexing via GenerateEmbeddingsService."""
         raise NotImplementedError("Use GenerateEmbeddingsService for adding texts")
 
-    def similarity_search(
+    async def similarity_search(
         self, query: str, k: int = 4, **kwargs: Any
     ) -> List[Document]:
         """Perform a similarity search using the repository."""
