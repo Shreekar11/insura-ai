@@ -80,7 +80,7 @@ class PageAnalysisPipeline:
     async def extract_signals_from_markdown(
         self, 
         document_id: UUID, 
-        pages: List[tuple[str, int]]
+        pages: List[Tuple[str, int]]
     ) -> Tuple[List[PageSignals], DocumentType, float]:
         """Extract signals from already extracted markdown pages.
         
