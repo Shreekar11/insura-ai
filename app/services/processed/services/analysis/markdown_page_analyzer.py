@@ -13,6 +13,9 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+from typing import List, Optional, Dict, Tuple
+from app.models.page_analysis_models import PageSignals, DocumentType
+
 class MarkdownPageAnalyzer:
     """Analyzer for extracting signals from Markdown text."""
 
@@ -26,6 +29,58 @@ class MarkdownPageAnalyzer:
             "SCHEDULE OF VALUES", "SOV", "LOSS RUN", "CLAIMS HISTORY",
             "DEFINITIONS", "TABLE OF CONTENTS"
         ]
+
+        # Enhance with document type detection patterns
+        self.DOCUMENT_TYPE_PATTERNS = {
+            DocumentType.POLICY: [
+                "DECLARATIONS", "COVERAGE", "LIMITS OF LIABILITY",
+                "POLICY NUMBER", "EFFECTIVE DATE", "EXPIRATION DATE"
+            ],
+            DocumentType.SOV: [
+                "SCHEDULE OF VALUES", "SOV", "PROPERTY VALUATION",
+                "BUILDING VALUE", "CONTENTS VALUE"
+            ],
+            DocumentType.LOSS_RUN: [
+                "LOSS HISTORY", "CLAIMS", "LOSS RUN", "CLAIM DATE",
+                "LOSS DATE", "AMOUNT PAID"
+            ],
+            DocumentType.ENDORSEMENT: [
+                "ENDORSEMENT", "AMENDMENT", "RIDER", "ATTACHMENT"
+            ],
+        }
+
+    def analyze_markdown_batch(
+        self, 
+        pages: List[tuple[str, int]]
+    ) -> List[PageSignals]:
+        """Batch analyze markdown pages with document type detection."""
+        signals_list = []
+        
+        for content, page_num in pages:
+            signals = self.analyze_markdown(content, page_num)
+            signals_list.append(signals)
+        
+        return signals_list
+    
+    def detect_document_type(
+        self, 
+        all_markdown: str
+    ) -> Tuple[DocumentType, float]:
+        """Detect document type from content patterns."""
+        scores = {}
+        upper_content = all_markdown.upper()
+        
+        for doc_type, keywords in self.DOCUMENT_TYPE_PATTERNS.items():
+            match_count = sum(1 for kw in keywords if kw in upper_content)
+            scores[doc_type] = match_count / len(keywords) if keywords else 0.0
+        
+        if not scores:
+             return DocumentType.UNKNOWN, 0.0
+
+        best_type = max(scores, key=scores.get)
+        confidence = scores[best_type]
+        
+        return best_type, confidence
 
     def analyze_markdown(self, markdown_content: str, page_number: int) -> PageSignals:
         """Analyze markdown content for a specific page.

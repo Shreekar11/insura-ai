@@ -92,7 +92,7 @@ class ProcessDocumentWorkflow:
         workflow.logger.info(f"Starting document processing: {document_id}")
         self._status = "processing"
 
-        # Stage 1: Processed (Page Analysis + OCR + Chunking)
+        # Stage 1: Processed (OCR + Page Analysis + Table Extraction + Hybrid Chunking)
         self._progress = 0.0
         self._current_phase = "processed"
 

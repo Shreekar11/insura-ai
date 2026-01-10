@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import EntityMention
+from app.services.enriched.services.entity.entity_synthesizer import EntitySynthesizer
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.utils.logging import get_logger
 
@@ -57,6 +58,7 @@ class EntityAggregator:
         """
         self.session = session
         self.section_extraction_repo = SectionExtractionRepository(session)
+        self.synthesizer = EntitySynthesizer()
         
         LOGGER.info("Initialized EntityAggregator")
     
@@ -137,7 +139,11 @@ class EntityAggregator:
             
             for extraction in section_extractions:
                 extracted_fields = extraction.extracted_fields or {}
-                entities = extracted_fields.get("entities", [])
+                entities = extracted_fields.get("entities")
+                
+                # If entities field is missing or empty, try synthesizing from structured data
+                if not entities:
+                    entities = self.synthesizer.synthesize_entities_from_data(extracted_fields, extraction.section_type)
                 
                 LOGGER.debug(
                     f"Checking section extraction for entities",
@@ -145,7 +151,7 @@ class EntityAggregator:
                         "document_id": str(document_id),
                         "section_type": extraction.section_type,
                         "section_extraction_id": str(extraction.id),
-                        "entities_found": len(entities),
+                        "entities_found": len(entities) if entities else 0,
                         "extracted_fields_keys": list(extracted_fields.keys())
                     }
                 )
@@ -340,7 +346,7 @@ class EntityAggregator:
     ) -> Optional[Dict[str, Any]]:
         """Normalize entity format to match resolver expectations.
         
-        Converts from extraction format (type/value) to resolver format
+        Converts from extraction format (type/id/attributes) to resolver format
         (entity_type/normalized_value/raw_value).
         
         Args:
@@ -350,17 +356,17 @@ class EntityAggregator:
             Normalized entity dict, or None if required fields missing
         """
         # Extract entity type (support both formats)
-        entity_type = entity.get("entity_type") or entity.get("type")
+        entity_type = entity.get("type") or entity.get("entity_type")
         if not entity_type:
             return None
         
-        # Extract normalized value (support both formats)
-        normalized_value = entity.get("normalized_value") or entity.get("value")
+        # Extract normalized value / ID
+        normalized_value = entity.get("id") or entity.get("normalized_value") or entity.get("value")
         if not normalized_value:
             return None
         
-        # Extract raw value (prefer raw_value, fallback to value/normalized_value)
-        raw_value = entity.get("raw_value") or entity.get("value") or entity.get("normalized_value")
+        # Extract raw value
+        raw_value = entity.get("raw_value") or entity.get("value") or entity.get("normalized_value") or normalized_value
         
         # Build normalized entity dict
         normalized_entity = {
@@ -370,10 +376,14 @@ class EntityAggregator:
             "confidence": entity.get("confidence", 0.8),
         }
         
-        # Preserve other fields (entity_id, span_start, span_end, etc.)
+        # Preserve other fields (id/entity_id, span_start, span_end, attributes, etc.)
         for key, value in entity.items():
             if key not in ["type", "value", "entity_type", "normalized_value", "raw_value", "confidence"]:
                 normalized_entity[key] = value
+        
+        # Support attributes block directly
+        if "attributes" in entity and isinstance(entity["attributes"], dict):
+            normalized_entity.update(entity["attributes"])
         
         # Generate entity_id if not present
         if "entity_id" not in normalized_entity:

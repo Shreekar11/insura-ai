@@ -27,6 +27,7 @@ dependencies = [
     "ollama>=0.6.1",
     "pgvector>=0.2.4",
     "sentence-transformers>=2.2.2",
+    "neo4j>=5.14.0",
 ]
 
 [project.optional-dependencies]

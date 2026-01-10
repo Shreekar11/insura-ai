@@ -4,7 +4,7 @@ These activities handle entity aggregation, resolution, and relationship extract
 """
 
 from temporalio import activity
-from typing import Dict, List, Optional
+from typing import Dict, List
 from uuid import UUID
 
 from app.core.database import async_session_maker

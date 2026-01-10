@@ -19,7 +19,8 @@ class WorkflowRepository(BaseRepository[Workflow]):
         self,
         workflow_definition_id: Optional[uuid.UUID] = None,
         temporal_workflow_id: Optional[str] = None,
-        status: str = "running"
+        status: str = "running",
+        user_id: Optional[uuid.UUID] = None,
     ) -> Workflow:
         """Create a new workflow execution record.
         
@@ -27,6 +28,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
             workflow_definition_id: Optional workflow definition ID
             temporal_workflow_id: Optional Temporal workflow ID
             status: Workflow status (default: "running")
+            user_id: Optional user ID
             
         Returns:
             Created Workflow instance
@@ -35,6 +37,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
             workflow_definition_id=workflow_definition_id,
             temporal_workflow_id=temporal_workflow_id,
             status=status,
+            user_id=user_id,
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )

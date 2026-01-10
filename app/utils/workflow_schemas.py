@@ -5,7 +5,7 @@ that each workflow's output matches expected structure and types.
 """
 
 from pydantic import BaseModel, Field, field_validator
-from typing import Optional, List, Dict, Any
+from typing import Optional, List, Dict, Any, Tuple
 from uuid import UUID
 
 
@@ -52,6 +52,7 @@ class OCRExtractionOutputSchema(BaseModel):
     document_id: str = Field(..., description="Document UUID as string")
     page_count: int = Field(..., ge=0, description="Number of pages processed")
     pages_processed: List[int] = Field(..., description="List of processed page numbers")
+    markdown_pages: List[Tuple[str, int]] = Field(..., description="List of processed page markdown")
     selective: bool = Field(..., description="Whether selective processing was used")
     has_section_metadata: bool = Field(..., description="Whether section metadata was stored")
     section_distribution: Optional[Dict[str, int]] = Field(None, description="Section distribution")
@@ -114,13 +115,19 @@ class EntityResolutionOutputSchema(BaseModel):
     entity_count: int = Field(..., ge=0, description="Number of canonical entities")
     relationship_count: int = Field(..., ge=0, description="Number of relationships extracted")
 
-class VectorIndexingOutputSchema(BaseModel):
-    """Schema for VectorIndexingWorkflow output validation."""
+class IndexingOutputSchema(BaseModel):
+    """Schema for IndexingWorkflow output validation."""
     
     workflow_id: str = Field(..., description="Workflow UUID as string")
     document_id: str = Field(..., description="Document UUID as string")
     indexed: bool = Field(..., description="Whether document was indexed")
+    vector_indexed: bool = Field(..., description="Whether document was indexed")
+    graph_constructed: bool = Field(..., description="Whether document was indexed")
     chunks_indexed: int = Field(..., ge=0, description="Number of chunks indexed")
+    entities_created: int = Field(..., ge=0, description="Number of entities created")
+    relationships_created: int = Field(..., ge=0, description="Number of relationships created")
+    embeddings_linked: int = Field(..., ge=0, description="Number of embeddings linked")
+    
 
 def validate_workflow_output(
     output: Dict[str, Any],

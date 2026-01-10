@@ -53,15 +53,34 @@ class PageAnalysisRepository(BaseRepository[PageAnalysis]):
             Created PageAnalysis record
         """
 
-        page_analysis = await self.create(
-            document_id=document_id,
-            page_number=signals.page_number,
-            top_lines=signals.top_lines,
-            text_density=Decimal(str(signals.text_density)),
-            has_tables=signals.has_tables,
-            max_font_size=Decimal(str(signals.max_font_size)) if signals.max_font_size else None,
-            page_hash=signals.page_hash
+        stmt = select(PageAnalysis).where(
+            and_(
+                PageAnalysis.document_id == document_id,
+                PageAnalysis.page_number == signals.page_number
+            )
         )
+        result = await self.session.execute(stmt)
+        existing = result.scalar_one_or_none()
+
+        if existing:
+            # Update existing record
+            existing.top_lines = signals.top_lines
+            existing.text_density = Decimal(str(signals.text_density))
+            existing.has_tables = signals.has_tables
+            existing.max_font_size = Decimal(str(signals.max_font_size)) if signals.max_font_size else None
+            existing.page_hash = signals.page_hash
+            page_analysis = existing
+        else:
+            # Create new record
+            page_analysis = await self.create(
+                document_id=document_id,
+                page_number=signals.page_number,
+                top_lines=signals.top_lines,
+                text_density=Decimal(str(signals.text_density)),
+                has_tables=signals.has_tables,
+                max_font_size=Decimal(str(signals.max_font_size)) if signals.max_font_size else None,
+                page_hash=signals.page_hash
+            )
 
         await self.session.commit()
 

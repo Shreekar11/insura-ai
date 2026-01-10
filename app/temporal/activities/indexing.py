@@ -2,7 +2,9 @@ from temporalio import activity
 from uuid import UUID
 from app.core.database import async_session_maker
 from app.services.summarized.services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
+from app.services.summarized.services.indexing.graph.graph_service import GraphService
 from app.utils.logging import get_logger
+from app.core.neo4j_client import Neo4jClientManager
 
 logger = get_logger(__name__)
 
@@ -45,5 +47,35 @@ async def generate_embeddings_activity(document_id: str, workflow_id: str) -> di
             
     except Exception as e:
         logger.error(f"Embedding generation activity failed for {document_id}: {e}", exc_info=True)
+        # Re-raise to let Temporal handle retry logic
+        raise
+
+@activity.defn
+async def construct_knowledge_graph_activity(document_id: str, workflow_id: str) -> dict:
+    """Temporal activity to construct knowledge graph for an insurance document."""
+    try:
+        logger.info(f"Starting knowledge graph construction activity for document {document_id}")
+        neo4j_driver = await Neo4jClientManager.get_driver()
+        async with async_session_maker() as db_session:
+            graph_service = GraphService(neo4j_driver, db_session)
+
+            result = await graph_service.execute(UUID(workflow_id), UUID(document_id))
+
+            logger.info(
+                f"Knowledge graph construction completed for {document_id}: "
+                f"{result.entities_created} entities created, "
+                f"{result.relationships_created} relationships created, "
+                f"{result.embeddings_linked} embeddings linked"
+            )
+            
+            return {
+                "status": "completed",
+                "entities_created": result.entities_created,
+                "relationships_created": result.relationships_created,
+                "embeddings_linked": result.embeddings_linked
+            }
+            
+    except Exception as e:
+        logger.error(f"Knowledge graph construction activity failed for {document_id}: {e}", exc_info=True)
         # Re-raise to let Temporal handle retry logic
         raise

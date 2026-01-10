@@ -119,12 +119,12 @@ class GenerateEmbeddingsService(BaseService):
             self._model = SentenceTransformer(self.model_name)
         return self._model
 
-    async def run(self, document_id: UUID, workflow_id: Optional[UUID] = None) -> EmbeddingResult:
+    async def run(self, document_id: UUID, workflow_id: UUID) -> EmbeddingResult:
         """Generate and store embeddings for all sections of a document.
         
         Args:
             document_id: UUID of the document to process
-            workflow_id: Optional UUID of the workflow
+            workflow_id: UUID of the workflow
             
         Returns:
             EmbeddingResult with processing statistics
@@ -132,10 +132,7 @@ class GenerateEmbeddingsService(BaseService):
         # 0. Clean up existing embeddings for this document to avoid duplicates
         await self.vector_repo.delete_by_document(document_id)
 
-        # 1. Fetch the workflow document to get a valid workflow_id if not provided
-        workflow_id = await self._resolve_workflow_id(document_id, workflow_id)
-
-        # 2. Fetch all section extractions for this document
+        # 1. Fetch all section extractions for this document
         sections = await self._fetch_sections(document_id, workflow_id)
 
         if not sections:
@@ -146,7 +143,7 @@ class GenerateEmbeddingsService(BaseService):
                 storage_details={"status": "no_sections"}
             )
 
-        # 3. Process each section and generate embeddings
+        # 2. Process each section and generate embeddings
         embeddings_created = await self._process_all_sections(sections, document_id, workflow_id)
 
         await self.session.commit()
@@ -157,34 +154,9 @@ class GenerateEmbeddingsService(BaseService):
             storage_details={"status": "success", "model": self.model_name}
         )
 
-    async def _resolve_workflow_id(self, document_id: UUID, workflow_id: UUID) -> UUID:
-        """Resolve workflow_id if not provided."""
-        if workflow_id:
-            return workflow_id
-            
-        workflow_docs = await self.workflow_doc_repo.get_by_workflow_and_document_id(workflow_id, document_id)
-        
-        if isinstance(workflow_docs, list) and workflow_docs:
-            workflow_id = workflow_docs[0].workflow_id
-        elif workflow_docs:
-            workflow_id = workflow_docs.workflow_id
-        
-        if workflow_id:
-            LOGGER.info(f"Found workflow_id {workflow_id} for document {document_id}")
-        
-        return workflow_id
-
-    async def _fetch_sections(self, document_id: UUID, workflow_id: Optional[UUID]) -> List:
+    async def _fetch_sections(self, document_id: UUID) -> List:
         """Fetch section extractions for the document."""
-        if not workflow_id:
-            LOGGER.warning(f"No workflow_id found for document {document_id}, fetching all sections")
-            from sqlalchemy import select
-            from app.database.models import SectionExtraction
-            stmt = select(SectionExtraction).where(SectionExtraction.document_id == document_id)
-            result = await self.session.execute(stmt)
-            return list(result.scalars().all())
-        
-        return await self.section_repo.get_by_document(document_id, workflow_id)
+        return await self.section_repo.get_by_document(document_id)
 
     async def _process_all_sections(
         self, 
@@ -207,11 +179,11 @@ class GenerateEmbeddingsService(BaseService):
             for entity_data, entity_id_suffix, entity_type in entities:
                 embeddings_created += await self._process_entry(
                     document_id, 
+                    workflow_id,
                     section_type, 
                     entity_data, 
                     entity_id_suffix, 
                     entity_type, 
-                    workflow_id
                 )
         
         return embeddings_created
@@ -219,11 +191,11 @@ class GenerateEmbeddingsService(BaseService):
     async def _process_entry(
         self, 
         document_id: UUID, 
+        workflow_id: UUID,
         section_type: str, 
         data: Dict[str, Any],
         entity_id_suffix: str,
         entity_type: str,
-        workflow_id: Optional[UUID] = None
     ) -> int:
         """Process a single unit of data, generate embedding and save."""
         try:
@@ -255,7 +227,7 @@ class GenerateEmbeddingsService(BaseService):
                 embedding_version="v1",
                 embedding=vector,
                 content_hash=content_hash,
-                workflow_type=str(workflow_id) if workflow_id else None,
+                workflow_id=workflow_id,
                 effective_date=metadata["effective_date"],
                 expiration_date=metadata["expiration_date"],
                 location_id=metadata["location_id"],

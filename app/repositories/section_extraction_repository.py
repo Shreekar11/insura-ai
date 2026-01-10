@@ -94,26 +94,28 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
     async def get_by_document(
         self,
         document_id: UUID,
-        workflow_id: UUID,
         section_type: Optional[str] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> List[SectionExtraction]:
         """Get section extractions for a document.
         
         Args:
             document_id: Document ID
-            workflow_id: Workflow ID
             section_type: Optional section type filter
+            workflow_id: Optional workflow ID filter
             
         Returns:
             List of SectionExtraction records
         """
         stmt = select(SectionExtraction).where(
-            SectionExtraction.document_id == document_id,
-            SectionExtraction.workflow_id == workflow_id,
+            SectionExtraction.document_id == document_id
         )
         
         if section_type:
             stmt = stmt.where(SectionExtraction.section_type == section_type)
+            
+        if workflow_id:
+            stmt = stmt.where(SectionExtraction.workflow_id == workflow_id)
         
         stmt = stmt.order_by(SectionExtraction.created_at)
         

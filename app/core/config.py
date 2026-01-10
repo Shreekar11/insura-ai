@@ -112,6 +112,23 @@ class TemporalSettings(BaseSettings):
     )
 
 
+class Neo4jSettings(BaseSettings):
+    """Neo4j connection and graph settings."""
+    host: str = Field(default="localhost", validation_alias="NEO4J_HOST")
+    port: int = Field(default=7687, validation_alias="NEO4J_PORT")
+    username: str = Field(default="neo4j", validation_alias="NEO4J_USERNAME")
+    password: str = Field(default="password", validation_alias="NEO4J_PASSWORD")
+    database: str = Field(default="neo4j", validation_alias="NEO4J_DATABASE")
+    
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE) if ENV_FILE else None,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        env_prefix="",
+    )
+
+
 class Settings(BaseSettings):
     """Unified application settings with nested models."""
 
@@ -139,6 +156,7 @@ class Settings(BaseSettings):
     db: DatabaseSettings = Field(default_factory=lambda: DatabaseSettings())
     llm: LLMSettings = Field(default_factory=lambda: LLMSettings())
     temporal: TemporalSettings = Field(default_factory=lambda: TemporalSettings())
+    neo4j: Neo4jSettings = Field(default_factory=lambda: Neo4jSettings())
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE) if ENV_FILE else None,

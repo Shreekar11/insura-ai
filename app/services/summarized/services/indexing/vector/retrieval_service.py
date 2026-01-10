@@ -165,7 +165,7 @@ class RetrievalService(BaseService):
         
         # Boost 3: Keyword matching in searchable attributes
         searchable_text = []
-        for key in ["section_type", "entity_type", "location_id", "workflow_type"]:
+        for key in ["section_type", "entity_type", "location_id", "workflow_id"]:
             val = match_metadata.get(key)
             if val:
                 searchable_text.append(str(val))
@@ -351,7 +351,7 @@ class RetrievalService(BaseService):
                 self.section_type = m.get("section_type")
                 self.entity_id = m.get("entity_id")
                 self.document_id = UUID(m.get("document_id"))
-                self.workflow_type = m.get("workflow_type")
+                self.workflow_id = UUID(m.get("workflow_id"))
         
         return await self._fetch_entity_data(MockMatch(metadata))
 
@@ -362,7 +362,7 @@ class RetrievalService(BaseService):
                 self.section_type = m.get("section_type")
                 self.entity_id = m.get("entity_id")
                 self.document_id = UUID(m.get("document_id"))
-                self.workflow_type = m.get("workflow_type")
+                self.workflow_id = UUID(m.get("workflow_id"))
                 
         return await self._get_content_preview(MockMatch(metadata))
 
@@ -375,7 +375,6 @@ class RetrievalService(BaseService):
             
             sections = await self.section_repo.get_by_document(
                 document_id, 
-                UUID(match.workflow_type) if match.workflow_type and match.workflow_type != "None" else None, 
                 section_type
             )
             

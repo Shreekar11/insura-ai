@@ -1,3 +1,4 @@
+from typing import Dict, Any
 from datetime import datetime
 from app.services.base_service import BaseService
 from app.services.summarized.constants import FIELD_MAPPINGS, SECTION_KEYWORDS, TYPE_ALIASES

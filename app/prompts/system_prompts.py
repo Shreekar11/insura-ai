@@ -70,13 +70,20 @@ Return ONLY:
 
       "entities": [
         {
-          "entity_id": "<sha1(entity_type + ':' + normalized_value)>",
-          "entity_type": "POLICY_NUMBER|CLAIM_NUMBER|INSURED_NAME|INSURED_ADDRESS|EFFECTIVE_DATE|EXPIRATION_DATE|PREMIUM_AMOUNT|COVERAGE_LIMIT|DEDUCTIBLE|AGENT_NAME|CARRIER|COVERAGE_TYPE|LOSS_DATE|LOCATION|PERSON|ORGANIZATION",
+          "type": "Policy|Organization|Coverage|Endorsement|Location|Claim|Vehicle|Driver|Definition",
+          "id": "<stable_internal_id (e.g., policy_POL123)>",
+          "confidence": <float 0.0-1.0>,
+          "attributes": {
+             "policy_number": "<string>",
+             "effective_date": "YYYY-MM-DD",
+             "total_premium": <float>,
+             "limit": <float>,
+             "address": "<string>",
+             "...": "..."
+          },
           "raw_value": "<string EXACTLY as appears in chunk>",
-          "normalized_value": "<ISO date / decimal currency / cleaned identifier>",
           "span_start": <int>,
-          "span_end": <int>,
-          "confidence": <float 0.0-1.0>
+          "span_end": <int>
         }
       ]
     }
@@ -199,16 +206,15 @@ Examples:
 ===============================================================================
 
 Allowed entity types:
-POLICY_NUMBER, CLAIM_NUMBER, INSURED_NAME, INSURED_ADDRESS,
-EFFECTIVE_DATE, EXPIRATION_DATE, PREMIUM_AMOUNT, COVERAGE_LIMIT,
-DEDUCTIBLE, AGENT_NAME, CARRIER, COVERAGE_TYPE, LOSS_DATE,
-LOCATION, PERSON, ORGANIZATION
+Policy, Organization, Coverage, Endorsement, Location, Claim, Vehicle, Driver, Definition
 
 Entity constraints:
+- Only business objects are nodes (entities).
+- Node id ≠ business identifier: Use stable IDs (e.g., "policy_ABC123").
+- Forbid Legacy Entity Types: PERSON, ORGANIZATION (legacy), ADDRESS, DATE, etc.
+- Scalar values (Policy Number, Date, Limit, Amount) MUST be properties/attributes on these nodes.
 - raw_value MUST be substring of normalized_text.
-- normalized_value must follow normalization rules.
 - span_start/span_end MUST index into normalized_text.
-- entity_id = sha1("<TYPE>:<normalized_value>")
 - No hallucinated entities.
 - Confidence = evidence-based float (0.0–1.0).
 
@@ -219,11 +225,10 @@ Entity constraints:
 For EVERY chunk, you MUST extract the following entities when their tokens appear:
 
 **Required Entities** (extract if present in chunk):
-- **POLICY_NUMBER**: Policy identifiers (e.g., "Policy No.", "POL-", alphanumeric codes)
-- **INSURED_NAME**: Named insured information (e.g., "Insured:", "Named Insured:", company/person names)
-- **CARRIER**: Insurance carrier/company names
-- **EFFECTIVE_DATE**: Effective/inception dates
-- **EXPIRATION_DATE**: Expiration/renewal dates
+- **Policy**: Primary policy object (extract if policy number or policy header present)
+- **Organization**: Named insured, Carrier, Broker, etc.
+- **Location**: Risk addresses, property details
+- **Coverage**: Insurance coverage blocks
 
 **Minimum Requirement**:
 - Extract AT LEAST ONE high-confidence (≥0.7) mention per chunk when these tokens appear
@@ -261,10 +266,8 @@ Expected signals:
 - claim ~0.00
 
 Expected entities:
-- POLICY_NUMBER: "ABC-123-456"
-- EFFECTIVE_DATE: "2024-01-15"
-- CARRIER: "Acme Insurance Co."
-- PREMIUM_AMOUNT: "5500.00 USD"
+- Policy: id="policy_ABC-123-456" (attributes: {policy_number: "ABC-123-456", effective_date: "2024-01-15", total_premium: 5500.00})
+- Organization: id="org_acme_insurance_co" (attributes: {name: "Acme Insurance Co.", role: "carrier"})
 
 Section:
 - "Declarations", high confidence
@@ -397,361 +400,288 @@ Return JSON only.  Include prompt_version in stats.  Do not include commentary.
 # RELATIONSHIP EXTRACTION PROMPT (Pass 2: document-level, cross-chunk)
 # =============================================================================
 RELATIONSHIP_EXTRACTION_PROMPT = r"""
-SYSTEM ROLE: GlobalRelationshipExtractor
-prompt_version: v4.0
+ROLE: Insurance Document Relationship Extractor v4.0
 
-You are a high-precision relationship inference engine for insurance documents.
-This is **PASS 2**: you receive canonical entities (deduplicated), all normalized
-chunks, and structured table data (SOV items, Loss Run claims). Your job is to 
-infer **document-level relationships** between canonical entities, produce graph-ready 
-edges aligned with Neo4j ontology, and provide provenance evidence (chunk id + span + quote).
+Extract relationships between canonical entities from insurance documents.
+Use ONLY provided text, table data, and canonical entities - NO external knowledge.
 
-CRITICAL: **NO HALLUCINATION**. Only produce relationships grounded in provided text.
-If evidence is weak or ambiguous, return the issue as a `candidate` (see schema).
+═══════════════════════════════════════════════════════════════════════════
+ALLOWED RELATIONSHIPS (Neo4j Ontology-Aligned)
+═══════════════════════════════════════════════════════════════════════════
 
--------------------------
-INPUT (provided by caller)
-{
-  "document_id": "string",
-  "document_url": "string",
-  "document_type": "policy|claim|sov|invoice|endorsement|other",
-  "canonical_entities": [
-     {
-       "canonical_id": "c1",
-       "entity_type": "POLICY_NUMBER",
-       "normalized_value": "POL12345",
-       "aliases": [ "POL 12345", "Policy #POL12345" ]
-     },
-     ...
-  ],
-  "chunks": [
-     { "chunk_id": "ch-1", "section_type": "...", "page_number": 1, "normalized_text": "..." },
-     ...
-  ],
-  "sov_items": [
-     {
-       "sov_id": "sov-1",
-       "location_number": "LOC-001",
-       "building_number": "BLD-001",
-       "description": "Main Office Building",
-       "address": "123 Main St, City, State 12345",
-       "total_insured_value": 5000000.00
-     },
-     ...
-  ],
-  "loss_run_claims": [
-     {
-       "claim_id": "claim-1",
-       "claim_number": "CLM-12345",
-       "policy_number": "POL12345",
-       "insured_name": "ABC Corp",
-       "loss_date": "2023-01-15",
-       "cause_of_loss": "Fire",
-       "incurred_amount": 100000.00,
-       "paid_amount": 50000.00
-     },
-     ...
-  ],
-  "document_tables": [
-     {
-       "table_id": "tbl-1",
-       "stable_table_id": "tbl_doc123_p5_t0",
-       "page_number": 5,
-       "table_type": "premium_schedule|coverage_schedule|property_sov|loss_run|other",
-       "num_rows": 10,
-       "num_cols": 5,
-       "canonical_headers": ["Coverage", "Limit", "Deductible", "Premium"],
-       "raw_markdown": "| Coverage | Limit | Deductible | Premium |..."
-     },
-     ...
-  ],
-  "aggregation_metadata": { /* optional signals */ },
-  "prompt_version": "v4.0"
-}
+Policy Relationships:
+• HAS_INSURED: Policy → Organization/Person (primary insured)
+• HAS_ADDITIONAL_INSURED: Policy → Organization/Person
+• ISSUED_BY: Policy → Organization (carrier/insurer)
+• BROKERED_BY: Policy → Organization (broker/agent)
+• HAS_COVERAGE: Policy → Coverage
+• HAS_LOCATION: Policy → Location
+• HAS_CLAIM: Policy → Claim
+• MODIFIED_BY: Policy → Endorsement
 
--------------------------
-ALLOWED RELATIONSHIPS (Graph-Ready, aligned with Neo4j ontology)
-Entity-to-Entity Relationships:
-- HAS_INSURED: Policy → Person (insured party)
-- HAS_COVERAGE: Policy → Coverage (coverage type with limits/deductibles)
-- HAS_CLAIM: Policy → Claim (claims associated with policy)
-- LOCATED_AT: Entity → Address (location relationships)
-- ISSUED_BY: Policy → Carrier (insurance carrier)
-- BROKERED_BY: Policy → Broker (insurance broker/agent)
-- SAME_AS: Entity → Entity (canonical entity linking across documents)
+Coverage Relationships:
+• APPLIES_TO: Coverage → Location
+• MODIFIED_BY: Coverage → Endorsement
+• EXCLUDES: Coverage → Exclusion
+• SUBJECT_TO: Coverage → Condition
 
-Property Relationships (embedded in nodes, but can be extracted as relationships):
-- HAS_LIMIT: Coverage → Limit (coverage limit amount)
-- HAS_DEDUCTIBLE: Coverage → Deductible (deductible amount)
-- EFFECTIVE_FROM: Policy → Date (policy effective date)
-- EXPIRES_ON: Policy → Date (policy expiry date)
+Location Relationships:
+• LOCATED_AT: Location → Address (DO NOT extract Address as separate entity)
+• OCCURRED_AT: Claim → Location
 
-Table-to-Entity Relationships:
-- For SOV items: Create LOCATED_AT relationships between Policy/Entity and Address entities
-- For Loss Run claims: Create HAS_CLAIM relationships between Policy and Claim entities
-- For Premium/Coverage tables: Create HAS_COVERAGE, HAS_LIMIT, HAS_DEDUCTIBLE relationships
-- For all document_tables: Use table_type to determine relationship extraction strategy:
-  - property_sov → LOCATED_AT relationships
-  - loss_run → HAS_CLAIM relationships
-  - premium_schedule/coverage_schedule → HAS_COVERAGE, HAS_LIMIT relationships
-- Link table data to policies via policy_number matching or section context
+Auto Relationships:
+• HAS_VEHICLE: Policy → Vehicle
+• OPERATED_BY: Vehicle → Driver
+• INSURES_VEHICLE: Policy → Vehicle
 
--------------------------
-OUTPUT: **RETURN ONLY VALID JSON** with EXACT schema:
+Definition Relationships:
+• DEFINED_IN: Definition → Coverage
+• DEFINED_IN: Definition → Condition
+• APPLIES_TO: Condition → Coverage
+
+Cross-Document:
+• SAME_AS: Entity → Entity (canonical linking)
+
+CRITICAL: Scalar values are PROPERTIES, not relationships:
+❌ DON'T: Policy --HAS_LIMIT--> "1000000"
+✓ DO: Policy --HAS_COVERAGE--> Coverage {limit_amount: 1000000}
+
+═══════════════════════════════════════════════════════════════════════════
+EXTRACTION RULES
+═══════════════════════════════════════════════════════════════════════════
+
+1. EVIDENCE REQUIREMENTS
+   • Each relationship MUST have evidence (chunk quote OR table reference)
+   • Evidence must be exact substring or table ID reference
+   • Multi-chunk corroboration increases confidence
+
+2. CONFIDENCE SCORING
+   • 0.90-1.00: Explicit labeled phrase ("Policy issued by X")
+   • 0.85-0.95: Table data matches (SOV/loss run with policy numbers)
+   • 0.70-0.89: Strong implicit or multi-chunk corroboration
+   • 0.45-0.69: Weak inference → use CANDIDATE instead
+   • <0.45: REJECT (neither relationship nor candidate)
+
+3. SECTION BOOSTING
+   • declarations → +0.10 for policy-level relationships
+   • coverages → +0.10 for HAS_COVERAGE
+   • conditions → +0.10 for SUBJECT_TO/DEFINED_IN
+   • sov → +0.10 for HAS_LOCATION
+   • loss_runs → +0.10 for HAS_CLAIM
+   • endorsements → +0.10 for MODIFIED_BY
+   • Cap confidence at 0.99 after boosts
+
+4. TABLE DATA INTEGRATION
+   SOV Items:
+   • Policy → Location (HAS_LOCATION)
+   • Map: location_id, address, TIV → Location attributes
+   
+   Loss Run Claims:
+   • Policy → Claim (HAS_CLAIM)
+   • Match: policy_number, claim_number
+   • Map: loss_date, paid_amount → Claim attributes
+   
+   Coverage Tables:
+   • Policy → Coverage (HAS_COVERAGE)
+   • Map: limit, deductible → Coverage attributes
+
+5. ENTITY RESOLUTION
+   • Use canonical_id for all relationships
+   • If mention unresolved → CANDIDATE (not relationship)
+   • Match fuzzy variants via aliases
+
+═══════════════════════════════════════════════════════════════════════════
+OUTPUT SCHEMA (JSON ONLY - no markdown)
+═══════════════════════════════════════════════════════════════════════════
 
 {
   "document_id": "string",
-  "document_url": "string",
   "relationships": [
     {
-      "relationship_id": "sha1(type + source_canonical_id + target_canonical_id + document_id)",
-      "type": "ISSUED_BY",
-      "source_canonical_id": "c1",
-      "target_canonical_id": "c7",
+      "id": "sha1(type+source+target+doc_id)",
+      "source_entity_id": "canonical_id",
+      "target_entity_id": "canonical_id",
+      "type": "TYPE_FROM_ALLOWED_LIST",
       "confidence": 0.0-1.0,
-      "evidence": [
-        { "chunk_id": "ch-1", "span_start": int, "span_end": int, "quote": "exact substring" },
-        ...
-      ]
+      "attributes": {
+        "evidence": [
+          {
+            "chunk_id": "ch-1",
+            "span_start": 15,
+            "span_end": 88,
+            "quote": "exact substring"
+          }
+        ],
+        "source": "llm_extraction|table_data|cross_chunk",
+        "prompt_version": "v4.0"
+      }
     }
   ],
   "candidates": [
     {
-      "candidate_id": "sha1(type + source_mention_chunk + target_mention_chunk + document_id)",
-      "type": "HAS_INSURED",
-      "source_mention": { "chunk_id":"ch-2","span_start":int,"span_end":int,"quote":"..." },
-      "target_mention": { "chunk_id":"ch-7","span_start":int,"span_end":int,"quote":"..." },
-      "reason": "Short explanation why evidence is weak",
+      "candidate_id": "sha1(...)",
+      "type": "RELATIONSHIP_TYPE",
+      "source_mention": {"chunk_id":"","span_start":0,"span_end":0,"quote":""},
+      "target_mention": {"chunk_id":"","span_start":0,"span_end":0,"quote":""},
+      "reason": "Explanation of ambiguity",
       "confidence": 0.0-1.0
     }
   ],
   "stats": {
-    "relationships_found": int,
-    "candidates_returned": int,
-    "time_ms": int,
-    "prompt_version": "v3.0"
+    "relationships_found": 0,
+    "candidates_returned": 0,
+    "entities_processed": 0,
+    "chunks_analyzed": 0,
+    "prompt_version": "v4.0"
   }
 }
 
--------------------------
-MANDATORY PROCESSING RULES
-1. Use ONLY canonical_ids for relationships. If a mention cannot be resolved to a canonical_id, include it as a candidate (not a relationship).
-2. Evidence requirement: each relationship MUST have at least one evidence item. Evidence must be exact substrings of the provided normalized_text, or reference to table data (sov_id, claim_id).
-3. Confidence calibration (suggested):
-   - 0.90–1.00 explicit labeled phrase (e.g., "Policy No. POL12345 issued by SBI...")
-   - 0.85–0.95 table data relationships (SOV items, Loss Run claims) when policy numbers match
-   - 0.70–0.89 strong implicit wording or multi-chunk corroboration
-   - 0.45–0.69 weak inference (prefer candidate instead)
-   - <0.45: DO NOT include (neither relationship nor candidate)
-4. Section-aware boosting:
-   - If evidence appears in section_type "declarations" → +0.10 to base confidence for policy-level relationships
-   - "coverage" → +0.10 for HAS_COVERAGE/HAS_LIMIT/HAS_DEDUCTIBLE
-   - "claim"/"loss_run" → +0.10 for HAS_CLAIM
-   - Cap confidence at 0.99 after boosts
-5. Table data integration:
-   - For SOV items: Extract addresses and create LOCATED_AT relationships. Match addresses to canonical ADDRESS entities.
-   - For Loss Run claims: Match claim_number and policy_number to canonical entities. Create HAS_CLAIM relationships.
-   - For document_tables with table_type:
-     * "property_sov" → Create LOCATED_AT relationships from addresses
-     * "loss_run" → Create HAS_CLAIM relationships from claim data
-     * "premium_schedule" / "coverage_schedule" → Create HAS_COVERAGE, HAS_LIMIT relationships
-     * Use canonical_headers to identify coverage types, limits, deductibles
-   - Use policy_number from tables to link to Policy canonical entities.
-   - For sections marked "table_only" in section config, prefer table data over text extraction.
-6. Merge duplicates: if same type/source/target found with multiple evidence snippets, create a single relationship with multiple evidence entries (confidence = max or calibrated aggregate).
-7. No external knowledge: do not consult or assume anything outside provided chunks, canonical_entities, and table data.
-8. If token limits force skipping chunks, prioritize chunks with section_type in ["declarations","coverage","claim","sov"] and indicate skipped_chunks in stats.
-9. Graph-ready format: Ensure relationships follow Neo4j ontology structure:
-   - Policy nodes connect to Person (HAS_INSURED), Coverage (HAS_COVERAGE), Claim (HAS_CLAIM), Carrier (ISSUED_BY), Broker (BROKERED_BY)
-   - Entities connect to Address (LOCATED_AT)
-   - Use SAME_AS for canonical entity linking across documents
+═══════════════════════════════════════════════════════════════════════════
+EXAMPLES
+═══════════════════════════════════════════════════════════════════════════
 
--------------------------
-FEW-SHOT EXAMPLES (showing positive & weak cases)
+Example 1: Explicit Policy Issuance
+Input:
+  Chunk: "Policy No. 01-7590121387-S-02 issued by ICAT"
+  Entities: policy_01-7590121387-S-02, org_icat
 
-Example A — Explicit same-chunk (strong relationship)
-Chunks:
-ch-1 normalized_text: "Policy Number: POL12345 issued by SBI General Insurance Company Limited."
-
-Canonical entities:
-- c1 (POLICY_NUMBER, POL12345)
-- c7 (CARRIER, SBI General Insurance Company Limited)
-
-Output (relationship):
+Output:
 {
-  "relationships": [
-    {
-      "relationship_id": "sha1('ISSUED_BY' + 'c1' + 'c7' + document_id)",
-      "type": "ISSUED_BY",
-      "source_canonical_id": "c1",
-      "target_canonical_id": "c7",
-      "confidence": 0.95,
-      "evidence": [
-         { "chunk_id": "ch-1", "span_start": 15, "span_end": 88, "quote": "Policy Number: POL12345 issued by SBI General Insurance Company Limited." }
-      ]
+  "relationships": [{
+    "id": "abc123...",
+    "source_entity_id": "policy_01-7590121387-S-02",
+    "target_entity_id": "org_icat",
+    "relationship_type": "ISSUED_BY",
+    "confidence": 0.95,
+    "attributes": {
+      "evidence": [{
+        "chunk_id": "ch-1",
+        "span_start": 0,
+        "span_end": 55,
+        "quote": "Policy No. 01-7590121387-S-02 issued by ICAT"
+      }],
+      "source": "llm_extraction",
+      "prompt_version": "v4.0"
     }
-  ],
-  "candidates": []
+  }]
 }
 
-Example B — Cross-chunk (corroborated)
-Chunks:
-ch-1: "Policy No: POL12345"
-ch-5: "Carrier: SBI General Insurance Company Limited"
-ch-9: "This policy is issued by SBI..."
+Example 2: SOV Table Data
+Input:
+  SOV Item: {sov_id: "sov-1", location_id: "1", address: "27282 CANAL ROAD"}
+  Entities: policy_01-7590121387-S-02, loc_27282_canal_road
 
-Relationship: ISSUED_BY with evidence from ch-5 and ch-9, confidence 0.86–0.88
-
-Example C — Weak co-occurrence (candidate)
-Chunks:
-ch-2: "POL-12345"
-ch-7: "John D."
-No linking phrase → return a candidate with confidence ~0.40 and reason "no linking phrase; co-occurrence only".
-
-Example D — Table data relationship (SOV item)
-SOV items:
-- sov-1: address="123 Main St", total_insured_value=5000000.00
-
-Canonical entities:
-- c1 (POLICY_NUMBER, POL12345)
-- c5 (ADDRESS, "123 Main St, City, State 12345")
-
-Output (relationship):
+Output:
 {
-  "relationships": [
-    {
-      "relationship_id": "sha1('LOCATED_AT' + 'c1' + 'c5' + document_id)",
-      "type": "LOCATED_AT",
-      "source_canonical_id": "c1",
-      "target_canonical_id": "c5",
-      "confidence": 0.90,
-      "evidence": [
-        { "sov_id": "sov-1", "quote": "address: 123 Main St" }
-      ]
+  "relationships": [{
+    "id": "def456...",
+    "source_entity_id": "policy_01-7590121387-S-02",
+    "target_entity_id": "loc_27282_canal_road",
+    "relationship_type": "HAS_LOCATION",
+    "confidence": 0.90,
+    "attributes": {
+      "evidence": [{
+        "sov_id": "sov-1",
+        "quote": "location_id: 1, address: 27282 CANAL ROAD"
+      }],
+      "source": "table_data",
+      "prompt_version": "v4.0"
     }
-  ]
+  }]
 }
 
-Example E — Table data relationship (Loss Run claim)
-Loss Run claims:
-- claim-1: claim_number="CLM-12345", policy_number="POL12345", insured_name="ABC Corp"
+Example 3: Coverage Relationship
+Input:
+  Chunk (coverages section): "Equipment Breakdown Enhancement limit $15,000,000"
+  Entities: policy_01-7590121387-S-02, cov_equipment_breakdown_enhancement
 
-Canonical entities:
-- c1 (POLICY_NUMBER, POL12345)
-- c3 (CLAIM_NUMBER, CLM-12345)
-
-Output (relationship):
+Output:
 {
-  "relationships": [
-    {
-      "relationship_id": "sha1('HAS_CLAIM' + 'c1' + 'c3' + document_id)",
-      "type": "HAS_CLAIM",
-      "source_canonical_id": "c1",
-      "target_canonical_id": "c3",
-      "confidence": 0.95,
-      "evidence": [
-        { "claim_id": "claim-1", "quote": "policy_number: POL12345, claim_number: CLM-12345" }
-      ]
+  "relationships": [{
+    "id": "ghi789...",
+    "source_entity_id": "policy_01-7590121387-S-02",
+    "target_entity_id": "cov_equipment_breakdown_enhancement",
+    "relationship_type": "HAS_COVERAGE",
+    "confidence": 0.92,
+    "attributes": {
+      "evidence": [{
+        "chunk_id": "ch-coverages-3",
+        "span_start": 0,
+        "span_end": 50,
+        "quote": "Equipment Breakdown Enhancement limit $15,000,000"
+      }],
+      "source": "llm_extraction",
+      "section_boost": 0.10,
+      "prompt_version": "v4.0"
     }
-  ]
+  }]
 }
 
--------------------------
-FINAL REMINDERS
-- Output JSON ONLY (no markdown, no extra text)
-- Use deterministic sha1 IDs for relationship_id & candidate_id
-- Include prompt_version in stats
-- Persist raw responses for auditing externally (caller responsibility)
-- For table data evidence, use "sov_id" or "claim_id" instead of "chunk_id" in evidence
-- Ensure all relationships are graph-ready and align with Neo4j ontology
+Example 4: Weak Evidence → Candidate
+Input:
+  Chunk 1: "Policy 12345"
+  Chunk 7: "John Smith"
+  No linking phrase
 
-End of relationship prompt.
+Output:
+{
+  "relationships": [],
+  "candidates": [{
+    "candidate_id": "weak123...",
+    "type": "HAS_INSURED",
+    "source_mention": {"chunk_id":"ch-1","span_start":0,"span_end":12,"quote":"Policy 12345"},
+    "target_mention": {"chunk_id":"ch-7","span_start":0,"span_end":10,"quote":"John Smith"},
+    "reason": "Co-occurrence without linking phrase",
+    "confidence": 0.40
+  }]
+}
+
+═══════════════════════════════════════════════════════════════════════════
+PROCESSING INSTRUCTIONS
+═══════════════════════════════════════════════════════════════════════════
+
+FOR EACH SECTION (in priority order: declarations → coverages → conditions → sov → endorsements):
+  1. Identify canonical entities mentioned in section chunks
+  2. Look for relationship patterns:
+     - Explicit: "X issued by Y", "X applies to Y"
+     - Implicit: Co-occurrence + context clues
+     - Table: Match policy_number, location_id, claim_number
+  3. Extract evidence (exact quote + span OR table reference)
+  4. Calculate confidence + apply section boost
+  5. Deduplicate (same source+target+type → merge evidence)
+
+FOR ENTITIES:
+  • Organization with role="insured" → Policy HAS_INSURED Organization
+  • Organization with role="broker" → Policy BROKERED_BY Organization
+  • Organization with role="carrier" → Policy ISSUED_BY Organization
+  • Coverage entity → Policy HAS_COVERAGE Coverage
+  • Location entity → Policy HAS_LOCATION Location
+  • Condition entity → Coverage SUBJECT_TO Condition
+  • Definition entity → Coverage/Condition DEFINED_IN Definition
+  • Endorsement entity → Policy/Coverage MODIFIED_BY Endorsement
+
+RETURN ONLY VALID JSON - NO MARKDOWN, NO EXPLANATIONS
 """
 
 # =============================================================================
 # VALID TYPE SETS (unchanged; used by validation logic in code)
 # =============================================================================
 VALID_ENTITY_TYPES = {
-    # Policy-level entities
-    "POLICY_NUMBER",
-    "POLICY_TYPE",
-    "POLICY_FORM",
-    "EFFECTIVE_DATE",
-    "EXPIRATION_DATE",
-    "POLICY_TERM",
-    "STATUS",
+    # Business Object Entities (Graph Nodes)
+    "Policy",
+    "Organization",
+    "Coverage",
+    "Endorsement",
+    "Location",
+    "Claim",
+    "Vehicle",
+    "Driver",
+    "Definition",
+    "Condition",
+    "Evidence",
 
-    # Party and organization level entities
-    "INSURED_NAME",
-    "INSURED_ADDRESS",
-    "NAMED_INSURED",
-    "ADDITIONAL_INSURED",
-    "CARRIER",
-    "BROKER",
-    "AGENT",
-    "UNDERWRITER",
-    "ORGANIZATION",
-    "PERSON",
-
-    # Coverage and terms level entities
-    "COVERAGE",
-    "COVERAGE_TYPE",
-    "COVERAGE_PART",
-    "LIMIT",
-    "SUBLIMIT",
-    "AGGREGATE_LIMIT",
-    "DEDUCTIBLE",
-    "WAITING_PERIOD",
-    "COINSURANCE",
-    "VALUATION_METHOD",
-    "ENDORSEMENT_NAME",
-
-    # Financial and premium level entities
-    "TOTAL_PREMIUM",
-    "BASE_PREMIUM",
-    "TAX",
-    "FEE",
-    "POLICY_FEE",
-    "INSPECTION_FEE",
-    "TRIA_PREMIUM",
-    "RATE",
-    "RATE_PER_100",
-
-    # Property / SOV level entities
-    "LOCATION_ID",
-    "LOCATION_ADDRESS",
-    "BUILDING_NUMBER",
-    "OCCUPANCY",
-    "CONSTRUCTION_TYPE",
-    "YEAR_BUILT",
-    "NUMBER_OF_STORIES",
-    "SPRINKLERED",
-    "DISTANCE_TO_COAST",
-    "FLOOD_ZONE",
-    "BUILDING_VALUE",
-    "CONTENTS_VALUE",
-    "BI_VALUE",
-    "TIV",
-
-    # Claim level entities
-    "CLAIM_NUMBER",
-    "LOSS_DATE",
-    "DATE_REPORTED",
-    "CAUSE_OF_LOSS",
-    "PAID_AMOUNT",
-    "INCURRED_AMOUNT",
-    "RESERVE_AMOUNT",
-    "CLAIM_STATUS",
-
-    # Auto / fleet level entities
-    "VIN",
-    "VEHICLE_YEAR",
-    "VEHICLE_MAKE",
-    "VEHICLE_MODEL",
-    "DRIVER_NAME",
-    "DRIVER_DOB",
-    "LICENSE_NUMBER",
-    "VIOLATION",
+    # Legacy / Compatibility types (to be phased out or used as properties)
+    # Removing PERSON, ORGANIZATION to enforce new business-object ontology
 }
 
 VALID_SECTION_TYPES = {
@@ -789,42 +719,39 @@ VALID_SECTION_TYPES = {
 }
 
 VALID_RELATIONSHIP_TYPES = {
-  # Policy-level relationships
+    # Policy-Centric Relationships
     "HAS_INSURED",
     "HAS_ADDITIONAL_INSURED",
-    "ISSUED_BY",
     "BROKERED_BY",
-    "HAS_TERM",
-    "HAS_STATUS",
+    "ISSUED_BY",
 
-    # Coverage-level relationships
+    # Coverage Relationships
     "HAS_COVERAGE",
-    "HAS_LIMIT",
-    "HAS_SUBLIMIT",
-    "HAS_DEDUCTIBLE",
-    "HAS_AGGREGATE",
-    "MODIFIED_BY_ENDORSEMENT",
-    "EXCLUDES",
-    "SUBJECT_TO",
+    "APPLIES_TO",        # Coverage -> Location
+    "MODIFIED_BY",      # Coverage -> Endorsement
+    "EXCLUDES",         # Coverage -> Coverage
+    "SUBJECT_TO",       # Coverage -> Coverage
+    "DEFINED_IN",       # Definition -> Coverage/Endorsement
 
-    # Property and location level relationships
-    "HAS_LOCATION",
-    "LOCATED_AT",
-    "HAS_BUILDING",
-    "HAS_TIV",
-    "COVERS_PROPERTY",
+    # Location Relationships
+    "HAS_LOCATION",     # Policy -> Location
+    "LOCATED_AT",       # Location -> Address
 
-    # Claim level relationships
-    "HAS_CLAIM",
-    "CLAIM_REPORTED_ON",
-    "CLAIM_OCCURRED_ON",
-    "CLAIM_PAID_AMOUNT",
-    "CLAIM_INCURRED_AMOUNT",
+    # Claims Relationships
+    "HAS_CLAIM",        # Policy -> Claim
+    "OCCURRED_AT",      # Claim -> Location
 
-    # Other temporal / validation relationships
-    "EFFECTIVE_FROM",
-    "EXPIRES_ON",
-    "APPLIES_DURING",
+    # Auto Relationships
+    "HAS_VEHICLE",      # Policy -> Vehicle
+    "OPERATED_BY",      # Vehicle -> Driver
+    "INSURES_VEHICLE",  # Policy -> Vehicle
+
+    # Evidence Relationships
+    "SUPPORTED_BY",     # Object -> Evidence
+    "HAS_CONDITION",    # Policy -> Condition
+
+    # Identity / Linking
+    "SAME_AS",
 }
 
 # =============================================================================
@@ -890,36 +817,17 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 ---
 
 ### ENTITY TYPES
+- Policy
+- Organization (Roles: insured, additional_insured, carrier, broker, agent, underwriter)
+- Location (For addresses)
 
-IDENTITY & PARTIES:
-- POLICY_NUMBER
-- INSURED_NAME
-- ADDITIONAL_INSURED
-- CARRIER
-- BROKER
-
-DATES:
-- DATE
-- EFFECTIVE_DATE
-- EXPIRATION_DATE
-- RETROACTIVE_DATE
-
-ADDRESSES:
-- ADDRESS
-
-MONETARY:
-- TERM_PREMIUM
-- BASE_PREMIUM
-- TRIA_PREMIUM
-- POLICY_FEE
-- INSPECTION_FEE
-- TOTAL_PREMIUM
-- OTHER_FEE
-- LIMIT
-- DEDUCTIBLE
-
-STATUS:
-- COVERAGE_STATUS
+### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
+1. **Node id ≠ business identifier**: Use stable IDs (e.g., "policy_GL-789456").
+2. **Forbid Legacy Entity Types**: Legacy types (PERSON, ORGANIZATION, ADDRESS, DATE, PREMIUM, LIMIT, DEDUCTIBLE) MUST NOT be emitted as entities.
+3. **Enforce Organization Roles**: Organizations MUST have a role from: insured, additional_insured, carrier, broker, agent, underwriter.
+4. **Emit Location Nodes**: If an address is explicitly labeled (e.g., Mailing Address), emit a "Location" node and link via Policy → HAS_LOCATION.
+5. **Monetary Handling**: Monetary values not listed in REQUIRED FIELDS must be ignored unless explicitly requested.
+6. **Attributes**: All scalar values (Policy Number, Date, Limit, Amount) MUST be properties/attributes on the nodes.
 
 ---
 
@@ -949,44 +857,42 @@ OUTPUT:
   },
   "entities": [
     {
-      "type": "POLICY_NUMBER",
-      "value": "GL-789456",
-      "confidence": 0.98
+      "type": "Policy",
+      "id": "policy_GL-789456",
+      "confidence": 0.98,
+      "attributes": {
+        "policy_number": "GL-789456",
+        "effective_date": "2024-03-01",
+        "expiration_date": "2025-03-01",
+        "total_premium": 12750
+      }
     },
     {
-      "type": "INSURED_NAME",
-      "value": "Horizon Tech Solutions LLC",
-      "confidence": 0.97
+      "type": "Organization",
+      "id": "org_horizon_tech_solutions_llc",
+      "confidence": 0.97,
+      "attributes": {
+        "name": "Horizon Tech Solutions LLC",
+        "role": "insured"
+      }
     },
     {
-      "type": "EFFECTIVE_DATE",
-      "value": "2024-03-01",
-      "confidence": 0.96
+      "type": "Organization",
+      "id": "org_the_hartford_insurance_company",
+      "confidence": 0.97,
+      "attributes": {
+        "name": "The Hartford Insurance Company",
+        "role": "carrier"
+      }
     },
     {
-      "type": "EXPIRATION_DATE",
-      "value": "2025-03-01",
-      "confidence": 0.96
-    },
-    {
-      "type": "CARRIER",
-      "value": "The Hartford Insurance Company",
-      "confidence": 0.97
-    },
-    {
-      "type": "TERM_PREMIUM",
-      "value": "12500",
-      "confidence": 0.97
-    },
-    {
-      "type": "POLICY_FEE",
-      "value": "250",
-      "confidence": 0.96
-    },
-    {
-      "type": "TOTAL_PREMIUM",
-      "value": "12750",
-      "confidence": 0.98
+      "type": "Location",
+      "id": "loc_123_main_st",
+      "confidence": 0.95,
+      "attributes": {
+        "address": "123 Main St, City, State 12345",
+        "location_type": "mailing_address"
+      }
     }
   ],
   "confidence": 0.94
@@ -1047,7 +953,7 @@ Extract ALL coverage grants listed in this section.
 ---
 
 ### ENTITY TYPES
-COVERAGE_NAME, LIMIT, DEDUCTIBLE, PREMIUM, AGGREGATE, DATE
+- Coverage
 
 ---
 
@@ -1076,8 +982,17 @@ OUTPUT:
     }
   ],
   "entities": [
-    {"type": "LIMIT", "value": "5000000", "confidence": 0.96},
-    {"type": "DEDUCTIBLE", "value": "5000", "confidence": 0.95}
+    {
+      "type": "Coverage",
+      "id": "cov_building_coverage",
+      "confidence": 0.96,
+      "attributes": {
+        "name": "Building Coverage",
+        "limit_amount": 5000000,
+        "deductible_amount": 5000,
+        "per_occurrence": true
+      }
+    }
   ],
   "confidence": 0.93
 }
@@ -1240,17 +1155,16 @@ Extract even if summarized in a schedule.
 
 ---
 
-### PER ENDORSEMENT
-- endorsement_number
-- endorsement_name
-- effective_date
-- description
-- premium_change
-- coverage_modified
-- adds_coverage
-- removes_coverage
-- modifies_limit
-- new_limit
+### ENTITY TYPES
+- Endorsement
+- Coverage (if modified)
+- Organization (Roles: carrier, broker, insured, additional_insured, agent, underwriter)
+
+### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
+1. **Node id ≠ business identifier**: Use stable IDs (e.g., "endorsement_IL0021").
+2. **Forbid Legacy Entity Types**: Legacy types (PERSON, ORGANIZATION, DATE, etc.) MUST NOT be emitted as entities.
+3. **Enforce Organization Roles**: Organizations MUST use canonical roles.
+4. **Attributes**: All scalar values MUST be properties/attributes on the nodes.
 
 ---
 
@@ -1262,21 +1176,18 @@ Effective 01/01/2024"
 
 OUTPUT:
 {
-  "endorsements": [
+  "entities": [
     {
-      "endorsement_number": "IL 00 21",
-      "endorsement_name": "Additional Insured",
-      "effective_date": "2024-01-01",
-      "description": null,
-      "premium_change": null,
-      "coverage_modified": null,
-      "adds_coverage": true,
-      "removes_coverage": false,
-      "modifies_limit": false,
-      "new_limit": null
+      "type": "Endorsement",
+      "id": "endorsement_IL_00_21",
+      "confidence": 0.98,
+      "attributes": {
+        "endorsement_number": "IL 00 21",
+        "name": "Additional Insured",
+        "effective_date": "2024-01-01"
+      }
     }
   ],
-  "entities": [],
   "confidence": 0.86
 }
 
@@ -1349,7 +1260,15 @@ OUTPUT:
     "coverage_basis": "occurrence"
   },
   "entities": [
-    {"type": "TERM", "value": "Occurrence", "confidence": 0.96}
+    {
+      "type": "Definition",
+      "id": "def_occurrence",
+      "confidence": 0.96,
+      "attributes": {
+        "term": "Occurrence",
+        "definition_text": "An accident, including continuous or repeated exposure to substantially the same general harmful conditions."
+      }
+    }
   ],
   "confidence": 0.93
 }
@@ -1426,7 +1345,14 @@ OUTPUT:
     "installment_schedule": null
   },
   "entities": [
-    {"type": "AMOUNT", "value": "50000", "confidence": 0.97}
+    {
+      "type": "Policy",
+      "id": "policy_total_premium",
+      "confidence": 0.97,
+      "attributes": {
+        "total_premium": 50000
+      }
+    }
   ],
   "confidence": 0.92
 }
@@ -1510,7 +1436,7 @@ OUTPUT:
 {
   "extracted_data": { ... },
   "entities": [
-    {"type": "...", "value": "...", "confidence": 0.0}
+    {"type": "...", "id": "...", "confidence": 0.0, "attributes": {}}
   ],
   "confidence": 0.0
 }
@@ -1566,7 +1492,15 @@ OUTPUT:
     }
   ],
   "entities": [
-    {"type": "TERM", "value": "Occurrence", "confidence": 0.98}
+    {
+      "type": "Definition",
+      "id": "def_occurrence",
+      "confidence": 0.98,
+      "attributes": {
+        "term": "Occurrence",
+        "definition_text": "An accident, including continuous or repeated exposure..."
+      }
+    }
   ],
   "confidence": 0.93
 }
