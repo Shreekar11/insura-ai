@@ -479,17 +479,25 @@ class RelationshipExtractorGlobal:
         # Build entities JSON
         entities_list = []
         for entity in canonical_entities:
-            # Extract value from attributes JSONB field
-            value = entity.attributes.get("normalized_value", "") if entity.attributes else ""
-            confidence = entity.attributes.get("confidence", 0.9) if entity.attributes else 0.9
+            # Extract data from attributes JSONB field
+            attr = entity.attributes or {}
+            value = attr.get("normalized_value", "")
+            confidence = attr.get("confidence", 0.9)
             
-            entities_list.append({
-                "entity_id": entity.canonical_key,  # Use canonical_key as entity_id
+            # Prepare full entity info with all attributes for LLM
+            entity_info = {
+                "entity_id": entity.canonical_key,  # This is the stable ID used in prompts
                 "entity_type": entity.entity_type,
                 "value": value,
                 "confidence": confidence,
                 "source": "canonical"
-            })
+            }
+            # Add all other attributes except internal bookkeeping
+            for k, v in attr.items():
+                if k not in ["normalized_value", "raw_value", "confidence"]:
+                    entity_info[f"attr_{k}"] = v
+            
+            entities_list.append(entity_info)
         
         # Add chunk-level candidates if canonical entities are sparse
         chunk_candidates = []
@@ -617,7 +625,7 @@ class RelationshipExtractorGlobal:
             document_tables_list.append(table_data)
         
         return {
-            "document_type": document.classifications[0].classified_type if document and document.classifications else "unknown",
+            "document_type": document.classifications[0].page_type if document and document.classifications else "unknown",
             "section_types": sorted_sections,
             "section_summary": {
                 section_key: {
@@ -688,50 +696,8 @@ class RelationshipExtractorGlobal:
         Returns:
             List of relationship dictionaries
         """
-        # Build user message with section-aware context data
-        user_message = f"""
-Please extract relationships from the following insurance document data.
 
-**Processing Type**: Section-Aware Processing
-**Document Type**: {context['document_type']}
-
-**Section Summary** (ordered by processing priority):
-{json.dumps(context.get('section_summary', {}), indent=2)}
-
-**Canonical Entities** ({len(json.loads(context['entities_json']))} entities):
-{context['entities_json']}
-
-{"**Note**: Some entities are chunk-level candidates (source='chunk_level') because canonical entities are sparse. Prefer canonical entities but use candidates when needed." if context.get('has_chunk_candidates') else ""}
-
-**Document Chunks by Section** (super-chunk style):
-{context['chunks_by_section']}
-
-**Table Data Summary**:
-- SOV Items: {context.get('sov_items_count', 0)} items
-- Loss Run Claims: {context.get('loss_run_claims_count', 0)} claims
-- Document Tables: {context.get('document_tables_count', 0)} tables (all types)
-
-**SOV Items** (Statement of Values - property locations):
-{context.get('sov_items_json', '[]')}
-
-**Loss Run Claims** (claims history):
-{context.get('loss_run_claims_json', '[]')}
-
-**Document Tables** (all table types: property_sov, loss_run, premium_schedule, coverage_schedule, etc.):
-{context.get('document_tables_json', '[]')}
-
-**Relationship Extraction Instructions**:
-1. Extract relationships between canonical entities based on evidence in section chunks
-2. Use section context to boost confidence (e.g., declarations section for policy relationships)
-3. For table data:
-   - SOV items → Create LOCATED_AT relationships (Policy/Entity → Address)
-   - Loss Run claims → Create HAS_CLAIM relationships (Policy → Claim)
-   - Premium/Coverage tables → Create HAS_COVERAGE, HAS_LIMIT, HAS_DEDUCTIBLE relationships
-4. Match policy_number, claim_number, and addresses between tables and canonical entities
-5. Sections marked [TABLE-ONLY] should primarily use table data, not LLM extraction
-
-Return ONLY valid JSON following the schema defined in the system instructions.
-"""
+        user_message = self._build_user_message(context)
         
         try:
             # Use GeminiClient
@@ -791,10 +757,24 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         Returns:
             Created relationship or None if invalid
         """
-        # Validate relationship type
-        rel_type = relationship_data.get("type")
+        # Validate relationship type - Handle multiple possible keys from LLM
+        rel_type = relationship_data.get("type") or relationship_data.get("relationship_type")
+        
+        if not rel_type:
+            LOGGER.warning(
+                f"Missing relationship type in LLM response",
+                extra={"relationship_data": relationship_data}
+            )
+            return None
+
         if rel_type not in VALID_RELATIONSHIP_TYPES:
-            LOGGER.warning(f"Invalid relationship type: {rel_type}")
+            LOGGER.warning(
+                f"Invalid relationship type: {rel_type}",
+                extra={
+                    "valid_types": list(VALID_RELATIONSHIP_TYPES),
+                    "relationship_data": relationship_data
+                }
+            )
             return None
         
         # Get source and target identifiers from LLM
@@ -825,23 +805,22 @@ Return ONLY valid JSON following the schema defined in the system instructions.
             )
             return None
         
-        # Build attributes with evidence and provenance
-        attributes = {
-            "evidence": relationship_data.get("evidence", []),
-            "source": "llm_extraction",
-            "prompt_version": "v4.0"
-        }
+        # Create relationship
+        rel_id = relationship_data.get("id") or relationship_data.get("relationship_id")
+        
+        # Build attributes
+        attributes = relationship_data.get("attributes", {})
+        if "evidence" not in attributes:
+            attributes["evidence"] = relationship_data.get("evidence", [])
         
         # Add table data references if present in evidence
-        evidence_list = relationship_data.get("evidence", [])
-        for ev in evidence_list:
+        for ev in attributes["evidence"]:
             if isinstance(ev, dict):
                 if "sov_id" in ev:
                     attributes["sov_reference"] = ev.get("sov_id")
                 if "claim_id" in ev:
                     attributes["claim_reference"] = ev.get("claim_id")
-        
-        # Create relationship
+
         relationship = EntityRelationship(
             document_id=document_id,
             source_entity_id=source_entity.id,
@@ -850,6 +829,14 @@ Return ONLY valid JSON following the schema defined in the system instructions.
             confidence=relationship_data.get("confidence", 0.8),
             attributes=attributes
         )
+        
+        # If rel_id is provided, try to use it (must be valid UUID or we let it be)
+        if rel_id:
+            try:
+                relationship.id = UUID(rel_id)
+            except (ValueError, AttributeError):
+                # If not a valid UUID, let SQLAlchemy generate one
+                pass
         
         self.session.add(relationship)
         await self.session.flush() # Ensure ID is generated
@@ -893,6 +880,16 @@ Return ONLY valid JSON following the schema defined in the system instructions.
         for entity in canonical_entities:
             if entity.canonical_key == entity_identifier:
                 return entity
+                
+        # Strategy 1b: Match by stable ID in attributes (id is now stored in attributes by resolver)
+        for entity in canonical_entities:
+            if entity.attributes:
+                # Check for 'id' attribute which we now capture
+                if entity.attributes.get("id") == entity_identifier:
+                    return entity
+                # Check for 'entity_id' fallback
+                if entity.attributes.get("entity_id") == entity_identifier:
+                    return entity
         
         # Strategy 2: Match by "entity_type:normalized_value" format
         if ":" in entity_identifier:
@@ -934,6 +931,120 @@ Return ONLY valid JSON following the schema defined in the system instructions.
                 return reconciled
         
         return None
+
+    def _build_user_message(self, context: dict) -> str:
+        """Build improved user message for relationship extraction."""
+        
+        # Parse entities to analyze
+        entities = json.loads(context['entities_json'])
+        entity_summary = {}
+        for entity in entities:
+            etype = entity.get('entity_type', 'Unknown')
+            entity_summary[etype] = entity_summary.get(etype, 0) + 1
+        
+        # Build entity type summary
+        entity_breakdown = "\n".join([f"  • {etype}: {count}" for etype, count in sorted(entity_summary.items())])
+        
+        # Build section priority list
+        section_summary = context.get('section_summary', {})
+        priority_sections = ["declarations", "coverages", "conditions", "sov", "endorsements", "definitions"]
+        available_sections = [s for s in priority_sections if s in section_summary]
+        
+        user_message = f"""
+            Extract relationships from this {context['document_type']} document.
+
+            Entity Summary ({len(entities)} total):
+            {entity_breakdown}
+
+            Sections Available: {', '.join(available_sections)}
+
+            CANONICAL ENTITIES (deduplicated, normalized)
+            {context['entities_json']}
+
+            DOCUMENT SECTIONS (super-chunk format, ordered by priority)
+            {context['chunks_by_section']}
+
+            TABLE DATA
+
+            SOV Items ({context.get('sov_items_count', 0)} locations):
+            {context.get('sov_items_json', '[]')}
+
+            Loss Run Claims ({context.get('loss_run_claims_count', 0)} claims):
+            {context.get('loss_run_claims_json', '[]')}
+
+            Document Tables ({context.get('document_tables_count', 0)} tables):
+            {context.get('document_tables_json', '[]')}
+
+            RELATIONSHIP EXTRACTION STRATEGY
+
+            PRIORITY 1 - Policy Core Relationships (declarations section):
+            • Find Policy entity (entity_type="Policy")
+            • Extract: ISSUED_BY (carrier), HAS_INSURED (insured org), BROKERED_BY (broker)
+            • Look for explicit phrases: "issued by", "insured:", "broker:"
+
+            PRIORITY 2 - Coverage Relationships (coverages section):
+            • Find Coverage entities (entity_type="Coverage")
+            • Extract: Policy HAS_COVERAGE Coverage
+            • Each coverage mention in coverages section = relationship
+
+            PRIORITY 3 - Location Relationships (sov section + SOV table):
+            • Match Location entities with SOV items by address/location_id
+            • Extract: Policy HAS_LOCATION Location
+            • Use table data as primary evidence
+
+            PRIORITY 4 - Condition/Definition Relationships:
+            • Condition entities → Coverage SUBJECT_TO Condition
+            • Definition entities → Coverage/Condition DEFINED_IN Definition
+
+            PRIORITY 5 - Endorsement Relationships:
+            • Endorsement entities → Policy MODIFIED_BY Endorsement
+
+            PRIORITY 6 - Claim Relationships (loss_runs section + table):
+            • Match Claim entities with loss run table by claim_number
+            • Extract: Policy HAS_CLAIM Claim
+
+            COMMON PATTERNS TO EXTRACT
+
+            Pattern 1: Policy Issuance
+            Text: "Policy No. X issued by Y Insurance Company"
+            → Policy(X) --ISSUED_BY--> Organization(Y)
+
+            Pattern 2: Insured Organization
+            Text: "Named Insured: ABC Corporation"
+            → Policy --HAS_INSURED--> Organization(ABC Corporation)
+
+            Pattern 3: Coverage Listing
+            Text: In coverages section, entity "Equipment Breakdown" appears
+            → Policy --HAS_COVERAGE--> Coverage(Equipment Breakdown)
+
+            Pattern 4: Location from SOV
+            SOV row: location_id=1, address="123 Main St"
+            Entity: Location with matching address
+            → Policy --HAS_LOCATION--> Location(123 Main St)
+
+            Pattern 5: Broker
+            Text: "Broker: XYZ Insurance Brokers"
+            → Policy --BROKERED_BY--> Organization(XYZ Insurance Brokers)
+
+            Pattern 6: Condition Application
+            Text: In conditions section, "Coinsurance" condition
+            Entity: Coverage "Property"
+            → Coverage(Property) --SUBJECT_TO--> Condition(Coinsurance)
+
+            EXPECTED OUTPUT
+
+            For this document with {len(entities)} entities, extract:
+            • AT LEAST {min(len([e for e in entities if e.get('entity_type') == 'Coverage']), 10)} HAS_COVERAGE relationships
+            • AT LEAST {min(len([e for e in entities if e.get('entity_type') == 'Location']), 4)} HAS_LOCATION relationships
+            • AT LEAST 3-5 policy-level relationships (ISSUED_BY, HAS_INSURED, BROKERED_BY)
+            • Condition/Definition relationships where applicable
+
+            Return ONLY valid JSON following the schema.
+            NO markdown backticks, NO explanations, JUST the JSON object.
+            """
+        
+        return user_message
+
     
     def _reconcile_temp_entity(
         self,

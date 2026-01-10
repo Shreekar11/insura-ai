@@ -80,6 +80,9 @@ class Document(Base):
     pages: Mapped[list["DocumentPage"]] = relationship(
         "DocumentPage", back_populates="document", cascade="all, delete-orphan"
     )
+    classifications: Mapped[list["PageClassificationResult"]] = relationship(
+        "PageClassificationResult", back_populates="document", cascade="all, delete-orphan"
+    )
     workflow_documents: Mapped[list["WorkflowDocument"]] = relationship(
         "WorkflowDocument", back_populates="document", cascade="all, delete-orphan"
     )
@@ -339,6 +342,9 @@ class PageClassificationResult(Base):
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document")
 
     # Unique constraint: one classification per page per document
     __table_args__ = (

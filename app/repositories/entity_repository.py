@@ -2,7 +2,7 @@ import uuid
 from typing import Optional, List, Sequence
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
-from app.database.models import CanonicalEntity, EntityRelationship, WorkflowEntityScope, WorkflowRelationshipScope
+from app.database.models import CanonicalEntity, EntityRelationship, WorkflowEntityScope, WorkflowRelationshipScope, EntityEvidence
 from app.repositories.base_repository import BaseRepository
 
 class EntityRepository(BaseRepository[CanonicalEntity]):
@@ -19,6 +19,28 @@ class EntityRepository(BaseRepository[CanonicalEntity]):
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
+
+    async def get_by_document(self, document_id: uuid.UUID) -> Sequence[CanonicalEntity]:
+        """Get all canonical entities associated with a specific document via evidence mapping."""
+        query = (
+            select(CanonicalEntity)
+            .join(EntityEvidence, CanonicalEntity.id == EntityEvidence.canonical_entity_id)
+            .where(EntityEvidence.document_id == document_id)
+            .distinct()
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def get_by_workflow(self, workflow_id: uuid.UUID) -> Sequence[CanonicalEntity]:
+        """Get all canonical entities associated with a specific workflow."""
+        query = (
+            select(CanonicalEntity)
+            .join(WorkflowEntityScope, CanonicalEntity.id == WorkflowEntityScope.canonical_entity_id)
+            .where(WorkflowEntityScope.workflow_id == workflow_id)
+            .distinct()
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def add_to_workflow_scope(self, workflow_id: uuid.UUID, canonical_entity_id: uuid.UUID) -> None:
         """Add a canonical entity to a workflow scope (idempotent)."""
@@ -37,6 +59,21 @@ class EntityRelationshipRepository(BaseRepository[EntityRelationship]):
 
     def __init__(self, session: AsyncSession):
         super().__init__(session, EntityRelationship)
+
+    async def get_by_document(self, document_id: uuid.UUID) -> Sequence[EntityRelationship]:
+        """Get all relationships for a specific document."""
+        return await self.get_all(filters={"document_id": document_id})
+
+    async def get_by_workflow(self, workflow_id: uuid.UUID) -> Sequence[EntityRelationship]:
+        """Get all entity relationships associated with a specific workflow."""
+        query = (
+            select(EntityRelationship)
+            .join(WorkflowRelationshipScope, EntityRelationship.id == WorkflowRelationshipScope.relationship_id)
+            .where(WorkflowRelationshipScope.workflow_id == workflow_id)
+            .distinct()
+        )
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def add_to_workflow_scope(self, workflow_id: uuid.UUID, relationship_id: uuid.UUID) -> None:
         """Add an entity relationship to a workflow scope (idempotent)."""

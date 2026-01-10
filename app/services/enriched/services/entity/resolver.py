@@ -65,12 +65,12 @@ class EntityResolver:
         Returns:
             UUID: Canonical entity ID
         """
-        entity_type = entity_mention.get("entity_type")
-        normalized_value = entity_mention.get("normalized_value")
+        entity_type = entity_mention.get("type") or entity_mention.get("entity_type")
+        normalized_value = entity_mention.get("id") or entity_mention.get("normalized_value") or entity_mention.get("value")
         
         if not entity_type or not normalized_value:
-            LOGGER.warning("Invalid entity mention, missing type or value")
-            raise ValueError("Entity mention must have entity_type and normalized_value")
+            LOGGER.warning("Invalid entity mention, missing type or value", extra={"mention": entity_mention})
+            raise ValueError("Entity mention must have type/entity_type and id/normalized_value")
         
         # Generate canonical key
         canonical_key = self._generate_canonical_key(entity_type, normalized_value)
@@ -80,7 +80,8 @@ class EntityResolver:
             entity_type=entity_type,
             canonical_key=canonical_key,
             normalized_value=normalized_value,
-            raw_value=entity_mention.get("raw_value", normalized_value)
+            raw_value=entity_mention.get("raw_value", normalized_value),
+            additional_attributes=entity_mention.get("attributes", {})
         )
         
         # Create entity mention (document-scoped) and evidence
@@ -104,7 +105,7 @@ class EntityResolver:
             extracted_fields={
                 "normalized_value": normalized_value,
                 "raw_value": entity_mention.get("raw_value", normalized_value),
-                **{k: v for k, v in entity_mention.items() if k not in ["entity_type", "normalized_value", "raw_value", "confidence"]}
+                **{k: v for k, v in entity_mention.items() if k not in ["type", "entity_type", "id", "normalized_value", "value", "raw_value", "confidence"]}
             },
             confidence=Decimal(str(entity_mention.get("confidence", 0.8))),
             source_document_chunk_id=source_document_chunk_id,
@@ -193,7 +194,8 @@ class EntityResolver:
         entity_type: str,
         canonical_key: str,
         normalized_value: str,
-        raw_value: str
+        raw_value: str,
+        additional_attributes: Optional[Dict[str, Any]] = None
     ) -> CanonicalEntity:
         """Get existing or create new canonical entity.
         
@@ -216,16 +218,29 @@ class EntityResolver:
         
         if existing:
             LOGGER.debug(f"Found existing canonical entity: {existing.id}")
+            # Merge attributes if new ones provided
+            if additional_attributes:
+                if not existing.attributes:
+                    existing.attributes = {}
+                # Update attributes with new data (conservative merge)
+                for k, v in additional_attributes.items():
+                    if k not in existing.attributes or existing.attributes[k] is None:
+                        existing.attributes[k] = v
+                self.session.add(existing)
             return existing
         
         # Create new canonical entity
+        base_attributes = {
+            "normalized_value": normalized_value,
+            "raw_value": raw_value
+        }
+        if additional_attributes:
+            base_attributes.update(additional_attributes)
+
         canonical_entity = CanonicalEntity(
             entity_type=entity_type,
             canonical_key=canonical_key,
-            attributes={
-                "normalized_value": normalized_value,
-                "raw_value": raw_value
-            }
+            attributes=base_attributes
         )
         
         self.session.add(canonical_entity)
