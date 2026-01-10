@@ -11,6 +11,7 @@ from app.api.v1.router import api_router
 from app.core.config import settings
 from app.utils.logging import get_logger
 from app.core.database import init_database, close_database
+from app.core.neo4j_client import init_neo4j
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -49,6 +50,9 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             drop_existing=False 
         )
         LOGGER.info("Database initialized successfully")
+
+        await init_neo4j()
+        LOGGER.info("Neo4j initialized successfully")
     except Exception as e:
         LOGGER.error(
             "Failed to initialize database",
