@@ -14,7 +14,7 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 
-class GraphBuilder(BaseService):
+class GraphService(BaseService):
     """Constructs workflow-scoped knowledge graphs in Neo4j."""
 
     def __init__(

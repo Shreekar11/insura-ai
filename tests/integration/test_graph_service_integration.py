@@ -1,9 +1,9 @@
-"""Integration tests for GraphBuilder service.
+"""Integration tests for GraphService service.
 
 Tests entity node creation, relationship edge creation, and schema compliance
 with the predefined graph schema.
 
-Run with: pytest tests/integration/test_graph_builder_integration.py -v
+Run with: pytest tests/integration/test_graph_service_integration.py -v
 """
 
 import pytest
@@ -12,7 +12,7 @@ from datetime import datetime, date
 from typing import List, Dict, Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
-from app.services.summarized.services.indexing.graph.graph_builder import GraphBuilder
+from app.services.summarized.services.indexing.graph.graph_service import GraphService
 
 
 # Test Data based on the provided JSON examples
@@ -283,42 +283,42 @@ def mock_relationships(mock_entities):
 
 
 @pytest.fixture
-async def graph_builder(mock_neo4j_driver, mock_db_session):
-    """Fixture for GraphBuilder instance."""
-    builder = GraphBuilder(mock_neo4j_driver, mock_db_session)
+async def graph_service(mock_neo4j_driver, mock_db_session):
+    """Fixture for GraphService instance."""
+    service = GraphService(mock_neo4j_driver, mock_db_session)
     
     # Mock the neo4j_session attribute that's used in _create_entity_node
-    builder.neo4j_session = AsyncMock()
-    builder.neo4j_session.run = AsyncMock()
+    service.neo4j_session = AsyncMock()
+    service.neo4j_session.run = AsyncMock()
     
-    return builder
+    return service
 
 
 @pytest.mark.asyncio
-class TestGraphBuilderIntegration:
-    """Integration tests for GraphBuilder service."""
+class TestGraphServiceIntegration:
+    """Integration tests for GraphService service."""
     
     async def test_run_creates_all_entities_and_relationships(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities,
         mock_relationships
     ):
         """Test that run() creates all entities and relationships."""
         # Mock repository methods
-        graph_builder.entity_repo.get_by_workflow = AsyncMock(return_value=mock_entities)
-        graph_builder.rel_repo.get_by_workflow = AsyncMock(return_value=mock_relationships)
-        graph_builder.emb_repo.get_by_document = AsyncMock(return_value=[])
+        graph_service.entity_repo.get_by_workflow = AsyncMock(return_value=mock_entities)
+        graph_service.rel_repo.get_by_workflow = AsyncMock(return_value=mock_relationships)
+        graph_service.emb_repo.get_by_document = AsyncMock(return_value=[])
         
         # Mock entity lookups for relationships
         entity_map = {e.id: e for e in mock_entities}
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: entity_map.get(eid)
         )
         
         # Run the graph builder
-        stats = await graph_builder.run(str(workflow_id))
+        stats = await graph_service.run(str(workflow_id))
         
         # Verify statistics
         assert stats["entities_created"] == len(mock_entities)
@@ -326,20 +326,20 @@ class TestGraphBuilderIntegration:
         assert stats["errors"] == 0
         
         # Verify entity creation was called for each entity
-        assert graph_builder.neo4j_session.run.call_count >= len(mock_entities)
+        assert graph_service.neo4j_session.run.call_count >= len(mock_entities)
     
     async def test_create_policy_node_with_schema_compliance(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test Policy node creation matches schema definition."""
         policy_entity = MockEntity(DECLARATIONS_JSON["entities"][0])
         
-        await graph_builder._create_entity_node(policy_entity, workflow_id)
+        await graph_service._create_entity_node(policy_entity, workflow_id)
         
         # Verify the Cypher query was called
-        call_args = graph_builder.neo4j_session.run.call_args
+        call_args = graph_service.neo4j_session.run.call_args
         cypher_query = call_args[0][0]
         properties = call_args[0][1]
         
@@ -359,15 +359,15 @@ class TestGraphBuilderIntegration:
     
     async def test_create_organization_node_with_schema_compliance(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test Organization node creation matches schema definition."""
         org_entity = MockEntity(DECLARATIONS_JSON["entities"][1])
         
-        await graph_builder._create_entity_node(org_entity, workflow_id)
+        await graph_service._create_entity_node(org_entity, workflow_id)
         
-        call_args = graph_builder.neo4j_session.run.call_args
+        call_args = graph_service.neo4j_session.run.call_args
         cypher_query = call_args[0][0]
         properties = call_args[0][1]
         
@@ -383,15 +383,15 @@ class TestGraphBuilderIntegration:
     
     async def test_create_location_node_with_schema_compliance(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test Location node creation matches schema definition."""
         location_entity = MockEntity(DECLARATIONS_JSON["entities"][3])
         
-        await graph_builder._create_entity_node(location_entity, workflow_id)
+        await graph_service._create_entity_node(location_entity, workflow_id)
         
-        call_args = graph_builder.neo4j_session.run.call_args
+        call_args = graph_service.neo4j_session.run.call_args
         cypher_query = call_args[0][0]
         properties = call_args[0][1]
         
@@ -410,15 +410,15 @@ class TestGraphBuilderIntegration:
     
     async def test_create_coverage_node_with_schema_compliance(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test Coverage node creation matches schema definition."""
         coverage_entity = MockEntity(COVERAGES_JSON["entities"][0])
         
-        await graph_builder._create_entity_node(coverage_entity, workflow_id)
+        await graph_service._create_entity_node(coverage_entity, workflow_id)
         
-        call_args = graph_builder.neo4j_session.run.call_args
+        call_args = graph_service.neo4j_session.run.call_args
         cypher_query = call_args[0][0]
         properties = call_args[0][1]
         
@@ -437,15 +437,15 @@ class TestGraphBuilderIntegration:
     
     async def test_create_endorsement_node_with_schema_compliance(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test Endorsement node creation matches schema definition."""
         endorsement_entity = MockEntity(ENDORSEMENTS_JSON["entities"][0])
         
-        await graph_builder._create_entity_node(endorsement_entity, workflow_id)
+        await graph_service._create_entity_node(endorsement_entity, workflow_id)
         
-        call_args = graph_builder.neo4j_session.run.call_args
+        call_args = graph_service.neo4j_session.run.call_args
         cypher_query = call_args[0][0]
         properties = call_args[0][1]
         
@@ -462,7 +462,7 @@ class TestGraphBuilderIntegration:
     
     async def test_create_relationship_issued_by(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -480,14 +480,14 @@ class TestGraphBuilderIntegration:
         )
         
         # Mock entity lookups
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: policy if eid == policy.id else carrier
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
         # Verify the Cypher query
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -500,7 +500,7 @@ class TestGraphBuilderIntegration:
     
     async def test_create_relationship_has_insured(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -517,13 +517,13 @@ class TestGraphBuilderIntegration:
             confidence=0.98
         )
         
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: policy if eid == policy.id else insured
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -534,7 +534,7 @@ class TestGraphBuilderIntegration:
     
     async def test_create_relationship_has_coverage(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -551,13 +551,13 @@ class TestGraphBuilderIntegration:
             confidence=0.97
         )
         
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: policy if eid == policy.id else coverage
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -568,7 +568,7 @@ class TestGraphBuilderIntegration:
     
     async def test_create_relationship_modified_by(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -585,13 +585,13 @@ class TestGraphBuilderIntegration:
             confidence=0.96
         )
         
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: coverage if eid == coverage.id else endorsement
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -602,7 +602,7 @@ class TestGraphBuilderIntegration:
     
     async def test_create_relationship_has_location(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -619,13 +619,13 @@ class TestGraphBuilderIntegration:
             confidence=0.95
         )
         
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: policy if eid == policy.id else location
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -636,7 +636,7 @@ class TestGraphBuilderIntegration:
     
     async def test_relationship_evidence_attributes(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         mock_entities
     ):
@@ -656,13 +656,13 @@ class TestGraphBuilderIntegration:
             attributes={"evidence": evidence}
         )
         
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: policy if eid == policy.id else carrier
         )
         
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         params = call_args[0][1]
         
         # Verify evidence is stored
@@ -671,16 +671,16 @@ class TestGraphBuilderIntegration:
     
     async def test_create_embedding_node(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test vector embedding node creation."""
         entity_id = uuid.uuid4()
         embedding = MockVectorEmbedding(entity_id, "full_text")
         
-        await graph_builder._create_embedding_node(embedding, str(workflow_id))
+        await graph_service._create_embedding_node(embedding, str(workflow_id))
         
-        call_args = graph_builder.neo4j_driver.execute_query.call_args
+        call_args = graph_service.neo4j_driver.execute_query.call_args
         cypher_query = call_args[0][0]
         params = call_args[0][1]
         
@@ -694,7 +694,7 @@ class TestGraphBuilderIntegration:
     
     async def test_map_entity_properties_removes_none_values(
         self,
-        graph_builder
+        graph_service
     ):
         """Test that None values are filtered out from properties."""
         entity_data = {
@@ -709,7 +709,7 @@ class TestGraphBuilderIntegration:
         }
         entity = MockEntity(entity_data)
         
-        properties = graph_builder._map_entity_properties(entity)
+        properties = graph_service._map_entity_properties(entity)
         
         # Verify None values are not in properties
         assert "policy_number" in properties
@@ -719,7 +719,7 @@ class TestGraphBuilderIntegration:
     
     async def test_run_with_document_scope(
         self,
-        graph_builder,
+        graph_service,
         workflow_id,
         document_id,
         mock_entities,
@@ -727,17 +727,17 @@ class TestGraphBuilderIntegration:
     ):
         """Test run() with document-scoped fetching."""
         # Mock repository methods for document scope
-        graph_builder.entity_repo.get_by_document = AsyncMock(return_value=mock_entities[:2])
-        graph_builder.rel_repo.get_by_document = AsyncMock(return_value=mock_relationships[:1])
-        graph_builder.emb_repo.get_by_document = AsyncMock(return_value=[])
+        graph_service.entity_repo.get_by_document = AsyncMock(return_value=mock_entities[:2])
+        graph_service.rel_repo.get_by_document = AsyncMock(return_value=mock_relationships[:1])
+        graph_service.emb_repo.get_by_document = AsyncMock(return_value=[])
         
         # Mock entity lookups
         entity_map = {e.id: e for e in mock_entities}
-        graph_builder.entity_repo.get_by_id = AsyncMock(
+        graph_service.entity_repo.get_by_id = AsyncMock(
             side_effect=lambda eid: entity_map.get(eid)
         )
         
-        stats = await graph_builder.run(str(workflow_id), str(document_id))
+        stats = await graph_service.run(str(workflow_id), str(document_id))
         
         # Verify only document-scoped entities were processed
         assert stats["entities_created"] == 2
@@ -745,12 +745,12 @@ class TestGraphBuilderIntegration:
         assert stats["errors"] == 0
         
         # Verify correct repository methods were called
-        graph_builder.entity_repo.get_by_document.assert_called_once()
-        graph_builder.rel_repo.get_by_document.assert_called_once()
+        graph_service.entity_repo.get_by_document.assert_called_once()
+        graph_service.rel_repo.get_by_document.assert_called_once()
     
     async def test_error_handling_for_missing_entities(
         self,
-        graph_builder,
+        graph_service,
         workflow_id
     ):
         """Test error handling when source or target entity is missing."""
@@ -762,11 +762,11 @@ class TestGraphBuilderIntegration:
         )
         
         # Mock entity lookup to return None
-        graph_builder.entity_repo.get_by_id = AsyncMock(return_value=None)
+        graph_service.entity_repo.get_by_id = AsyncMock(return_value=None)
         
         # Should not raise, but should log warning and return early
-        await graph_builder._create_relationship_edge(relationship, str(workflow_id))
+        await graph_service._create_relationship_edge(relationship, str(workflow_id))
         
         # Verify execute_query was NOT called
-        graph_builder.neo4j_driver.execute_query.assert_not_called()
+        graph_service.neo4j_driver.execute_query.assert_not_called()
     

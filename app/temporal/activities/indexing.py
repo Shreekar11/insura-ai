@@ -2,7 +2,7 @@ from temporalio import activity
 from uuid import UUID
 from app.core.database import async_session_maker
 from app.services.summarized.services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
-from app.services.summarized.services.indexing.graph.graph_builder import GraphBuilder
+from app.services.summarized.services.indexing.graph.graph_service import GraphService
 from app.utils.logging import get_logger
 from app.core.neo4j_client import Neo4jClientManager
 
@@ -57,9 +57,9 @@ async def construct_knowledge_graph_activity(document_id: str, workflow_id: str)
         logger.info(f"Starting knowledge graph construction activity for document {document_id}")
         neo4j_driver = await Neo4jClientManager.get_driver()
         async with async_session_maker() as db_session:
-            graph_builder = GraphBuilder(neo4j_driver, db_session)
+            graph_service = GraphService(neo4j_driver, db_session)
 
-            result = await graph_builder.execute(UUID(workflow_id), UUID(document_id))
+            result = await graph_service.execute(UUID(workflow_id), UUID(document_id))
 
             logger.info(
                 f"Knowledge graph construction completed for {document_id}: "
