@@ -12,7 +12,10 @@ from .entity_resolution import (
     extract_relationships,
     rollback_entities,
 )
-from .summarized import generate_embeddings_activity
+from .indexing import (
+    generate_embeddings_activity,
+    construct_knowledge_graph_activity,
+)
 
 __all__ = [
     "extract_page_signals",
@@ -26,4 +29,5 @@ __all__ = [
     "extract_relationships",
     "rollback_entities",
     "generate_embeddings_activity",
+    "construct_knowledge_graph_activity",
 ]

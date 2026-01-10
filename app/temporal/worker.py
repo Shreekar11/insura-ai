@@ -14,13 +14,13 @@ from temporalio.worker import Worker
 
 # Import all child workflows
 from app.temporal.workflows.process_document import ProcessDocumentWorkflow
-from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
 from app.temporal.workflows.child.ocr_extraction import OCRExtractionWorkflow
 from app.temporal.workflows.child.table_extraction import TableExtractionWorkflow
+from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
 from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
 from app.temporal.workflows.child.extraction import ExtractionWorkflow
 from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
-from app.temporal.workflows.child.vector_indexing import VectorIndexingWorkflow
+from app.temporal.workflows.child.indexing import IndexingWorkflow
 
 # Import all stages workflows
 from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
@@ -29,16 +29,17 @@ from app.temporal.workflows.stages.enriched import EnrichedStageWorkflow
 from app.temporal.workflows.stages.summarized import SummarizedStageWorkflow
 
 # Import all activities
-from app.temporal.activities.page_analysis import (
-    extract_page_signals,
-    classify_pages,
-    create_page_manifest,
-)
 from app.temporal.activities.ocr_extraction import (
     extract_ocr,
 )
 from app.temporal.activities.table_extraction import (
     extract_tables,
+)
+from app.temporal.activities.page_analysis import (
+    extract_page_signals,
+    extract_page_signals_from_markdown,
+    classify_pages,
+    create_page_manifest,
 )
 from app.temporal.activities.hybrid_chunking import (
     perform_hybrid_chunking,
@@ -52,8 +53,9 @@ from app.temporal.activities.entity_resolution import (
     extract_relationships,
     rollback_entities,
 )
-from app.temporal.activities.vector_indexing import (
+from app.temporal.activities.indexing import (
     generate_embeddings_activity,
+    construct_knowledge_graph_activity,
 )
 from app.temporal.activities.stages import (
     update_stage_status,
@@ -89,20 +91,21 @@ async def main():
             ExtractedStageWorkflow,
             EnrichedStageWorkflow,
             SummarizedStageWorkflow,
-            PageAnalysisWorkflow,
             OCRExtractionWorkflow,
+            TableExtractionWorkflow,
+            PageAnalysisWorkflow,
             HybridChunkingWorkflow,
             ExtractionWorkflow,
-            TableExtractionWorkflow,
             EntityResolutionWorkflow,
-            VectorIndexingWorkflow,
+            IndexingWorkflow,
         ],
         activities=[
-            extract_page_signals,
-            classify_pages,
-            create_page_manifest,
             extract_ocr,
             extract_tables,
+            extract_page_signals,
+            extract_page_signals_from_markdown,
+            classify_pages,
+            create_page_manifest,
             perform_hybrid_chunking,
             extract_section_fields,
             aggregate_document_entities,
@@ -110,6 +113,7 @@ async def main():
             extract_relationships,
             rollback_entities,
             generate_embeddings_activity,
+            construct_knowledge_graph_activity,
             update_stage_status,
         ],
         max_concurrent_activities=5,

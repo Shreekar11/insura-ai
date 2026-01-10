@@ -5,7 +5,7 @@ from datetime import timedelta
 from typing import Optional, Dict
 from temporalio.common import RetryPolicy
 
-from app.temporal.workflows.child.vector_indexing import VectorIndexingWorkflow
+from app.temporal.workflows.child.indexing import IndexingWorkflow
 
 
 @workflow.defn
@@ -23,15 +23,12 @@ class SummarizedStageWorkflow:
         
         # Phase 1: Vector Embeddings
         await workflow.execute_child_workflow(
-            VectorIndexingWorkflow.run,
+            IndexingWorkflow.run,
             args=[workflow_id, document_id],
-            id=f"stage-summarized-vector-indexing-{document_id}",
+            id=f"stage-summarized-indexing-{document_id}",
             task_queue="documents-queue",
         )
 
-        # Phase 2: Summarization
-        
-        
         # Mark summarized stage complete
         await workflow.execute_activity(
             "update_stage_status",

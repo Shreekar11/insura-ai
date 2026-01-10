@@ -44,7 +44,7 @@ class ProcessedStageWorkflow:
             task_queue="documents-queue",
         )
         
-        # Extract markdown pages from OCR result (if available)
+        # Extract markdown pages from OCR result
         markdown_pages = ocr_result.get("markdown_pages", [])
         
         # Phase 2: Page Analysis
