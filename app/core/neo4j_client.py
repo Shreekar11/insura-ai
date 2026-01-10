@@ -40,14 +40,34 @@ class Neo4jClientManager:
         driver = await cls.get_driver()
         return driver.session(database=database or settings.neo4j.database)
 
+    @classmethod
+    async def ensure_constraints(cls) -> None:
+        """Ensure uniqueness constraints exist for entity IDs."""
+        driver = await cls.get_driver()
+        labels = [
+            "Policy", "Coverage", "Organization", "Claim", 
+            "Endorsement", "Location", "Condition", "Definition"
+        ]
+        
+        async with driver.session(database=settings.neo4j.database) as session:
+            for label in labels:
+                constraint_name = f"constraint_{label.lower()}_id_unique"
+                cypher = f"CREATE CONSTRAINT {constraint_name} IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+                try:
+                    await session.run(cypher)
+                    LOGGER.info(f"Ensured constraint for {label}", extra={"constraint": constraint_name})
+                except Exception as e:
+                    LOGGER.error(f"Failed to create constraint for {label}: {e}")
+
 
 async def get_neo4j_driver() -> AsyncDriver:
     """Dependency for getting Neo4j driver."""
     return await Neo4jClientManager.get_driver()
 
 async def init_neo4j() -> None:
-    """Initialize Neo4j connection."""
+    """Initialize Neo4j connection and ensure constraints."""
     await Neo4jClientManager.get_driver()
+    await Neo4jClientManager.ensure_constraints()
 
 async def close_neo4j() -> None:
     """Close Neo4j connection."""

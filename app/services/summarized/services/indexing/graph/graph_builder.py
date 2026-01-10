@@ -66,14 +66,20 @@ class GraphBuilder(BaseService):
 
             # Step 1: Fetch entities
             if doc_uuid:
-                entities = await self.entity_repo.get_by_document(doc_uuid)
+                entities_with_prov = await self.entity_repo.get_with_provenance_by_document(doc_uuid)
             else:
-                entities = await self.entity_repo.get_by_workflow(wf_uuid)
+                entities_with_prov = await self.entity_repo.get_with_provenance_by_workflow(wf_uuid)
 
-            for entity in entities:
+            # Deduplicate by entity.id to avoid multiple nodes for multi-mention entities
+            processed_entity_ids = set()
+            for entity, source_chunk_id, source_section in entities_with_prov:
+                if entity.id in processed_entity_ids:
+                    continue
+                    
                 try:
-                    await self._create_entity_node(entity, wf_uuid)
+                    await self._create_entity_node(entity, wf_uuid, source_chunk_id, source_section)
                     stats["entities_created"] += 1
+                    processed_entity_ids.add(entity.id)
                 except Exception as e:
                     LOGGER.error(
                         f"Failed to create entity node: {e}",
@@ -133,17 +139,24 @@ class GraphBuilder(BaseService):
     async def _create_entity_node(
         self,
         entity: Any,
-        workflow_id: uuid.UUID
+        workflow_id: uuid.UUID,
+        source_chunk_id: Optional[str] = None,
+        source_section: Optional[str] = None
     ) -> None:
-        """Create Neo4j node with proper type label."""
+        """Create Neo4j node with proper type label and provenance."""
         
         # Map entity_type to node label
-        node_label = entity.entity_type  # "Policy", "Organization", etc.
+        node_label = entity.entity_type
         
         # Extract schema-specific properties from attributes
         properties = self._map_entity_properties(entity)
         properties["id"] = entity.canonical_key
         properties["workflow_id"] = str(workflow_id)
+        
+        if source_chunk_id:
+            properties["source_chunk_id"] = source_chunk_id
+        if source_section:
+            properties["source_section"] = source_section.lower()
         
         # Build property string for SET clause
         set_clauses = ", ".join([f"n.{key} = ${key}" for key in properties.keys()])
@@ -173,11 +186,14 @@ class GraphBuilder(BaseService):
             props.update({
                 "policy_number": attrs.get("policy_number"),
                 "policy_type": attrs.get("policy_type"),
+                "policy_form": attrs.get("policy_form"),
+                "status": attrs.get("status"),
                 "effective_date": attrs.get("effective_date"),
                 "expiration_date": attrs.get("expiration_date"),
+                "policy_term": attrs.get("policy_term"),
                 "total_premium": attrs.get("total_premium"),
                 "base_premium": attrs.get("base_premium"),
-                "status": attrs.get("status"),
+                "rate_per_100": attrs.get("rate_per_100"),
             })
         
         elif entity_type == "Organization":
@@ -191,18 +207,34 @@ class GraphBuilder(BaseService):
             props.update({
                 "name": attrs.get("name"),
                 "coverage_type": attrs.get("coverage_type"),
+                "coverage_part": attrs.get("coverage_part"),
+                "description": attrs.get("description"),
                 "per_occurrence_limit": attrs.get("per_occurrence_limit"),
                 "aggregate_limit": attrs.get("aggregate_limit"),
                 "deductible_amount": attrs.get("deductible", attrs.get("deductible_amount")),
+                "deductible_type": attrs.get("deductible_type"),
+                "waiting_period": attrs.get("waiting_period"),
+                "coinsurance": attrs.get("coinsurance"),
+                "valuation_method": attrs.get("valuation_method"),
                 "included": attrs.get("included"),
             })
         
+        elif entity_type == "Condition":
+            props.update({
+                "title": attrs.get("title") or attrs.get("name"),
+                "condition_type": attrs.get("condition_type"),
+                "description": attrs.get("description"),
+                "applies_to": attrs.get("applies_to"),
+                "requirements": attrs.get("requirements"),
+                "consequences": attrs.get("consequences"),
+            })
+
         elif entity_type == "Endorsement":
             props.update({
                 "endorsement_number": attrs.get("form_number", attrs.get("endorsement_number")),
-                "name": attrs.get("name"),
-                "effective_date": attrs.get("effective_date"),
+                "title": attrs.get("title") or attrs.get("name"),
                 "description": attrs.get("description"),
+                "effective_date": attrs.get("effective_date"),
             })
         
         elif entity_type == "Location":
@@ -211,8 +243,50 @@ class GraphBuilder(BaseService):
                 "address": attrs.get("address"),
                 "construction_type": attrs.get("construction_type"),
                 "occupancy": attrs.get("occupancy"),
+                "year_built": attrs.get("year_built"),
+                "number_of_stories": attrs.get("number_of_stories"),
+                "sprinklered": attrs.get("sprinklered"),
                 "building_value": attrs.get("building_value"),
+                "contents_value": attrs.get("contents_value"),
+                "bi_value": attrs.get("bi_value"),
                 "tiv": attrs.get("tiv"),
+                "flood_zone": attrs.get("flood_zone"),
+            })
+        
+        elif entity_type == "Claim":
+            props.update({
+                "claim_number": attrs.get("claim_number"),
+                "cause_of_loss": attrs.get("cause_of_loss"),
+                "status": attrs.get("status"),
+                "loss_date": attrs.get("loss_date"),
+                "report_date": attrs.get("report_date") or attrs.get("reported_date"),
+                "paid_amount": attrs.get("paid_amount"),
+                "incurred_amount": attrs.get("incurred_amount"),
+                "reserve_amount": attrs.get("reserve_amount"),
+                "description": attrs.get("description"),
+            })
+
+        elif entity_type == "Definition":
+            props.update({
+                "term": attrs.get("term"),
+                "definition_text": attrs.get("definition_text") or attrs.get("definition"),
+            })
+
+        elif entity_type == "Vehicle":
+            props.update({
+                "vin": attrs.get("vin"),
+                "year": attrs.get("year"),
+                "make": attrs.get("make"),
+                "model": attrs.get("model"),
+            })
+
+        elif entity_type == "Driver":
+            props.update({
+                "name": attrs.get("name"),
+                "date_of_birth": attrs.get("date_of_birth"),
+                "license_number": attrs.get("license_number"),
+                "violations": attrs.get("violations"),
+                "accidents": attrs.get("accidents"),
             })
         
         # Remove None values

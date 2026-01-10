@@ -42,6 +42,33 @@ class EntityRepository(BaseRepository[CanonicalEntity]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def get_with_provenance_by_document(self, document_id: uuid.UUID) -> Sequence[tuple[CanonicalEntity, str, str]]:
+        """Get entities with their source section and chunk ID for a document."""
+        from app.database.models import EntityMention, SectionExtraction
+        query = (
+            select(CanonicalEntity, EntityMention.source_stable_chunk_id, SectionExtraction.section_type)
+            .join(EntityEvidence, CanonicalEntity.id == EntityEvidence.canonical_entity_id)
+            .join(EntityMention, EntityEvidence.entity_mention_id == EntityMention.id)
+            .outerjoin(SectionExtraction, EntityMention.section_extraction_id == SectionExtraction.id)
+            .where(EntityEvidence.document_id == document_id)
+        )
+        result = await self.session.execute(query)
+        return result.all()
+
+    async def get_with_provenance_by_workflow(self, workflow_id: uuid.UUID) -> Sequence[tuple[CanonicalEntity, str, str]]:
+        """Get entities with their source section and chunk ID for a workflow."""
+        from app.database.models import EntityMention, SectionExtraction
+        query = (
+            select(CanonicalEntity, EntityMention.source_stable_chunk_id, SectionExtraction.section_type)
+            .join(WorkflowEntityScope, CanonicalEntity.id == WorkflowEntityScope.canonical_entity_id)
+            .join(EntityEvidence, CanonicalEntity.id == EntityEvidence.canonical_entity_id)
+            .join(EntityMention, EntityEvidence.entity_mention_id == EntityMention.id)
+            .outerjoin(SectionExtraction, EntityMention.section_extraction_id == SectionExtraction.id)
+            .where(WorkflowEntityScope.workflow_id == workflow_id)
+        )
+        result = await self.session.execute(query)
+        return result.all()
+
     async def add_to_workflow_scope(self, workflow_id: uuid.UUID, canonical_entity_id: uuid.UUID) -> None:
         """Add a canonical entity to a workflow scope (idempotent)."""
         from sqlalchemy.dialects.postgresql import insert
