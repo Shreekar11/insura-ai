@@ -11,8 +11,10 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session
 from app.repositories.chunk_repository import ChunkRepository
+from app.repositories.user_repository import UserRepository
 from app.services.processed.services.chunking.chunking_service import ChunkingService
 from app.services.processed.services.ocr.ocr_service import OCRService
+from app.services.user_service import UserService
 from app.core.config import settings
 
 
@@ -67,3 +69,17 @@ async def get_ocr_service(
         openrouter_model=settings.openrouter_model,
         openrouter_api_url=settings.openrouter_api_url,
     )
+
+
+async def get_user_service(
+    db_session: Annotated[AsyncSession, Depends(get_async_session)]
+) -> UserService:
+    """Get user service instance with all dependencies.
+
+    Args:
+        db_session: Database session
+
+    Returns:
+        UserService: Fully configured user service
+    """
+    return UserService(db_session)

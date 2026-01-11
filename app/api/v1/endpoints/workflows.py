@@ -10,6 +10,10 @@ from app.database import get_async_session
 from app.services.workflow_service import WorkflowService
 from app.core.exceptions import ValidationError, AppError
 from app.utils.logging import get_logger
+from app.core.auth import get_current_user
+from app.schemas.auth import CurrentUser
+from app.services.user_service import UserService
+from app.core.dependencies import get_user_service
 
 from app.schemas.workflows.request import WorkflowExtractionRequest
 from app.schemas.workflows.response import (
@@ -27,19 +31,23 @@ async def get_workflow_service(
     db_session: Annotated[AsyncSession, Depends(get_async_session)]
 ) -> WorkflowService:
     """Dependency to create WorkflowService instance.
-    
+
     This ensures consistent service instantiation across all routes.
     """
     return WorkflowService(db_session)
 
 
-def get_current_user_id() -> UUID:
+async def get_current_user_id(
+    current_user: Annotated[CurrentUser, Depends(get_current_user)],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+) -> UUID:
     """Dependency to get current authenticated user ID.
-    
-    TODO: Replace with actual auth implementation.
-    For now, returns default test user.
+
+    Ensures the user exists in our database and returns their internal ID.
     """
-    return UUID("00000000-0000-0000-0000-000000000001")
+    # Ensure user exists in database (creates if needed)
+    user = await user_service.ensure_user_exists(current_user)
+    return user.id
 
 
 @router.post(

@@ -119,7 +119,23 @@ class Neo4jSettings(BaseSettings):
     username: str = Field(default="neo4j", validation_alias="NEO4J_USERNAME")
     password: str = Field(default="password", validation_alias="NEO4J_PASSWORD")
     database: str = Field(default="neo4j", validation_alias="NEO4J_DATABASE")
-    
+
+    model_config = SettingsConfigDict(
+        env_file=str(ENV_FILE) if ENV_FILE else None,
+        env_file_encoding="utf-8",
+        case_sensitive=False,
+        extra="ignore",
+        env_prefix="",
+    )
+
+
+class SupabaseSettings(BaseSettings):
+    """Supabase authentication settings."""
+    url: str = Field(default="", validation_alias="SUPABASE_URL")
+    anon_key: str = Field(default="", validation_alias="SUPABASE_ANON_KEY")
+    service_role_key: str = Field(default="", validation_alias="SUPABASE_SERVICE_ROLE_KEY")
+    jwks_cache_ttl: int = Field(default=3600, validation_alias="SUPABASE_JWKS_CACHE_TTL")  # 1 hour
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
@@ -157,6 +173,7 @@ class Settings(BaseSettings):
     llm: LLMSettings = Field(default_factory=lambda: LLMSettings())
     temporal: TemporalSettings = Field(default_factory=lambda: TemporalSettings())
     neo4j: Neo4jSettings = Field(default_factory=lambda: Neo4jSettings())
+    supabase: SupabaseSettings = Field(default_factory=lambda: SupabaseSettings())
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE) if ENV_FILE else None,
@@ -255,8 +272,24 @@ class Settings(BaseSettings):
         return self.temporal.namespace
     
     @property
-    def temporal_task_queue(self) -> str: 
+    def temporal_task_queue(self) -> str:
         return self.temporal.task_queue
+
+    @property
+    def supabase_url(self) -> str:
+        return self.supabase.url
+
+    @property
+    def supabase_anon_key(self) -> str:
+        return self.supabase.anon_key
+
+    @property
+    def supabase_service_role_key(self) -> str:
+        return self.supabase.service_role_key
+
+    @property
+    def supabase_jwks_cache_ttl(self) -> int:
+        return self.supabase.jwks_cache_ttl
 
 
 # Initialize settings
