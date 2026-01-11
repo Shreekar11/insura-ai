@@ -3,7 +3,7 @@
 from typing import Annotated, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_async_session
@@ -14,6 +14,7 @@ from app.core.auth import get_current_user
 from app.schemas.auth import CurrentUser
 from app.services.user_service import UserService
 from app.core.dependencies import get_user_service
+from app.services.storage_service import StorageService
 
 from app.schemas.workflows.request import WorkflowExtractionRequest
 from app.schemas.workflows.response import (
@@ -50,6 +51,11 @@ async def get_current_user_id(
     return user.id
 
 
+async def get_storage_service() -> StorageService:
+    """Dependency to create StorageService instance."""
+    return StorageService()
+
+
 @router.post(
     "/extract",
     status_code=status.HTTP_202_ACCEPTED,
@@ -82,9 +88,11 @@ async def get_current_user_id(
     operation_id="start_document_extraction_workflow",
 )
 async def start_document_extraction(
-    request: WorkflowExtractionRequest,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
     user_id: Annotated[UUID, Depends(get_current_user_id)],
+    request: Optional[WorkflowExtractionRequest] = None,
+    file: Optional[UploadFile] = File(None),
 ) -> WorkflowExtractionResponse:
     """Start async document extraction workflow.
     
@@ -106,9 +114,33 @@ async def start_document_extraction(
         HTTPException: On validation or execution errors
     """
     try:
+        pdf_url = None
+        
+        # 1. Handle file upload if provided
+        if file:
+            LOGGER.info(f"Uploading file {file.filename} to Supabase storage")
+            # Generate a unique path for the file
+            import uuid
+            file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
+            storage_path = f"{user_id}/{uuid.uuid4()}.{file_extension}"
+            
+            # Upload to 'documents' bucket as requested
+            await storage_service.upload_file(file, bucket="documents", path=storage_path)
+            
+            # Get signed URL
+            pdf_url = await storage_service.get_signed_url(bucket="documents", path=storage_path)
+            LOGGER.info(f"File uploaded successfully, signed URL generated: {pdf_url}")
+        
+        # 2. Use pdf_url from request if no file provided
+        elif request and request.pdf_url:
+            pdf_url = str(request.pdf_url)
+        
+        if not pdf_url:
+            raise ValidationError("Either a file upload or a pdf_url in the request is required")
+
         # Use BaseService.execute() pattern for standardized flow
         result = await workflow_service.execute_start_extraction(
-            pdf_url=str(request.pdf_url),
+            pdf_url=pdf_url,
             user_id=user_id
         )
         
