@@ -27,39 +27,18 @@ from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
 from app.temporal.workflows.stages.extracted import ExtractedStageWorkflow
 from app.temporal.workflows.stages.enriched import EnrichedStageWorkflow
 from app.temporal.workflows.stages.summarized import SummarizedStageWorkflow
+from app.temporal.workflows.policy_comparison import PolicyComparisonWorkflow
 
 # Import all activities
-from app.temporal.activities.ocr_extraction import (
-    extract_ocr,
-)
-from app.temporal.activities.table_extraction import (
-    extract_tables,
-)
-from app.temporal.activities.page_analysis import (
-    extract_page_signals,
-    extract_page_signals_from_markdown,
-    classify_pages,
-    create_page_manifest,
-)
-from app.temporal.activities.hybrid_chunking import (
-    perform_hybrid_chunking,
-)
-from app.temporal.activities.extraction import (
-    extract_section_fields,
-)
-from app.temporal.activities.entity_resolution import (
-    aggregate_document_entities,
-    resolve_canonical_entities,
-    extract_relationships,
-    rollback_entities,
-)
-from app.temporal.activities.indexing import (
-    generate_embeddings_activity,
-    construct_knowledge_graph_activity,
-)
-from app.temporal.activities.stages import (
-    update_stage_status,
-)
+from app.temporal.activities.ocr_extraction import extract_ocr
+from app.temporal.activities.table_extraction import extract_tables
+from app.temporal.activities import page_analysis
+from app.temporal.activities.hybrid_chunking import perform_hybrid_chunking
+from app.temporal.activities.extraction import extract_section_fields
+from app.temporal.activities import entity_resolution
+from app.temporal.activities import indexing
+from app.temporal.activities.stages import update_stage_status
+from app.temporal.activities import policy_comparison_activities
 
 from app.utils.logging import get_logger
 
@@ -87,10 +66,14 @@ async def main():
         task_queue="documents-queue",
         workflows=[
             ProcessDocumentWorkflow,
+
+            # Stages workflows
             ProcessedStageWorkflow,
             ExtractedStageWorkflow,
             EnrichedStageWorkflow,
             SummarizedStageWorkflow,
+
+            # Child workflows
             OCRExtractionWorkflow,
             TableExtractionWorkflow,
             PageAnalysisWorkflow,
@@ -98,23 +81,47 @@ async def main():
             ExtractionWorkflow,
             EntityResolutionWorkflow,
             IndexingWorkflow,
+
+            # Insurance business-specific workflows
+            PolicyComparisonWorkflow,
         ],
         activities=[
+            # OCR activities
             extract_ocr,
             extract_tables,
-            extract_page_signals,
-            extract_page_signals_from_markdown,
-            classify_pages,
-            create_page_manifest,
+            
+            # Page analysis activities
+            page_analysis.extract_page_signals,
+            page_analysis.extract_page_signals_from_markdown,
+            page_analysis.classify_pages,
+            page_analysis.create_page_manifest,
+
+            # Hybrid chunking activity
             perform_hybrid_chunking,
+
+            # Extraction activities
             extract_section_fields,
-            aggregate_document_entities,
-            resolve_canonical_entities,
-            extract_relationships,
-            rollback_entities,
-            generate_embeddings_activity,
-            construct_knowledge_graph_activity,
+
+            # Entity resolution activities
+            entity_resolution.aggregate_document_entities,
+            entity_resolution.resolve_canonical_entities,
+            entity_resolution.extract_relationships,
+            entity_resolution.rollback_entities,
+
+            # Indexing activities
+            indexing.generate_embeddings_activity,
+            indexing.construct_knowledge_graph_activity,
+
+            # Stage update activity
             update_stage_status,
+
+            # Insurance business-specific activities
+            policy_comparison_activities.phase_a_preflight_activity,
+            policy_comparison_activities.check_document_readiness_activity,
+            policy_comparison_activities.phase_b_preflight_activity,
+            policy_comparison_activities.section_alignment_activity,
+            policy_comparison_activities.numeric_diff_activity,
+            policy_comparison_activities.persist_comparison_result_activity,
         ],
         max_concurrent_activities=5,
         max_concurrent_workflow_tasks=10,

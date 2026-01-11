@@ -42,16 +42,29 @@ class WorkflowService(BaseService):
         self.stage_repo = StagesRepository(session)
 
     async def run(self, *args, **kwargs) -> Any:
-        """Core service logic - not used for workflow service.
+        """Route to appropriate handler based on action.
         
-        Workflow service uses specific named methods instead of generic run().
-        This is implemented to satisfy BaseService abstract method requirement.
+        This implements the abstract run() method from BaseService.
+        It acts as a dispatcher to specific workflow operations.
         """
-        raise NotImplementedError(
-            "WorkflowService uses specific methods like start_extraction_workflow(). "
-            "Use execute_start_extraction() for BaseService pattern."
-        )
-
+        action = kwargs.get("action")
+        
+        if action == "start_extraction":
+            return await self._start_extraction_workflow(
+                kwargs.get("pdf_url"),
+                kwargs.get("user_id")
+            )
+        elif action == "get_status":
+            return await self._get_workflow_status(kwargs.get("workflow_id"))
+        elif action == "execute_workflow":
+            return await self._execute_generic_workflow(
+                kwargs.get("workflow_key"),
+                kwargs.get("document_ids"),
+                kwargs.get("user_id"),
+                kwargs.get("metadata")
+            )
+        else:
+            raise ValidationError(f"Unknown action: {action}")
 
     async def execute_start_extraction(
         self, 
@@ -100,6 +113,32 @@ class WorkflowService(BaseService):
             workflow_id=workflow_id
         )
 
+    async def execute_workflow(
+        self,
+        workflow_key: str,
+        document_ids: List[uuid.UUID],
+        user_id: uuid.UUID,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Execute a generic workflow by its key.
+        
+        Args:
+            workflow_key: Key of the workflow definition to execute
+            document_ids: List of document IDs involved
+            user_id: ID of the user initiating the workflow
+            metadata: Optional metadata for the workflow
+            
+        Returns:
+            Dict containing workflow details and status
+        """
+        return await self.execute(
+            action="execute_workflow",
+            workflow_key=workflow_key,
+            document_ids=document_ids,
+            user_id=user_id,
+            metadata=metadata
+        )
+
     def validate(self, *args, **kwargs):
         """Validate service inputs based on the action being performed.
         
@@ -115,6 +154,13 @@ class WorkflowService(BaseService):
             )
         elif action == "get_status":
             self._validate_get_status(kwargs.get("workflow_id"))
+        elif action == "execute_workflow":
+            if not kwargs.get("workflow_key"):
+                raise ValidationError("workflow_key is required")
+            if not kwargs.get("document_ids"):
+                raise ValidationError("document_ids are required")
+            if not kwargs.get("user_id"):
+                raise ValidationError("user_id is required")
 
     def _validate_start_extraction(
         self, 
@@ -160,24 +206,6 @@ class WorkflowService(BaseService):
         if not isinstance(workflow_id, str) or len(workflow_id.strip()) == 0:
             raise ValidationError("workflow_id must be a non-empty string")
 
-
-    async def run(self, *args, **kwargs) -> Any:
-        """Route to appropriate handler based on action.
-        
-        This implements the abstract run() method from BaseService.
-        It acts as a dispatcher to specific workflow operations.
-        """
-        action = kwargs.get("action")
-        
-        if action == "start_extraction":
-            return await self._start_extraction_workflow(
-                kwargs.get("pdf_url"),
-                kwargs.get("user_id")
-            )
-        elif action == "get_status":
-            return await self._get_workflow_status(kwargs.get("workflow_id"))
-        else:
-            raise ValidationError(f"Unknown action: {action}")
 
     async def _start_extraction_workflow(
         self, 
@@ -429,5 +457,111 @@ class WorkflowService(BaseService):
             )
             raise AppError(
                 f"Failed to retrieve stages for document {document_id}: {str(e)}",
+                original_error=e
+            )
+
+    async def _execute_generic_workflow(
+        self,
+        workflow_key: str,
+        document_ids: List[uuid.UUID],
+        user_id: uuid.UUID,
+        metadata: Optional[Dict[str, Any]] = None,
+    ) -> Dict[str, Any]:
+        """Core logic for executing a generic workflow.
+        
+        Args:
+            workflow_key: Key of the workflow definition
+            document_ids: List of document IDs
+            user_id: User ID
+            metadata: Optional metadata
+            
+        Returns:
+            Dict containing workflow details and status
+        """
+        try:
+            # Step 1: Get workflow definition
+            definition = await self.def_repo.get_by_key(workflow_key)
+            if not definition:
+                raise ValidationError(f"Workflow definition {workflow_key} not found")
+
+            # Step 2: Create workflow execution record
+            self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
+            workflow_run = await self.wf_repo.create_workflow(
+                workflow_definition_id=definition.id,
+                status="running",
+                user_id=user_id,
+            )
+            workflow_id = workflow_run.id
+
+            # Step 3: Link documents to workflow
+            documents_data = []
+            for doc_id in document_ids:
+                doc = await self.doc_repo.get_by_id(doc_id)
+                if not doc:
+                    raise ValidationError(f"Document {doc_id} not found")
+                
+                await self.wf_doc_repo.create_workflow_document(
+                    workflow_id=workflow_id,
+                    document_id=doc_id,
+                )
+                documents_data.append({
+                    "document_id": str(doc_id),
+                    "url": doc.file_path
+                })
+
+            # Commit database changes before Temporal
+            await self.session.commit()
+
+            # Step 4: Start Temporal workflow
+            self.logger.info(f"Starting Temporal workflow for {workflow_key}: {workflow_id}")
+            temporal_client = await get_temporal_client()
+            
+            # Map workflow key to workflow class
+            from app.temporal.workflows.policy_comparison import PolicyComparisonWorkflow
+            workflow_class_map = {
+                "policy_comparison": PolicyComparisonWorkflow,
+                # Add more mappings as needed
+            }
+            
+            wf_class = workflow_class_map.get(workflow_key)
+            if not wf_class:
+                raise ValidationError(f"Temporal workflow not implemented for key: {workflow_key}")
+
+            workflow_handle = await temporal_client.start_workflow(
+                wf_class.run,
+                {
+                    "workflow_id": str(workflow_id),
+                    "workflow_definition_id": str(definition.id),
+                    "documents": documents_data,
+                    "metadata": metadata or {},
+                },
+                id=f"workflow-{workflow_id}",
+                task_queue="documents-queue",
+            )
+
+            # Step 5: Update with Temporal ID
+            await self.wf_repo.update_temporal_id(
+                workflow_id=workflow_id,
+                temporal_workflow_id=workflow_handle.id,
+            )
+            await self.session.commit()
+
+            return {
+                "workflow_id": str(workflow_id),
+                "document_ids": [str(d) for d in document_ids],
+                "temporal_id": workflow_handle.id,
+                "status": "processing",
+                "message": f"{definition.display_name} started successfully.",
+            }
+
+        except Exception as e:
+            self.logger.error(
+                f"Failed to execute generic workflow {workflow_key}: {str(e)}",
+                exc_info=True,
+                extra={"user_id": str(user_id)}
+            )
+            await self.session.rollback()
+            raise AppError(
+                f"Failed to execute generic workflow {workflow_key}: {str(e)}",
                 original_error=e
             )
