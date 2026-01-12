@@ -11,6 +11,7 @@ import jwt
 from pydantic import BaseModel
 
 from app.core.config import settings
+from app.core.jwks import jwks_service
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -42,14 +43,16 @@ class JWTVerifier:
     - Key rotation support via JWKS
     """
 
-    def __init__(self, supabase_url: str):
+    def __init__(self, supabase_url: str, jwt_secret: str = ""):
         """Initialize JWT verifier.
 
         Args:
             supabase_url: Supabase project URL for issuer validation
+            jwt_secret: Supabase JWT secret for HS256 verification
         """
         self.supabase_url = supabase_url.rstrip("/")
         self.expected_issuer = f"{self.supabase_url}/auth/v1"
+        self.jwt_secret = jwt_secret
 
         LOGGER.info(f"JWT verifier initialized for issuer: {self.expected_issuer}")
 
@@ -68,27 +71,52 @@ class JWTVerifier:
             RuntimeError: If JWKS keys cannot be fetched
         """
         try:
-            # Decode header to get key ID without verification
+            # Decode header to get algorithm and key ID
             header = jwt.get_unverified_header(token)
+            alg = header.get("alg")
             kid = header.get("kid")
 
-            if not kid:
-                raise ValueError("JWT header missing 'kid' (key ID)")
+            key = None
+            algorithms = []
 
-            # Get the signing key
-            jwk_key = await jwks_service.get_key(kid)
-            if not jwk_key:
-                raise jwt.InvalidTokenError(f"No matching key found for kid: {kid}")
+            # Handle HS256 (Shared Secret) - Default for Supabase Auth
+            if alg == "HS256":
+                if not self.jwt_secret:
+                    raise ValueError("HS256 token received but SUPABASE_JWT_SECRET is not configured")
+                key = self.jwt_secret
+                algorithms = ["HS256"]
 
-            # Convert JWK to PEM format for PyJWT
-            public_key = self._jwk_to_pem(jwk_key)
+            # Handle RS256/ES256 (Asymmetric Keys)
+            elif alg in ["RS256", "ES256"]:
+                if not kid:
+                    raise ValueError("JWT header missing 'kid' (key ID)")
+
+                # Get the signing key from JWKS
+                jwk_key = await jwks_service.get_key(kid)
+                if not jwk_key:
+                    # This handles edge cases where header might be misleading or user wants fallback
+                    if self.jwt_secret:
+                         LOGGER.warning(f"Key {kid} not found in JWKS, attempting fallback to HS256 verification")
+                         try:
+                             return self._verify_with_secret(token)
+                         except Exception:
+                             pass # Fallback failed, raise original error
+                    
+                    raise jwt.InvalidTokenError(f"No matching key found for kid: {kid}")
+
+                # Convert JWK to PEM
+                key = self._jwk_to_pem(jwk_key)
+                algorithms = [alg]
+            
+            else:
+                raise jwt.InvalidTokenError(f"Unsupported algorithm: {alg}")
 
             # Decode and verify the token
             payload = jwt.decode(
                 token,
-                public_key,
-                algorithms=["RS256"],
-                audience=None,  # Supabase tokens don't use audience
+                key,
+                algorithms=algorithms,
+                audience="authenticated",
                 options={
                     "verify_exp": True,
                     "verify_iat": True,
@@ -123,8 +151,26 @@ class JWTVerifier:
             LOGGER.error(f"Unexpected error during token verification: {e}")
             raise jwt.InvalidTokenError("Token verification failed") from e
 
+    def _verify_with_secret(self, token: str) -> JWTClaims:
+        """Helper to verify token with shared secret."""
+        payload = jwt.decode(
+            token,
+            self.jwt_secret,
+            algorithms=["HS256"],
+            audience="authenticated",
+            options={
+                "verify_exp": True, 
+                "verify_iat": True,
+                "verify_iss": True,
+                "require": ["sub", "email", "exp", "iat", "iss"]
+            }
+        )
+        if payload.get("iss") != self.expected_issuer:
+            raise jwt.InvalidIssuerError(f"Invalid issuer: {payload.get('iss')}")
+        return JWTClaims(**payload)
+
     def _jwk_to_pem(self, jwk_key) -> str:
-        """Convert JWK RSA key to PEM format for PyJWT.
+        """Convert JWK key to PEM format for PyJWT.
 
         Args:
             jwk_key: JWK key object
@@ -135,13 +181,13 @@ class JWTVerifier:
         Raises:
             ValueError: If key format is unsupported
         """
-        if jwk_key.kty != "RSA":
+        if jwk_key.kty not in ["RSA", "EC"]:
             raise ValueError(f"Unsupported key type: {jwk_key.kty}")
 
         try:
             # Import cryptography components
             from cryptography.hazmat.primitives import serialization
-            from cryptography.hazmat.primitives.asymmetric import rsa
+            from cryptography.hazmat.primitives.asymmetric import rsa, ec
             from cryptography.hazmat.backends import default_backend
 
             # Decode base64url components
@@ -149,6 +195,8 @@ class JWTVerifier:
 
             def base64url_decode(input_str: str) -> bytes:
                 """Decode base64url string to bytes."""
+                if not input_str:
+                    return b""
                 # Add padding if needed
                 padding = 4 - (len(input_str) % 4)
                 if padding != 4:
@@ -156,17 +204,41 @@ class JWTVerifier:
 
                 return base64.urlsafe_b64decode(input_str)
 
-            # Extract RSA components
-            n_bytes = base64url_decode(jwk_key.n)
-            e_bytes = base64url_decode(jwk_key.e)
+            if jwk_key.kty == "RSA":
+                # Extract RSA components
+                n_bytes = base64url_decode(jwk_key.n)
+                e_bytes = base64url_decode(jwk_key.e)
 
-            # Convert to integers
-            n = int.from_bytes(n_bytes, byteorder="big")
-            e = int.from_bytes(e_bytes, byteorder="big")
+                # Convert to integers
+                n = int.from_bytes(n_bytes, byteorder="big")
+                e = int.from_bytes(e_bytes, byteorder="big")
 
-            # Create RSA public key
-            public_numbers = rsa.RSAPublicNumbers(e, n)
-            public_key = public_numbers.public_key(default_backend())
+                # Create RSA public key
+                public_numbers = rsa.RSAPublicNumbers(e, n)
+                public_key = public_numbers.public_key(default_backend())
+            
+            elif jwk_key.kty == "EC":
+                # Extract EC components
+                x_bytes = base64url_decode(jwk_key.x)
+                y_bytes = base64url_decode(jwk_key.y)
+                
+                # Determine curve
+                if jwk_key.crv == "P-256":
+                    curve = ec.SECP256R1()
+                elif jwk_key.crv == "P-384":
+                    curve = ec.SECP384R1()
+                elif jwk_key.crv == "P-521":
+                     curve = ec.SECP521R1()
+                else:
+                    raise ValueError(f"Unsupported curve: {jwk_key.crv}")
+
+                # Create EC public key
+                public_numbers = ec.EllipticCurvePublicNumbers(
+                    x=int.from_bytes(x_bytes, byteorder="big"),
+                    y=int.from_bytes(y_bytes, byteorder="big"),
+                    curve=curve
+                )
+                public_key = public_numbers.public_key(default_backend())
 
             # Convert to PEM format
             pem = public_key.public_bytes(
@@ -193,4 +265,7 @@ class JWTVerifier:
 
 
 # Global JWT verifier instance
-jwt_verifier = JWTVerifier(supabase_url=settings.supabase_url)
+jwt_verifier = JWTVerifier(
+    supabase_url=settings.supabase_url,
+    jwt_secret=settings.supabase_jwt_secret
+)

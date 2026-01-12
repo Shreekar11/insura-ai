@@ -6,7 +6,7 @@ used for JWT signature verification.
 
 import asyncio
 import time
-from typing import Dict, Any, Optional
+from typing import List, Dict, Any, Optional
 
 import aiohttp
 from pydantic import BaseModel
@@ -23,8 +23,13 @@ class JWKKey(BaseModel):
     kid: str
     kty: str
     use: str
-    n: str
-    e: str
+    crv: Optional[str] = None
+    ext: Optional[bool] = None
+    x: Optional[str] = None
+    y: Optional[str] = None
+    n: Optional[str] = None
+    e: Optional[str] = None
+    key_ops: List[str]
     alg: str
 
 
@@ -130,6 +135,8 @@ class JWKSService:
                         raise RuntimeError(f"JWKS endpoint returned {response.status}: {await response.text()}")
 
                     data = await response.json()
+
+                    LOGGER.info(f"JWKS response: {data}")
 
                     # Validate response structure
                     jwks_response = JWKSResponse(**data)

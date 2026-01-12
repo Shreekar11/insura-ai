@@ -10,6 +10,7 @@ from starlette.middleware.base import BaseHTTPMiddleware
 import jwt
 
 from app.core.jwt import jwt_verifier
+from app.core.jwks import jwks_service
 from app.schemas.auth import CurrentUser
 from app.utils.logging import get_logger
 

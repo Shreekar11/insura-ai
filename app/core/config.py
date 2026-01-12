@@ -134,6 +134,7 @@ class SupabaseSettings(BaseSettings):
     url: str = Field(default="", validation_alias="SUPABASE_URL")
     anon_key: str = Field(default="", validation_alias="SUPABASE_ANON_KEY")
     service_role_key: str = Field(default="", validation_alias="SUPABASE_SERVICE_ROLE_KEY")
+    jwt_secret: str = Field(default="", validation_alias="SUPABASE_JWT_SECRET")
     jwks_cache_ttl: int = Field(default=3600, validation_alias="SUPABASE_JWKS_CACHE_TTL")  # 1 hour
 
     model_config = SettingsConfigDict(
@@ -286,6 +287,11 @@ class Settings(BaseSettings):
     @property
     def supabase_service_role_key(self) -> str:
         return self.supabase.service_role_key
+
+    @property
+    def supabase_jwt_secret(self) -> str:
+        return self.supabase.jwt_secret
+
 
     @property
     def supabase_jwks_cache_ttl(self) -> int:
