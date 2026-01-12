@@ -19,7 +19,7 @@ class HealthCheckResponse(BaseModel):
     service: str = Field(..., description="Service name")
 
 @router.get(
-    "/health",
+    "/",
     response_model=HealthCheckResponse,
     tags=["Health"],
     summary="Health check endpoint",
@@ -38,7 +38,7 @@ async def health_check() -> HealthCheckResponse:
     )
 
 
-@router.get("/health/detailed", tags=["Health"])
+@router.get("/detailed", tags=["Health"])
 async def detailed_health():
     """Detailed health check including dependencies."""
     # Database check

@@ -7,11 +7,13 @@ from uuid import uuid4
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
+from app.api.v1.endpoints import health
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.utils.logging import get_logger
 from app.core.database import init_database, close_database
 from app.core.neo4j_client import init_neo4j
+from app.api.v1.middleware.auth import JWTAuthenticationMiddleware
 
 LOGGER = get_logger(__name__, level=settings.log_level)
 
@@ -87,16 +89,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-@app.middleware("http")
-async def add_correlation_id(request: Request, call_next):
-    correlation_id = request.headers.get("X-Correlation-ID", str(uuid4()))
-    request.state.correlation_id = correlation_id
-    response = await call_next(request)
-    response.headers["X-Correlation-ID"] = correlation_id
-    return response
-
-# Add CORS middleware
+# CORD middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],
@@ -105,6 +98,21 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Correlation ID middleware
+@app.middleware("http")
+async def add_correlation_id(request: Request, call_next):
+    correlation_id = request.headers.get("X-Correlation-ID", str(uuid4()))
+    request.state.correlation_id = correlation_id
+    response = await call_next(request)
+    response.headers["X-Correlation-ID"] = correlation_id
+    return response
+
+# JWT authentication middleware
+app.add_middleware(JWTAuthenticationMiddleware)
+
+# Include routers
+app.include_router(api_router, prefix=settings.api_v1_prefix)
+app.include_router(health.router, prefix="/health", tags=["Health"])
 
 # Root endpoint
 @app.get(
@@ -128,9 +136,6 @@ async def root() -> RootResponse:
         health="/health",
     )
 
-
-# Include routers
-app.include_router(api_router, prefix=settings.api_v1_prefix)
 
 if __name__ == "__main__":
     import uvicorn

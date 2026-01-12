@@ -16,6 +16,8 @@ from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
+router = APIRouter()
+
 @router.get(
     "/whoami",
     response_model=UserProfile,

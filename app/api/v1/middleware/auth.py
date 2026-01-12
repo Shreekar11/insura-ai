@@ -17,10 +17,12 @@ LOGGER = get_logger(__name__)
 
 # Paths that don't require authentication
 EXCLUDED_PATHS = {
-    "/api/v1/health",
-    "/api/v1/docs",
-    "/api/v1/redoc",
-    "/api/v1/openapi.json",
+    "/health",
+    "/health/",
+    "/docs",
+    "/docs/",
+    "/openapi.json",
+    "/openapi.json/"
     "/",
 }
 

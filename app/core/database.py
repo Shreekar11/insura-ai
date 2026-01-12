@@ -73,28 +73,19 @@ class DatabaseClient:
         self._connected = False
 
     async def connect(self) -> bool:
-        """Test database connection.
-        
-        Returns:
-            bool: True if connection successful
-            
-        Raises:
-            Exception: If connection fails
-        """
+        """Test database connection."""
         try:
-            async with self.engine.begin() as conn:
+            async with self.engine.connect() as conn:
                 await conn.execute(text("SELECT 1"))
+                await conn.commit()
             
             self._connected = True
             LOGGER.info("Database connection successful")
             return True
             
         except Exception as e:
-            LOGGER.error(
-                "Database connection failed",
-                exc_info=True,
-                extra={"error": str(e)}
-            )
+            self._connected = False
+            LOGGER.error("Database connection failed", exc_info=True)
             raise
 
     async def disconnect(self) -> None:
@@ -175,23 +166,25 @@ class DatabaseClient:
             raise
 
     async def health_check(self) -> dict:
-        """Check database health.
-        
-        Returns:
-            dict: Health check result with status and details
-        """
+        """Check database health."""
         try:
-            async with self.engine.begin() as conn:
-                result = await conn.execute(text("SELECT 1"))
-                await result.fetchone()
+            # We use a context manager to ensure the connection is closed
+            async with self.engine.connect() as conn:
+                # Use scalar() to retrieve the '1' and confirm data flow
+                val = await conn.scalar(text("SELECT 1"))
+                
+            # If we reached here, the DB is responsive
+            self._connected = True 
             
             return {
                 "status": "healthy",
-                "connected": self._connected,
+                "connected": True,
                 "database": "postgresql",
+                "latency_test": "passed" if val == 1 else "failed"
             }
             
         except Exception as e:
+            self._connected = False
             LOGGER.error("Database health check failed", extra={"error": str(e)})
             return {
                 "status": "unhealthy",
