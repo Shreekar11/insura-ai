@@ -54,6 +54,9 @@ class PageClassifier:
             r'limits\s+of\s+liability',
             r'commercial\s+property\s+insurance\s+policy',
             r'insurance\s+policy\s+jacket',
+            r'policy\s+schedule',
+            r'certificate\s+of\s+insurance',
+            r'certificate\s+cum\s+policy\s+schedule',
         ],
         PageType.COVERAGES: [
             r'coverage\s+form',
@@ -354,7 +357,7 @@ class PageClassifier:
         confidence = base_confidence
         
         # Extract metadata if available
-        meta = signals.metadata or {}
+        meta = signals.additional_metadata or {}
         structure_type = meta.get("structure_type", "standard")
         block_count = meta.get("block_count", 0)
         table_blocks = meta.get("table_block_count", 0)

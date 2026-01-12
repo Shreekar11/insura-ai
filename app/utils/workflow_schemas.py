@@ -120,7 +120,6 @@ class IndexingOutputSchema(BaseModel):
     
     workflow_id: str = Field(..., description="Workflow UUID as string")
     document_id: str = Field(..., description="Document UUID as string")
-    indexed: bool = Field(..., description="Whether document was indexed")
     vector_indexed: bool = Field(..., description="Whether document was indexed")
     graph_constructed: bool = Field(..., description="Whether document was indexed")
     chunks_indexed: int = Field(..., ge=0, description="Number of chunks indexed")

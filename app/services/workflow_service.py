@@ -1,6 +1,6 @@
 """Workflow service for orchestrating document processing pipelines."""
 
-import uuid
+from uuid import UUID
 from typing import Optional, List, Dict, Any
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -69,7 +69,7 @@ class WorkflowService(BaseService):
     async def execute_start_extraction(
         self, 
         pdf_url: str, 
-        user_id: uuid.UUID
+        user_id: UUID
     ) -> Dict[str, Any]:
         """Execute document extraction workflow with validation and error handling.
         
@@ -116,8 +116,8 @@ class WorkflowService(BaseService):
     async def execute_workflow(
         self,
         workflow_key: str,
-        document_ids: List[uuid.UUID],
-        user_id: uuid.UUID,
+        document_ids: List[UUID],
+        user_id: UUID,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a generic workflow by its key.
@@ -165,7 +165,7 @@ class WorkflowService(BaseService):
     def _validate_start_extraction(
         self, 
         pdf_url: Optional[str], 
-        user_id: Optional[uuid.UUID]
+        user_id: Optional[UUID]
     ):
         """Validate inputs for starting extraction workflow.
         
@@ -188,7 +188,7 @@ class WorkflowService(BaseService):
         if not user_id:
             raise ValidationError("user_id is required")
         
-        if not isinstance(user_id, uuid.UUID):
+        if not isinstance(user_id, UUID):
             raise ValidationError("user_id must be a valid UUID")
 
     def _validate_get_status(self, workflow_id: Optional[str]):
@@ -208,9 +208,9 @@ class WorkflowService(BaseService):
 
 
     async def _start_extraction_workflow(
-        self, 
-        pdf_url: str, 
-        user_id: uuid.UUID
+        self,
+        pdf_url: str,
+        user_id: UUID
     ) -> Dict[str, Any]:
         """Core logic for starting document extraction workflow.
         
@@ -374,7 +374,7 @@ class WorkflowService(BaseService):
     async def start_extraction_workflow(
         self, 
         pdf_url: str, 
-        user_id: uuid.UUID
+        user_id: UUID
     ) -> Dict[str, Any]:
         """Legacy method for starting extraction workflow.
         
@@ -425,8 +425,8 @@ class WorkflowService(BaseService):
 
     async def get_document_stage(
         self, 
-        document_id: uuid.UUID, 
-        workflow_id: Optional[uuid.UUID] = None
+        document_id: UUID, 
+        workflow_id: Optional[UUID] = None
     ) -> List[Any]:
         """Get completion status of all processing stages for a document.
         
@@ -463,8 +463,8 @@ class WorkflowService(BaseService):
     async def _execute_generic_workflow(
         self,
         workflow_key: str,
-        document_ids: List[uuid.UUID],
-        user_id: uuid.UUID,
+        document_ids: List[UUID],
+        user_id: UUID,
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Core logic for executing a generic workflow.

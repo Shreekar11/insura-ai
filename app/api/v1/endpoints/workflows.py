@@ -1,16 +1,14 @@
 """Workflow routes with proper error handling and service integration."""
 
-from typing import Annotated, List
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile
+from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database import get_async_session
 from app.services.workflow_service import WorkflowService
 from app.core.exceptions import ValidationError, AppError
 from app.utils.logging import get_logger
-from app.core.auth import get_current_user
 from app.schemas.auth import CurrentUser
 from app.services.user_service import UserService
 from app.core.dependencies import get_user_service
@@ -38,17 +36,11 @@ async def get_workflow_service(
     return WorkflowService(db_session)
 
 
-async def get_current_user_id(
-    current_user: Annotated[CurrentUser, Depends(get_current_user)],
-    user_service: Annotated[UserService, Depends(get_user_service)],
-) -> UUID:
-    """Dependency to get current authenticated user ID.
-
-    Ensures the user exists in our database and returns their internal ID.
-    """
-    # Ensure user exists in database (creates if needed)
-    user = await user_service.ensure_user_exists(current_user)
-    return user.id
+async def get_user_service(
+    db_session: Annotated[AsyncSession, Depends(get_async_session)]
+) -> UserService:
+    """Dependency to create UserService instance."""
+    return UserService(db_session)
 
 
 async def get_storage_service() -> StorageService:
@@ -90,7 +82,6 @@ async def get_storage_service() -> StorageService:
 async def start_document_extraction(
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
     storage_service: Annotated[StorageService, Depends(get_storage_service)],
-    user_id: Annotated[UUID, Depends(get_current_user_id)],
     request: Optional[WorkflowExtractionRequest] = None,
     file: Optional[UploadFile] = File(None),
 ) -> WorkflowExtractionResponse:
@@ -115,6 +106,8 @@ async def start_document_extraction(
     """
     try:
         pdf_url = None
+        supabase_user_id = request.state.user.id
+        user = await user_service.get_user_by_supabase_id(supabase_user_id)
         
         # 1. Handle file upload if provided
         if file:
@@ -122,13 +115,13 @@ async def start_document_extraction(
             # Generate a unique path for the file
             import uuid
             file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-            storage_path = f"{user_id}/{uuid.uuid4()}.{file_extension}"
+            storage_path = f"{user.id}/{uuid.uuid4()}.{file_extension}"
             
             # Upload to 'documents' bucket as requested
-            await storage_service.upload_file(file, bucket="documents", path=storage_path)
+            await storage_service.upload_file(file, bucket="docs", path=storage_path)
             
             # Get signed URL
-            pdf_url = await storage_service.get_signed_url(bucket="documents", path=storage_path)
+            pdf_url = await storage_service.get_signed_url(bucket="docs", path=storage_path)
             LOGGER.info(f"File uploaded successfully, signed URL generated: {pdf_url}")
         
         # 2. Use pdf_url from request if no file provided
@@ -141,7 +134,7 @@ async def start_document_extraction(
         # Use BaseService.execute() pattern for standardized flow
         result = await workflow_service.execute_start_extraction(
             pdf_url=pdf_url,
-            user_id=user_id
+            user_id=user.id
         )
         
         LOGGER.info(
@@ -149,7 +142,7 @@ async def start_document_extraction(
             extra={
                 "workflow_id": result["workflow_id"],
                 "temporal_id": result["temporal_id"],
-                "user_id": str(user_id)
+                "user_id": str(user.id)
             }
         )
         
@@ -161,7 +154,7 @@ async def start_document_extraction(
             "Workflow validation failed",
             extra={
                 "pdf_url": str(request.pdf_url),
-                "user_id": str(user_id),
+                "user_id": str(user.id),
                 "error": str(e)
             }
         )
@@ -181,7 +174,7 @@ async def start_document_extraction(
             exc_info=True,
             extra={
                 "pdf_url": str(request.pdf_url),
-                "user_id": str(user_id),
+                "user_id": str(user.id),
                 "error": str(e)
             },
         )
@@ -201,7 +194,7 @@ async def start_document_extraction(
             exc_info=True,
             extra={
                 "pdf_url": str(request.pdf_url),
-                "user_id": str(user_id),
+                "user_id": str(user.id),
                 "error": str(e)
             },
         )
@@ -466,4 +459,147 @@ async def get_document_stages(
                 "message": "An unexpected error occurred",
                 "detail": "Please contact support if this persists",
             }
+        )
+
+
+@router.post(
+    "/execute",
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Execute a generic product workflow",
+    description=(
+        "Executes a product-specific workflow (e.g., policy_comparison).\n\n"
+        "Requires workflow metadata + uploaded files."
+    ),
+    operation_id="execute_product_workflow",
+)
+async def execute_workflow(
+    request: Request,
+    workflow_name: Annotated[str, Form()],
+    workflow_definition_id: Annotated[str, Form()],
+    file1: Annotated[UploadFile, File()],
+    file2: Annotated[UploadFile, File()],
+    user_service: Annotated[UserService, Depends(get_user_service)],
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
+    storage_service: Annotated[StorageService, Depends(get_storage_service)],
+    db_session: Annotated[AsyncSession, Depends(get_async_session)],
+    metadata_json: Annotated[Optional[str], Form()] = None,
+):
+    """
+    Execute a specific workflow based on name.
+    
+    Args:
+        workflow_name: Key of the workflow (e.g., 'policy_comparison')
+        workflow_definition_id: ID of the workflow definition
+        file1: First file to process
+        file2: Second file to process
+        metadata_json: Optional JSON string for extra metadata
+    """
+    supabase_user_id = request.state.user.id
+    user = await user_service.get_user_by_supabase_id(supabase_user_id)
+    
+    try:
+        metadata = json.loads(metadata_json) if metadata_json else {}
+        document_ids = []
+
+        # Import repositories
+        from app.repositories.document_repository import DocumentRepository
+        from app.repositories.workflow_repository import WorkflowDefinitionRepository
+        
+        # Create repository instances with injected session
+        doc_repo = DocumentRepository(db_session)
+        workflow_definition_repo = WorkflowDefinitionRepository(db_session)
+
+        # 1. Handle file uploads to Supabase
+        for file in [file1, file2]:
+            LOGGER.info(f"Uploading file {file.filename} to Supabase storage")
+            import uuid
+            file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
+            storage_path = f"{user.id}/workflows/{workflow_name}/{uuid.uuid4()}.{file_extension}"
+            
+            await storage_service.upload_file(file, bucket="docs", path=storage_path)
+            storage_result = await storage_service.get_signed_url(bucket="docs", path=storage_path)
+            pdf_url = storage_result["public_url"]
+            
+            # Create document record using injected session
+            document = await doc_repo.create_document(
+                file_path=pdf_url,
+                page_count=0,
+                user_id=user.id,
+            )
+            document_ids.append(document.id)
+
+        # Commit after all documents created
+        await db_session.commit()
+        
+        # 2. Get workflow definition
+        workflow_definition = await workflow_definition_repo.get_by_definition_id(workflow_definition_id)
+        if not workflow_definition:
+            raise ValidationError(f"Workflow definition not found for ID: {workflow_definition_id}")
+        
+        # 3. Execute workflow
+        result = await workflow_service.execute_workflow(
+            workflow_key=workflow_definition.workflow_key,
+            document_ids=document_ids,
+            user_id=user.id,
+            metadata=metadata
+        )
+        
+        return result
+
+    except ValidationError as e:
+        # Rollback on validation error
+        await db_session.rollback()
+        raise HTTPException(
+            status_code=status.HTTP_400_BAD_REQUEST,
+            detail={"error": "ValidationError", "message": str(e)}
+        )
+    except Exception as e:
+        # Rollback on any error
+        await db_session.rollback()
+        LOGGER.error(f"Failed to execute workflow {workflow_name}: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "InternalError", "message": str(e)}
+        )
+
+
+@router.get(
+    "/{workflow_id}/output",
+    status_code=status.HTTP_200_OK,
+    summary="Get workflow execution output",
+    description="Retrieve the final output payload for a completed workflow execution.",
+    operation_id="get_workflow_output",
+)
+async def get_workflow_output(
+    workflow_id: UUID,
+):
+    """Retrieve result for a specific workflow from workflow_outputs table."""
+    try:
+        async with async_session_maker() as session:
+            from app.repositories.workflow_output_repository import WorkflowOutputRepository
+            repo = WorkflowOutputRepository(session)
+            output = await repo.get_by_workflow_id(workflow_id)
+            
+            if not output:
+                raise HTTPException(
+                    status_code=status.HTTP_404_NOT_FOUND,
+                    detail={"error": "OutputNotFound", "message": f"Output for workflow {workflow_id} not found"}
+                )
+            
+            return {
+                "workflow_id": str(output.workflow_id),
+                "workflow_name": output.workflow_name,
+                "status": output.status,
+                "confidence": float(output.confidence) if output.confidence else None,
+                "result": output.result,
+                "metadata": output.output_metadata,
+                "created_at": output.created_at.isoformat(),
+            }
+    except HTTPException:
+        raise
+    except Exception as e:
+        LOGGER.error(f"Failed to retrieve workflow output: {e}", exc_info=True)
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail={"error": "InternalError", "message": str(e)}
         )

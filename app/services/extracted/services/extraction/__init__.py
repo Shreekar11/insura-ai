@@ -10,7 +10,6 @@ Base classes:
 
 from app.services.extracted.services.extraction.base_extractor import BaseExtractor
 from app.services.extracted.services.extraction.extractor_factory import ExtractorFactory
-from app.services.enriched.services.entity.relationship_extractor import EntityRelationshipExtractor
 from app.services.enriched.services.entity.resolver import EntityResolver
 from app.services.extracted.services.extraction.section import (
     SectionExtractionOrchestrator,
@@ -21,7 +20,6 @@ from app.services.extracted.services.extraction.section import (
 __all__ = [
     "BaseExtractor",
     "ExtractorFactory",
-    "EntityRelationshipExtractor",
     "EntityResolver",
     "SectionExtractionOrchestrator",
     "SectionExtractionResult",
