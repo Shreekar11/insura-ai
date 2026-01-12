@@ -7,7 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.schemas.workflows.policy_comparison import ComparisonChange, SectionProvenance
-from app.core.config.policy_comparison_config import (
+from app.temporal.configs.policy_comparison import (
     NUMERIC_FIELDS_CONFIG,
     FIELD_PATHS,
 )

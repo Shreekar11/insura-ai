@@ -12,7 +12,7 @@ from app.schemas.workflows.policy_comparison import (
     PolicyComparisonResult,
     ComparisonSummary,
 )
-from app.core.config.policy_comparison_config import (
+from app.temporal.configs.policy_comparison import (
     REQUIRED_SECTIONS,
     WORKFLOW_NAME,
     WORKFLOW_VERSION,

@@ -8,7 +8,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.schemas.workflows.policy_comparison import SectionAlignment
-from app.core.config.policy_comparison_config import (
+from app.temporal.configs.policy_comparison import (
     ALIGNMENT_CONFIDENCE_THRESHOLD,
     COVERAGE_NAME_MATCH_THRESHOLD,
 )

@@ -8,8 +8,9 @@ from app.services.product.policy_comparison.policy_comparison_service import Pol
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.numeric_diff_service import NumericDiffService
 from app.repositories.document_repository import DocumentRepository
+from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository, WorkflowDocumentStageRunRepository 
-from app.core.config.policy_comparison_config import REQUIRED_SECTIONS
+from app.temporal.configs.policy_comparison import REQUIRED_SECTIONS
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -165,7 +166,6 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) 
         LOGGER.info(f"Starting Phase B pre-flight for workflow {workflow_id}")
 
         async with async_session_maker() as session:
-            from app.repositories.section_extraction_repository import SectionExtractionRepository
             section_repo = SectionExtractionRepository(session)
 
             # Check sections for each document

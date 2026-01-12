@@ -111,7 +111,8 @@ class PolicyComparisonWorkflow:
                 f"Processing document {doc_id}: "
                 f"processed={doc_readiness['processed']}, "
                 f"extracted={doc_readiness['extracted']}, "
-                f"enriched={doc_readiness['enriched']}"
+                f"enriched={doc_readiness['enriched']}, "
+                f"indexed={doc_readiness['indexed']}"
             )
 
             # Stage 1: ProcessedStageWorkflow (OCR, page analysis, chunking)
@@ -164,29 +165,22 @@ class PolicyComparisonWorkflow:
 
                 workflow.logger.info(f"EnrichedStageWorkflow completed for document {doc_id}")
 
-        workflow.logger.info("All documents reached minimum readiness")
+            if not doc_readiness["indexed"]:
+                self._current_step = f"indexing_document_{doc_id}"
+                self._progress = 0.30
 
-
-        self._current_step = "trigger_async_indexing"
-        self._progress = 0.35
-        
-        for doc_id in document_ids:
-            # Only trigger if not already indexed
-            doc_readiness = next(
-                (d for d in document_readiness if d["document_id"] == doc_id), None
-            )
-            if doc_readiness and not doc_readiness.get("indexed", False):
-                workflow.logger.info(f"Starting async indexing for document {doc_id}")
+                workflow.logger.info(f"Executing SummarizedStageWorkflow for document {doc_id}")
                 
-                # Fire-and-forget using start_child_workflow (non-blocking)
-                workflow.start_child_workflow(
+                await workflow.execute_child_workflow(
                     SummarizedStageWorkflow.run,
                     args=[workflow_id, doc_id],
-                    id=f"summarized-stage-{doc_id}",
+                    id=f"stage-indexed-{doc_id}",
                     task_queue="documents-queue",
                 )
 
-        workflow.logger.info("Async indexing triggered (non-blocking)")
+                workflow.logger.info(f"SummarizedStageWorkflow completed for document {doc_id}")
+
+        workflow.logger.info("All documents reached minimum readiness")
 
 
         # Phase B: Capability Pre-Flight Validation
