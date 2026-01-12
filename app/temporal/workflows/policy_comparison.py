@@ -13,13 +13,18 @@ a phased approach with conditional staged child workflow execution:
 
 from temporalio import workflow
 from datetime import timedelta
-from typing import Dict
+from typing import Dict, Optional, List
 
 from app.temporal.workflows.stages import (
     ProcessedStageWorkflow,
     ExtractedStageWorkflow,
     EnrichedStageWorkflow,
     SummarizedStageWorkflow,
+)
+from app.temporal.configs.policy_comparison import (
+    PROCESSING_CONFIG,
+    REQUIRED_SECTIONS,
+    REQUIRED_ENTITIES,
 )
 from app.utils.logging import get_logger
 
@@ -116,6 +121,7 @@ class PolicyComparisonWorkflow:
             )
 
             # Stage 1: ProcessedStageWorkflow (OCR, page analysis, chunking)
+            document_profile = None
             if not doc_readiness["processed"]:
                 self._current_step = f"processing_document_{doc_id}"
                 self._progress = 0.15
@@ -124,14 +130,26 @@ class PolicyComparisonWorkflow:
                 
                 processed_result = await workflow.execute_child_workflow(
                     ProcessedStageWorkflow.run,
-                    args=[workflow_id, doc_id],
-                    id=f"stage-processed-{doc_id}",
+                    args=[
+                        workflow_id, 
+                        doc_id, 
+                        PROCESSING_CONFIG.get("table_extraction", False), 
+                        REQUIRED_SECTIONS
+                    ],
+                    id=f"gate-processed-{doc_id}",
                     task_queue="documents-queue",
                 )
 
                 document_profile = processed_result.get("document_profile")
-
                 workflow.logger.info(f"ProcessedStageWorkflow completed for document {doc_id}")
+            else:
+                # Need document_profile for Stage 2
+                workflow.logger.info(f"Document {doc_id} already processed, fetching profile")
+                document_profile = await workflow.execute_activity(
+                    "get_document_profile_activity",
+                    args=[doc_id],
+                    start_to_close_timeout=timedelta(seconds=30),
+                )
 
             # Stage 2: ExtractedStageWorkflow (section + entity extraction)
             if not doc_readiness["extracted"]:
@@ -142,8 +160,8 @@ class PolicyComparisonWorkflow:
                 
                 await workflow.execute_child_workflow(
                     ExtractedStageWorkflow.run,
-                    args=[workflow_id, doc_id, document_profile],  # document_profile from processed stage
-                    id=f"stage-extracted-{doc_id}",
+                    args=[workflow_id, doc_id, document_profile, REQUIRED_SECTIONS, REQUIRED_ENTITIES],
+                    id=f"gate-extracted-{doc_id}",
                     task_queue="documents-queue",
                 )
 
@@ -159,12 +177,13 @@ class PolicyComparisonWorkflow:
                 await workflow.execute_child_workflow(
                     EnrichedStageWorkflow.run,
                     args=[workflow_id, doc_id],
-                    id=f"stage-enriched-{doc_id}",
+                    id=f"gate-enriched-{doc_id}",
                     task_queue="documents-queue",
                 )
 
                 workflow.logger.info(f"EnrichedStageWorkflow completed for document {doc_id}")
 
+            # Stage 4: SummarizedStageWorkflow (indexing)
             if not doc_readiness["indexed"]:
                 self._current_step = f"indexing_document_{doc_id}"
                 self._progress = 0.30
@@ -173,8 +192,8 @@ class PolicyComparisonWorkflow:
                 
                 await workflow.execute_child_workflow(
                     SummarizedStageWorkflow.run,
-                    args=[workflow_id, doc_id],
-                    id=f"stage-indexed-{doc_id}",
+                    args=[workflow_id, doc_id, REQUIRED_SECTIONS],
+                    id=f"gate-indexed-{doc_id}",
                     task_queue="documents-queue",
                 )
 
@@ -237,7 +256,7 @@ class PolicyComparisonWorkflow:
         self._current_step = "completed"
 
         return {
-            "status": "completed",
+            "status": persist_result.get("status"),
             "workflow_id": str(workflow_id),
             "comparison_summary": persist_result.get("comparison_summary"),
             "total_changes": persist_result.get("total_changes"),

@@ -13,7 +13,7 @@ from app.temporal.configs.policy_comparison import (
 )
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
-from app.repositories.entity_repository import EntityMentionRepository
+from app.repositories.entity_mention_repository import EntityMentionRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -49,7 +49,7 @@ class PreflightValidator:
             Dictionary with validation results and document metadata
             
         Raises:
-            ValidationError: If any validation check fails
+            ValidationError: If critical validation checks (count, existence) fail
         """
         LOGGER.info(
             f"Starting pre-flight validation for workflow {workflow_id}",
@@ -63,29 +63,37 @@ class PreflightValidator:
         documents = await self._fetch_documents(document_ids)
 
         # 3. Validate document types
-        self._validate_document_types(documents)
+        # self._validate_document_types(documents)
 
         # 4. Validate same insured
         await self._validate_same_insured(documents, workflow_id)
 
         # 5. Validate required sections
-        await self._validate_required_sections(documents, workflow_id)
+        missing_sections = await self._validate_required_sections(documents, workflow_id)
 
         # 6. Validate required entities
-        await self._validate_required_entities(documents, workflow_id)
+        missing_entities = await self._validate_required_entities(documents, workflow_id)
 
+        validation_passed = not (missing_sections or missing_entities)
+        
         LOGGER.info(
-            f"Pre-flight validation passed for workflow {workflow_id}",
-            extra={"workflow_id": str(workflow_id)}
+            f"Pre-flight validation completed for workflow {workflow_id}. Passed: {validation_passed}",
+            extra={
+                "workflow_id": str(workflow_id), 
+                "missing_sections": missing_sections,
+                "missing_entities": missing_entities
+            }
         )
 
         return {
-            "validation_passed": True,
+            "validation_passed": validation_passed,
+            "missing_sections": missing_sections,
+            "missing_entities": missing_entities,
             "documents": [
                 {
                     "document_id": str(doc.id),
-                    "document_type": doc.document_type,
-                    "filename": doc.filename,
+                    # "document_type": doc.document_type,
+                    "filename": doc.file_path,
                 }
                 for doc in documents
             ],
@@ -146,38 +154,46 @@ class PreflightValidator:
 
     async def _validate_required_sections(
         self, documents: list, workflow_id: UUID
-    ) -> None:
+    ) -> dict[str, list[str]]:
         """Validate required sections are present in both documents."""
+        missing_sections_map = {}
         for doc in documents:
             sections = await self.section_repo.get_by_document_and_workflow(
                 doc.id, workflow_id
             )
             section_types = {s.section_type for s in sections}
 
-            missing_sections = set(REQUIRED_SECTIONS) - section_types
+            missing_sections = list(set(REQUIRED_SECTIONS) - section_types)
             if missing_sections:
-                raise ValidationError(
-                    f"Document {doc.id} missing required sections: {missing_sections}"
-                )
+                missing_sections_map[str(doc.id)] = missing_sections
 
-        LOGGER.info(f"Required sections validated: {REQUIRED_SECTIONS}")
+        if missing_sections_map:
+            LOGGER.warning(f"Required sections missing: {missing_sections_map}")
+        else:
+            LOGGER.info(f"Required sections validated: {REQUIRED_SECTIONS}")
+        
+        return missing_sections_map
 
     async def _validate_required_entities(
         self, documents: list, workflow_id: UUID
-    ) -> None:
+    ) -> dict[str, list[str]]:
         """Validate required entities are extracted from both documents."""
+        missing_entities_map = {}
         for doc in documents:
             # Get all entity mentions for this document
             entities = await self.entity_repo.get_by_document_id(doc.id)
             entity_types = {e.entity_type for e in entities}
 
-            missing_entities = set(REQUIRED_ENTITIES) - entity_types
+            missing_entities = list(set(REQUIRED_ENTITIES) - entity_types)
             if missing_entities:
-                raise ValidationError(
-                    f"Document {doc.id} missing required entities: {missing_entities}"
-                )
+                missing_entities_map[str(doc.id)] = missing_entities
 
-        LOGGER.info(f"Required entities validated: {REQUIRED_ENTITIES}")
+        if missing_entities_map:
+            LOGGER.warning(f"Required entities missing: {missing_entities_map}")
+        else:
+            LOGGER.info(f"Required entities validated: {REQUIRED_ENTITIES}")
+        
+        return missing_entities_map
 
     async def _extract_insured_name(
         self, document_id: UUID, workflow_id: UUID

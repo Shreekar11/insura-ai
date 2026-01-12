@@ -92,6 +92,18 @@ class PolicyComparisonService:
 
         # Step 5: Determine output status
         status = self._determine_output_status(result.comparison_summary)
+        
+        # If pre-flight validation found missing sections/entities, 
+        # force status to NEEDS_REVIEW
+        if not validation_result.get("validation_passed", True):
+            status = "NEEDS_REVIEW"
+            LOGGER.warning(
+                f"Pre-flight validation failed for workflow {workflow_id}, status set to NEEDS_REVIEW",
+                extra={
+                    "missing_sections": validation_result.get("missing_sections"),
+                    "missing_entities": validation_result.get("missing_entities")
+                }
+            )
 
         # Step 6: Persist result
         await self.output_repo.create_output(
@@ -99,11 +111,13 @@ class PolicyComparisonService:
             workflow_definition_id=workflow_definition_id,
             workflow_name=WORKFLOW_NAME,
             status=status,
-            result=result.model_dump(),
+            result=result.model_dump(mode='json'),
             confidence=result.comparison_summary.overall_confidence,
-            metadata={
+            output_metadata={
                 "workflow_version": WORKFLOW_VERSION,
                 "documents_compared": [str(d) for d in document_ids],
+                "missing_sections": validation_result.get("missing_sections"),
+                "missing_entities": validation_result.get("missing_entities"),
             },
         )
 
@@ -120,7 +134,7 @@ class PolicyComparisonService:
 
         return {
             "status": status,
-            "comparison_summary": result.comparison_summary.model_dump(),
+            "comparison_summary": result.comparison_summary.model_dump(mode='json'),
             "total_changes": result.comparison_summary.total_changes,
         }
 
@@ -186,6 +200,13 @@ class PolicyComparisonService:
 
         # Check if too many high severity changes
         if summary.high_severity_changes > MAX_HIGH_SEVERITY_CHANGES:
+            return "NEEDS_REVIEW"
+
+        # Check if there are coverage gaps or missing sections (can be extended here)
+        # Note: missing sections/entities from preflight also trigger NEEDS_REVIEW
+        # but the caller of this method should ideally pass that info.
+        # For now, we'll check if any sections are compared at all.
+        if summary.sections_compared == 0:
             return "NEEDS_REVIEW"
 
         return "COMPLETED"

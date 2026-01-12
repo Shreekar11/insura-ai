@@ -7,6 +7,7 @@ from app.core.database import async_session_maker
 from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.numeric_diff_service import NumericDiffService
+from app.schemas.workflows.policy_comparison import SectionAlignment
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository, WorkflowDocumentStageRunRepository 
@@ -140,7 +141,7 @@ async def check_document_readiness_activity(workflow_id: str, document_ids: list
 
 
 @activity.defn
-async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) -> dict:
+async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str], document_profile: dict) -> dict:
     """Phase B: Capability Pre-Flight Validation.
     
     Validates that documents have required capabilities after processing:
@@ -155,6 +156,7 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) 
     Args:
         workflow_id: UUID of the workflow execution (as string)
         document_ids: List of 2 document UUIDs (as strings)
+        document_profile: Document profile (as dictionary)
         
     Returns:
         Dictionary with capability validation results and comparison scope
@@ -179,19 +181,27 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) 
                 missing_sections_per_doc.append(missing)
 
             # Determine comparison scope
-            if all(len(missing) == 0 for missing in missing_sections_per_doc):
+            missing_any = any(len(missing) > 0 for missing in missing_sections_per_doc)
+            
+            if not missing_any:
                 comparison_scope = "full"
-            elif any(len(missing) > 0 for missing in missing_sections_per_doc):
-                comparison_scope = "partial"
-                LOGGER.warning(f"Partial comparison mode: missing sections {missing_sections_per_doc}")
+                validation_passed = True
             else:
-                raise ValueError("Both documents missing critical sections - cannot compare")
+                comparison_scope = "partial"
+                validation_passed = False
+                LOGGER.warning(f"Partial comparison mode: missing sections {missing_sections_per_doc}")
 
-            LOGGER.info(f"Phase B pre-flight passed for workflow {workflow_id}: {comparison_scope} comparison")
+            # Convert sets to lists for JSON serialization
+            serialized_missing = [list(m) for m in missing_sections_per_doc]
+
+            LOGGER.info(
+                f"Phase B pre-flight completed for workflow {workflow_id}: "
+                f"passed={validation_passed}, scope={comparison_scope}"
+            )
             return {
-                "validation_passed": True,
+                "validation_passed": validation_passed,
                 "comparison_scope": comparison_scope,
-                "missing_sections": missing_sections_per_doc,
+                "missing_sections": serialized_missing,
             }
 
     except Exception as e:
@@ -270,7 +280,6 @@ async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dic
             diff_service = NumericDiffService(session)
 
             # Deserialize alignments
-            from app.schemas.workflows.policy_comparison import SectionAlignment
             from decimal import Decimal
 
             alignments = [

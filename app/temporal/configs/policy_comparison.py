@@ -6,11 +6,37 @@ making it easy to adjust behavior across different lines of business without cod
 
 import os
 from typing import Literal
+import yaml
+from pathlib import Path
+
+# Path to the YAML template
+CONFIG_PATH = Path(__file__).parent / "policy_comparison.yaml"
+
+def load_policy_comparison_config():
+    """Load policy comparison configuration from YAML."""
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return {}
+
+CONFIG = load_policy_comparison_config()
+
+def normalize_name(name: str) -> str:
+    """Normalize names to snake_case for consistency."""
+    return name.lower().replace(" ", "_")
 
 # Pre-flight Validation Configuration
 
 # Required sections for policy comparison
-REQUIRED_SECTIONS: list[str] = [
+# Extracted from YAML if available, otherwise use defaults
+_yaml_sections = CONFIG.get("document_processing", {}).get("indexing", {}).get("embeddings", {}).get("sections", [])
+if not _yaml_sections:
+    _yaml_sections = CONFIG.get("document_processing", {}).get("section_extraction", {}).get("sections", [])
+
+REQUIRED_SECTIONS: list[str] = [normalize_name(s) for s in _yaml_sections] if _yaml_sections else [
     "declarations",
     "coverages",
     "endorsements",
@@ -19,16 +45,16 @@ REQUIRED_SECTIONS: list[str] = [
 ]
 
 # Required entity types for pre-flight validation
-REQUIRED_ENTITIES: list[str] = [
-    "POLICY_NUMBER",
-    "INSURED_NAME",
-    "EFFECTIVE_DATE",
-    "EXPIRATION_DATE",
-    "LIMIT_OCCURRENCE",
-    "LIMIT_AGGREGATE",
-    "DEDUCTIBLE_AMOUNT",
-    "PREMIUM_TOTAL",
-    "COINSURANCE_PCT",
+# Extracted from YAML if available, otherwise use defaults
+_yaml_entities = CONFIG.get("document_processing", {}).get("enrichment", {}).get("entities", [])
+REQUIRED_ENTITIES: list[str] = [normalize_name(e) for e in _yaml_entities] if _yaml_entities else [
+    "policy_number",
+    "insured_name",
+    "effective_date",
+    "expiration_date",
+    "limit",
+    "deductible",
+    "premium_amount",
 ]
 
 # Fuzzy matching threshold for insured name comparison (0.0-1.0)
@@ -113,10 +139,22 @@ PRIORITY_COVERAGE_TYPES: list[str] = [
 ]
 
 # Conditional Processing Configuration
+# Derived from YAML ensure settings
+PROCESSING_CONFIG = CONFIG.get("document_processing", {}).get("ensure", {})
+
+# Individual flags for backward compatibility or simple use cases
+ENABLE_TABLE_EXTRACTION: bool = PROCESSING_CONFIG.get("table_extraction", False)
+ENABLE_PAGE_ANALYSIS: bool = PROCESSING_CONFIG.get("page_analysis", True)
+ENABLE_SECTION_EXTRACTION: bool = "section_extraction" in PROCESSING_CONFIG
+ENABLE_ENRICHMENT: bool = "enrichment" in PROCESSING_CONFIG
+ENABLE_INDEXING: bool = "indexing" in PROCESSING_CONFIG
+
 REQUIRED_STAGES: list[str] = [
     "processed",   # OCR, page analysis, chunking
     "extracted",   # Section field extraction
     "enriched",    # Entity resolution
+    "indexed",     # Indexing
+    "summarized",  # Summary generation
 ]
 
 # Whether to automatically trigger missing stages
@@ -124,10 +162,10 @@ AUTO_TRIGGER_MISSING_STAGES: bool = os.getenv(
     "POLICY_COMPARISON_AUTO_TRIGGER_STAGES", "true"
 ).lower() == "true"
 
-WORKFLOW_NAME: str = "policy_comparison"
-WORKFLOW_VERSION: str = "v1"
+WORKFLOW_NAME: str = CONFIG.get("workflow", {}).get("name", "policy_comparison")
+WORKFLOW_VERSION: str = CONFIG.get("workflow", {}).get("version", "v1")
 WORKFLOW_DISPLAY_NAME: str = "Policy Comparison"
-WORKFLOW_DESCRIPTION: str = (
+WORKFLOW_DESCRIPTION: str = CONFIG.get("workflow", {}).get("description", (
     "Compare two insurance policy documents to identify material changes "
     "in coverage, limits, deductibles, and premiums"
-)
+))

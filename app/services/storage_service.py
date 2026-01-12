@@ -71,21 +71,22 @@ class StorageService:
         bucket: str, 
         path: str, 
         expires_in: int = 3600
-    ) -> str:
-        """Generate a signed URL for a private object.
+    ) -> Dict[str, Any]:
+        """Generate a signed URL and return public URL of the document
 
         Args:
             bucket: Bucket name.
             path: Object path.
-            expires_in: Number of seconds before the URL expires.
+            expires_in: Expiration time in seconds.
 
         Returns:
-            The signed public URL.
+            The public URL and signed URL.
 
         Raises:
             AppError: If URL generation fails.
         """
         url = f"{self.base_api_url}/object/sign/{bucket}/{path}"
+        public_url = f"{self.base_api_url}/object/{bucket}/{path}"
         
         try:
             async with httpx.AsyncClient() as client:
@@ -111,8 +112,14 @@ class StorageService:
                 # Supabase returns a relative path like /storage/v1/object/sign/documents/file.pdf?token=...
                 # We need to prepend the full Supabase URL if it's not absolute
                 if signed_path.startswith("/"):
-                    return f"{self.url}{signed_path}"
-                return signed_path
+                    return {
+                        "signed_url": f"{self.url}{signed_path}",
+                        "public_url": public_url
+                    }
+                return {
+                    "signed_url": signed_path,
+                    "public_url": public_url
+                }
                 
         except Exception as e:
             LOGGER.error(f"Error generating signed URL: {str(e)}", exc_info=True)
