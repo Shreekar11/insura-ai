@@ -8,7 +8,7 @@ This workflow orchestrates the LLM extraction pipeline:
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from datetime import timedelta
-from typing import Optional, Dict
+from typing import List, Optional, Dict
 
 from app.utils.workflow_schemas import (
     ExtractionOutputSchema,
@@ -26,6 +26,8 @@ class ExtractionWorkflow:
         workflow_id: str,
         document_id: str,
         document_profile: Optional[Dict] = None,
+        target_sections: Optional[List[str]] = None,
+        target_entities: Optional[List[str]] = None,
     ) -> dict:
         """
         Execute the LLM extraction pipeline.
@@ -36,6 +38,8 @@ class ExtractionWorkflow:
             document_id: UUID of the document to extract from
             document_profile: Optional document profile from Processed workflow.
                 Contains: document_type, section_boundaries, page_section_map
+            target_sections: Optional list of sections to extract fields from.
+            target_entities: Optional list of entities to normalize/extract.
             
         Returns:
             Dictionary with extraction and validation results
@@ -46,7 +50,7 @@ class ExtractionWorkflow:
                 "workflow_id": workflow_id,
                 "document_id": document_id,
                 "has_document_profile": document_profile is not None,
-                "workflow_id": workflow_id
+                "target_sections": target_sections
             }
         )
         
@@ -74,10 +78,10 @@ class ExtractionWorkflow:
         )
         
         # Section-Level Extraction
-        workflow.logger.info("Extracting section-specific fields...")
+        workflow.logger.info(f"Extracting section-specific fields (target_sections: {target_sections})...")
         extraction_result = await workflow.execute_activity(
             "extract_section_fields",
-            args=[workflow_id, document_id],
+            args=[workflow_id, document_id, target_sections, target_entities],
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

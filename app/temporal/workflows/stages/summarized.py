@@ -18,13 +18,21 @@ class SummarizedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, workflow_id: str, document_id: str) -> dict:
-        workflow.logger.info(f"Starting SummarizedStage for {document_id}")
+    async def run(
+        self, 
+        workflow_id: str, 
+        document_id: str,
+        target_sections: Optional[list[str]] = None
+    ) -> dict:
+        workflow.logger.info(
+            f"Starting SummarizedStage for {document_id}",
+            extra={"target_sections": target_sections}
+        )
         
         # Phase 1: Vector Embeddings
         await workflow.execute_child_workflow(
             IndexingWorkflow.run,
-            args=[workflow_id, document_id],
+            args=[workflow_id, document_id, target_sections],
             id=f"stage-summarized-indexing-{document_id}",
             task_queue="documents-queue",
         )

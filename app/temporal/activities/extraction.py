@@ -23,18 +23,25 @@ logger = get_logger(__name__)
 
 
 @activity.defn
-async def extract_section_fields(workflow_id: str, document_id: str) -> Dict:
+async def extract_section_fields(
+    workflow_id: str, 
+    document_id: str,
+    target_sections: Optional[List[str]] = None,
+    target_entities: Optional[List[str]] = None,
+) -> Dict:
     """Extract section-specific fields from super-chunks.
     
     This activity:
     1. Retrieves section super-chunks from database
-    2. Orchestrates section-level extraction using LLM
-    3. Aggregates entities across chunks
-    4. Persists extracted data
+    2. Filters super-chunks if target_sections is provided
+    3. Orchestrates section-level extraction using LLM
+    4. Aggregates entities across chunks
+    5. Persists extracted data
     
     Args:
         workflow_id: UUID of the workflow
         document_id: UUID of the document
+        target_sections: Optional list of sections to extract fields from.
         
     Returns:
         Dictionary with extraction results
@@ -53,6 +60,21 @@ async def extract_section_fields(workflow_id: str, document_id: str) -> Dict:
             if not super_chunks:
                 raise ValueError(f"No super-chunks found for document {document_id}")
             
+            # Filter super-chunks if target_sections provided
+            if target_sections:
+                normalized_targets = [s.lower().replace(" ", "_").strip() for s in target_sections]
+                activity.logger.info(f"Filtering super-chunks for sections: {normalized_targets}")
+                original_count = len(super_chunks)
+                super_chunks = [
+                    sc for sc in super_chunks
+                    if sc.section_type.value.lower().replace(" ", "_").strip() in normalized_targets
+                ]
+                activity.logger.info(f"Filtered super-chunks: {original_count} -> {len(super_chunks)}")
+                
+                if not super_chunks:
+                    activity.logger.warning(f"No super-chunks remain after filtering for {target_sections}")
+                    return {"section_results": [], "all_entities": [], "metadata": {"filtered": True}}
+
             activity.logger.info(
                 f"Retrieved {len(super_chunks)} super-chunks for extraction"
             )

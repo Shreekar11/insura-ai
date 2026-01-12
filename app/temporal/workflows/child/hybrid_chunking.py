@@ -8,7 +8,7 @@ assignment with Phase 0 page analysis.
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from datetime import timedelta
-from typing import Optional, Dict
+from typing import Optional, Dict, List
 
 from app.utils.workflow_schemas import (
     HybridChunkingOutputSchema,
@@ -26,6 +26,7 @@ class HybridChunkingWorkflow:
         workflow_id: str,
         document_id: str,
         page_section_map: Optional[Dict[int, str]] = None,
+        target_sections: Optional[List[str]] = None,
     ) -> dict:
         """
         Perform hybrid chunking on document pages.
@@ -42,6 +43,8 @@ class HybridChunkingWorkflow:
             page_section_map: Optional mapping of page numbers to section types
                 from Phase 0 page analysis manifest. If provided, this ensures
                 consistent section assignment without re-detection.
+            target_sections: Optional list of sections to include in chunking.
+                If provided, only pages belonging to these sections will be processed.
             
         Returns:
             Dictionary with chunking statistics
@@ -61,10 +64,10 @@ class HybridChunkingWorkflow:
             }
         )
         
-        # Execute hybrid chunking activity with section map
+        # Execute hybrid chunking activity with section map and target sections
         result = await workflow.execute_activity(
             "perform_hybrid_chunking",
-            args=[workflow_id, document_id, page_section_map],
+            args=[workflow_id, document_id, page_section_map, target_sections],
             start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

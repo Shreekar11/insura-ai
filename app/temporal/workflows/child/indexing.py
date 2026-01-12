@@ -1,5 +1,6 @@
 from temporalio import workflow
 from datetime import timedelta
+from typing import Optional, List
 from temporalio.common import RetryPolicy
 from app.utils.workflow_schemas import validate_workflow_output, IndexingOutputSchema
 
@@ -8,13 +9,18 @@ class IndexingWorkflow:
     """Child worklfow for generating vector embeddings and storing the embeddings in pgvector as vector database"""
 
     @workflow.run
-    async def run(self, workflow_id: str, document_id: str) -> dict:
+    async def run(
+        self, 
+        workflow_id: str, 
+        document_id: str,
+        target_sections: Optional[list[str]] = None
+    ) -> dict:
 
         workflow.logger.info(f"Starting vector indexing for document: {document_id}")
 
         vector_indexing_result = await workflow.execute_activity(
             "generate_embeddings_activity",
-            args=[document_id, workflow_id],
+            args=[document_id, workflow_id, target_sections],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

@@ -11,6 +11,9 @@ from app.temporal.workflows.child.table_extraction import TableExtractionWorkflo
 from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
 
 
+from typing import Optional, Dict, List
+
+
 @workflow.defn
 class ProcessedStageWorkflow:
     """
@@ -21,8 +24,21 @@ class ProcessedStageWorkflow:
     """
     
     @workflow.run
-    async def run(self, workflow_id: str, document_id: str) -> dict:
-        workflow.logger.info(f"Starting ProcessedStage for {document_id}", extra={"workflow_id": workflow_id})
+    async def run(
+        self, 
+        workflow_id: str, 
+        document_id: str,
+        ensure_table_extraction: bool = True,
+        target_sections: Optional[List[str]] = None
+    ) -> dict:
+        workflow.logger.info(
+            f"Starting ProcessedStage for {document_id}", 
+            extra={
+                "workflow_id": workflow_id,
+                "ensure_table_extraction": ensure_table_extraction,
+                "target_sections": target_sections
+            }
+        )
 
         # Initialize processed and classified stages as running
         await workflow.execute_activity(
@@ -59,18 +75,22 @@ class ProcessedStageWorkflow:
         page_section_map = page_manifest.get('page_section_map')
         pages_to_process = page_manifest.get('pages_to_process', [])
         
-        # Phase 3: Table Extraction
-        table_result = await workflow.execute_child_workflow(
-            TableExtractionWorkflow.run,
-            args=[workflow_id, document_id, pages_to_process],
-            id=f"stage-processed-table-{document_id}",
-            task_queue="documents-queue",
-        )
+        # Phase 3: Table Extraction (Conditional)
+        if ensure_table_extraction:
+            table_result = await workflow.execute_child_workflow(
+                TableExtractionWorkflow.run,
+                args=[workflow_id, document_id, pages_to_process],
+                id=f"stage-processed-table-{document_id}",
+                task_queue="documents-queue",
+            )
+        else:
+            workflow.logger.info(f"Skipping table extraction for document {document_id} per config")
+            table_result = {"tables_found": 0}
         
         # Phase 4: Hybrid Chunking
         chunking_result = await workflow.execute_child_workflow(
             HybridChunkingWorkflow.run,
-            args=[workflow_id, document_id, page_section_map],
+            args=[workflow_id, document_id, page_section_map, target_sections],
             id=f"stage-processed-chunking-{document_id}",
             task_queue="documents-queue",
         )

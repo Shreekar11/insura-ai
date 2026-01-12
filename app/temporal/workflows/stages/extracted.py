@@ -2,7 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
-from typing import Any, Dict
+from typing import Any, Dict, Optional
 
 # Import existing child workflows
 from app.temporal.workflows.child.extraction import ExtractionWorkflow
@@ -23,13 +23,22 @@ class ExtractedStageWorkflow:
         workflow_id: str,
         document_id: str,
         document_profile: Dict[str, Any],
+        target_sections: Optional[list[str]] = None,
+        target_entities: Optional[list[str]] = None,
     ) -> dict:
-        workflow.logger.info(f"Starting ExtractedStage for {document_id}")
+        workflow.logger.info(
+            f"Starting ExtractedStage for {document_id}",
+            extra={
+                "workflow_id": workflow_id,
+                "target_sections": target_sections,
+                "target_entities": target_entities
+            }
+        )
         
         # Phase 1: Extraction (Sections + Entities)
         extraction_result = await workflow.execute_child_workflow(
             ExtractionWorkflow.run,
-            args=[workflow_id, document_id, document_profile],
+            args=[workflow_id, document_id, document_profile, target_sections, target_entities],
             id=f"stage-extracted-{document_id}",
             task_queue="documents-queue",
         )

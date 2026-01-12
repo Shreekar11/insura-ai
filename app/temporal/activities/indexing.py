@@ -1,5 +1,6 @@
 from temporalio import activity
 from uuid import UUID
+from typing import List, Dict, Tuple, Optional, Any
 from app.core.database import async_session_maker
 from app.services.summarized.services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
 from app.services.summarized.services.indexing.graph.graph_service import GraphService
@@ -10,14 +11,19 @@ logger = get_logger(__name__)
 
 
 @activity.defn
-async def generate_embeddings_activity(document_id: str, workflow_id: str) -> dict:
+async def generate_embeddings_activity(
+    document_id: str, 
+    workflow_id: str,
+    target_sections: Optional[list[str]] = None
+) -> dict:
     """Temporal activity to generate vector embeddings for an insurance document.
     
     This activity:
     1. Loads the extracted sections for the document.
-    2. Generates semantic text templates.
-    3. Computes vector embeddings using locally-hosted models.
-    4. Persists the embeddings for later semantic recall.
+    2. Filters sections if target_sections is provided.
+    3. Generates semantic text templates.
+    4. Computes vector embeddings using locally-hosted models.
+    5. Persists the embeddings for later semantic recall.
     
     Args:
         document_id: UUID of the document as a string
@@ -31,7 +37,7 @@ async def generate_embeddings_activity(document_id: str, workflow_id: str) -> di
         async with async_session_maker() as session:
             service = GenerateEmbeddingsService(session)
             # result is an EmbeddingResult dataclass
-            result = await service.execute(UUID(document_id), UUID(workflow_id))
+            result = await service.execute(UUID(document_id), UUID(workflow_id), target_sections)
             
             logger.info(
                 f"Embedding generation completed for {document_id}: "
@@ -63,16 +69,16 @@ async def construct_knowledge_graph_activity(document_id: str, workflow_id: str)
 
             logger.info(
                 f"Knowledge graph construction completed for {document_id}: "
-                f"{result.entities_created} entities created, "
-                f"{result.relationships_created} relationships created, "
-                f"{result.embeddings_linked} embeddings linked"
+                f"{result['entities_created']} entities created, "
+                f"{result['relationships_created']} relationships created, "
+                f"{result['embeddings_linked']} embeddings linked"
             )
             
             return {
                 "status": "completed",
-                "entities_created": result.entities_created,
-                "relationships_created": result.relationships_created,
-                "embeddings_linked": result.embeddings_linked
+                "entities_created": result["entities_created"],
+                "relationships_created": result["relationships_created"],
+                "embeddings_linked": result["embeddings_linked"]
             }
             
     except Exception as e:

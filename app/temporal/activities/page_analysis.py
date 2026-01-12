@@ -541,3 +541,66 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
             exc_info=True
         )
         raise
+@activity.defn
+async def get_document_profile_activity(document_id: str) -> Dict:
+    """Retrieve document profile (document type and sections) from database.
+    
+    This activity reconstructs the document profile from persisted page
+    classifications. It's used when a workflow stage is skipped but
+    downstream stages need the profile.
+    
+    Args:
+        document_id: UUID string of the document
+        
+    Returns:
+        Dictionary containing document profile
+    """
+    activity.logger.info(
+        f"Retrieving document profile for document {document_id}",
+        extra={"document_id": document_id}
+    )
+    
+    try:
+        async with async_session_maker() as session:
+            from app.repositories.page_analysis_repository import PageAnalysisRepository
+            from app.pipeline.page_analysis import PageAnalysisPipeline
+            
+            repo = PageAnalysisRepository(session)
+            pipeline = PageAnalysisPipeline(session)
+            
+            # Get classifications
+            classifications = await repo.get_classifications(UUID(document_id))
+            if not classifications:
+                raise ValueError(f"No classifications found for document {document_id}")
+            
+            # Reconstruct profile
+            document_profile = await pipeline.build_document_profile(
+                document_id=UUID(document_id),
+                classifications=classifications
+            )
+            
+            # Serialize for Temporal
+            profile_dict = document_profile.model_dump()
+            profile_dict['document_id'] = str(profile_dict['document_id'])
+            profile_dict['document_type'] = profile_dict['document_type'].value
+            profile_dict['section_boundaries'] = [
+                {
+                    'section_type': sb.section_type.value,
+                    'start_page': sb.start_page,
+                    'end_page': sb.end_page,
+                    'confidence': sb.confidence,
+                    'page_count': sb.page_count,
+                    'anchor_text': sb.anchor_text,
+                }
+                for sb in document_profile.section_boundaries
+            ]
+            
+            return profile_dict
+            
+    except Exception as e:
+        activity.logger.error(
+            f"Failed to retrieve document profile: {e}",
+            extra={"document_id": document_id},
+            exc_info=True
+        )
+        raise
