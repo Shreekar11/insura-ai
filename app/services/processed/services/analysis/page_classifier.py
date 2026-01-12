@@ -238,7 +238,7 @@ class PageClassifier:
                 base_confidence = decl_confidence
         
         # Apply structural heuristics to boost confidence
-        confidence = self._apply_heuristics(
+        page_type, confidence = self._apply_heuristics(
             page_type, 
             base_confidence, 
             signals
@@ -340,7 +340,7 @@ class PageClassifier:
         page_type: PageType, 
         base_confidence: float,
         signals: PageSignals
-    ) -> float:
+    ) -> Tuple[PageType, float]:
         """Apply structural heuristics to adjust confidence.
         
         Args:
@@ -349,9 +349,15 @@ class PageClassifier:
             signals: Page signals
             
         Returns:
-            Adjusted confidence score
+            Tuple of (Adjusted PageType, Adjusted confidence score)
         """
         confidence = base_confidence
+        
+        # Extract metadata if available
+        meta = signals.metadata or {}
+        structure_type = meta.get("structure_type", "standard")
+        block_count = meta.get("block_count", 0)
+        table_blocks = meta.get("table_block_count", 0)
         
         # Heuristic 1: Page 1 with declarations keywords gets strong boost
         if signals.page_number == 1 and page_type == PageType.DECLARATIONS:
@@ -366,23 +372,34 @@ class PageClassifier:
         # Heuristic 2: High text density suggests content pages
         if signals.text_density > 0.7:
             confidence = min(confidence + 0.10, 1.0)
+            
+        # Structure-aware boost: text_heavy pages are likely coverages/conditions
+        if structure_type == "text_heavy" and page_type in [PageType.COVERAGES, PageType.CONDITIONS, PageType.EXCLUSIONS, PageType.DEFINITIONS]:
+            confidence = min(confidence + 0.15, 1.0)
         
         # Heuristic 3: Large font sizes suggest headers/important sections
         if signals.max_font_size and signals.max_font_size > 18:
             confidence = min(confidence + 0.10, 1.0)
         
         # Heuristic 4: Tables suggest SOV or Loss Run
-        if signals.has_tables and page_type in [PageType.SOV, PageType.LOSS_RUN]:
-            confidence = min(confidence + 0.15, 1.0)
+        if (signals.has_tables or table_blocks > 0) and page_type in [PageType.SOV, PageType.LOSS_RUN]:
+            # Extra boost if it's table_heavy
+            boost = 0.25 if structure_type == "table_heavy" else 0.15
+            confidence = min(confidence + boost, 1.0)
         
         # Heuristic 5: Very low text density suggests boilerplate or blank
-        if signals.text_density < 0.2:
+        if signals.text_density < 0.2 or (block_count > 0 and block_count < 3):
             if page_type == PageType.BOILERPLATE:
-                confidence = min(confidence + 0.10, 1.0)
-            elif page_type == PageType.DECLARATIONS and signals.page_number <= 3:
                 confidence = min(confidence + 0.15, 1.0)
+            elif page_type == PageType.DECLARATIONS and signals.page_number <= 3:
+                # Some declarations pages are sparse but labeled
+                confidence = min(confidence + 0.15, 1.0)
+            elif page_type == PageType.UNKNOWN:
+                # Mark sparse unknown as likely boilerplate
+                page_type = PageType.BOILERPLATE
+                confidence = 0.6
         
-        return round(confidence, 3)
+        return page_type, round(confidence, 3)
     
     def _should_process(
         self, 

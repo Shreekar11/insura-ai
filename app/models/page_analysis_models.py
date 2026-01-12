@@ -75,6 +75,10 @@ class PageSignals(BaseModel):
         ..., 
         description="Hash of page content for duplicate detection"
     )
+    additional_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional structural metadata from Docling or other sources"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={

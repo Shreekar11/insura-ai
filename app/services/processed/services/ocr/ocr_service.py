@@ -118,6 +118,9 @@ class OCRService:
 
             total_pages = len(transformed_pages)
             
+            # Extract rich page metadata from Docling blocks
+            rich_page_metadata = self._extract_rich_page_metadata(result)
+            
             LOGGER.info(
                 f"Document converted successfully: {total_pages} pages",
                 extra={
@@ -150,7 +153,8 @@ class OCRService:
             all_pages = self._extract_all_pages(
                 transformed_pages, 
                 document_id,
-                tables_by_page
+                tables_by_page,
+                rich_page_metadata
             )
 
             result_pages = all_pages
@@ -468,7 +472,8 @@ class OCRService:
         self, 
         transformed_pages: List[str], 
         document_id: UUID,
-        tables_by_page: Optional[Dict[int, List[TableJSON]]] = None
+        tables_by_page: Optional[Dict[int, List[TableJSON]]] = None,
+        rich_page_metadata: Optional[Dict[int, Dict[str, Any]]] = None
     ) -> List[PageData]:
         """Extract data from all pages in the document.
         
@@ -476,18 +481,23 @@ class OCRService:
             transformed_pages: List of transformed pages with markdown
             document_id: Document ID for metadata
             tables_by_page: Optional dict mapping page numbers to TableJSON objects
+            rich_page_metadata: Optional dict mapping page numbers to Docling metadata
         
         Returns:
             List[PageData]: All extracted pages with table detection
         """
         pages = []
         tables_by_page = tables_by_page or {}
+        rich_page_metadata = rich_page_metadata or {}
         
         for idx, page_content in enumerate(transformed_pages):
             page_number = idx + 1
             
             # Get structural tables for this page
             structural_tables = tables_by_page.get(page_number, [])
+            
+            # Get rich metadata for this page
+            page_rich_meta = rich_page_metadata.get(page_number, {})
             
             # Detect tables in markdown content (fallback)
             has_tables_markdown = self._detect_tables_in_markdown(page_content)
@@ -504,7 +514,8 @@ class OCRService:
                 "has_tables": has_tables,
                 "table_count": table_count,
                 "has_structural_tables": len(structural_tables) > 0,
-                "structural_table_count": len(structural_tables)
+                "structural_table_count": len(structural_tables),
+                **page_rich_meta  # Merge rich Docling metadata
             }
             
             # Add structural tables as TableJSON dicts
@@ -614,6 +625,89 @@ class OCRService:
         
         return tables_info
     
+    def _extract_rich_page_metadata(self, docling_result: Any) -> Dict[int, Dict[str, Any]]:
+        """Extract rich structural metadata per page from Docling result.
+        
+        Args:
+            docling_result: Docling conversion result
+            
+        Returns:
+            Dict mapping page_number to metadata dict
+        """
+        page_metadata = {}
+        try:
+            doc = docling_result.document
+            
+            # Iterate through all blocks (texts, tables, etc.)
+            # Docling segments content into items with provenance
+            for item in doc.texts:
+                page_no = self._get_page_no(item)
+                if page_no not in page_metadata:
+                    page_metadata[page_no] = {
+                        "block_count": 0,
+                        "heading_levels": [],
+                        "max_font_size": 0.0,
+                        "text_block_count": 0,
+                        "table_block_count": 0
+                    }
+                
+                meta = page_metadata[page_no]
+                meta["block_count"] += 1
+                meta["text_block_count"] += 1
+                
+                # Check for headings
+                if hasattr(item, 'label') and item.label in ['heading', 'title']:
+                    level = getattr(item, 'level', 1)
+                    meta["heading_levels"].append(level)
+                    # Heuristic font size boost if level is low
+                    font_size = 24.0 if level == 1 else (20.0 if level == 2 else 16.0)
+                    meta["max_font_size"] = max(meta["max_font_size"], font_size)
+            
+            if hasattr(doc, 'tables'):
+                for table in doc.tables:
+                    page_no = self._get_page_no(table)
+                    if page_no not in page_metadata:
+                        page_metadata[page_no] = {
+                            "block_count": 0,
+                            "heading_levels": [],
+                            "max_font_size": 0.0,
+                            "text_block_count": 0,
+                            "table_block_count": 0
+                        }
+                    
+                    meta = page_metadata[page_no]
+                    meta["block_count"] += 1
+                    meta["table_block_count"] += 1
+            
+            # Calculate structure type for each page
+            for page_no, meta in page_metadata.items():
+                t_count = meta["text_block_count"]
+                tbl_count = meta["table_block_count"]
+                
+                if tbl_count > 1 and t_count < 5:
+                    meta["structure_type"] = "table_heavy"
+                elif t_count > 10 and tbl_count == 0:
+                    meta["structure_type"] = "text_heavy"
+                elif tbl_count > 0:
+                    meta["structure_type"] = "mixed"
+                else:
+                    meta["structure_type"] = "standard"
+                    
+        except Exception as e:
+            LOGGER.warning(f"Failed to extract rich page metadata: {e}")
+            
+        return page_metadata
+
+    def _get_page_no(self, item: Any) -> int:
+        """Helper to extract page number from Docling item provenance."""
+        if hasattr(item, 'prov') and item.prov:
+            prov = item.prov[0] if isinstance(item.prov, list) else item.prov
+            if hasattr(prov, 'page_no'):
+                return prov.page_no
+            elif hasattr(prov, 'page'):
+                return prov.page
+        return 1
+
     def get_service_name(self) -> str:
         """Get the name of the OCR service.
         

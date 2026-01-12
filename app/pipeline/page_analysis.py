@@ -80,19 +80,19 @@ class PageAnalysisPipeline:
     async def extract_signals_from_markdown(
         self, 
         document_id: UUID, 
-        pages: List[Tuple[str, int]]
+        pages: List[Tuple[str, int, Optional[Dict[str, Any]]]]
     ) -> Tuple[List[PageSignals], DocumentType, float]:
         """Extract signals from already extracted markdown pages.
         
         Args:
             document_id: Document UUID
-            pages: List of (markdown_content, page_number) tuples
+            pages: List of (markdown_content, page_number, metadata) tuples
             
         Returns:
             Tuple of (PageSignals list, document_type, confidence)
         """
         # Combine all content for document type detection
-        all_content = " ".join(content for content, _ in pages)
+        all_content = " ".join(content for content, _, _ in pages)
         doc_type, confidence = self.analyzer.markdown_analyzer.detect_document_type(all_content)
 
         page_signals_list = self.analyzer.analyze_markdown_batch(pages)

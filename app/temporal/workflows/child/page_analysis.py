@@ -9,7 +9,7 @@ Now returns full manifest with document_profile and page_section_map
 from temporalio import workflow
 from temporalio.common import RetryPolicy
 from datetime import timedelta
-from typing import Dict, Optional, List, Tuple
+from typing import Dict, Optional, List, Tuple, Any
 
 from app.utils.workflow_schemas import (
     PageAnalysisOutputSchema,
@@ -44,14 +44,14 @@ class PageAnalysisWorkflow:
     async def run(
         self, 
         document_id: str, 
-        markdown_pages: List[Tuple[str, int]] = None,
+        markdown_pages: List[Tuple[str, int, Optional[Dict[str, Any]]]] = None,
         workflow_id: Optional[str] = None
     ) -> Dict:
         """Execute page analysis and create processing manifest with document profile.
         
         Args:
             document_id: UUID string of the document to analyze
-            markdown_pages: Optional list of (content, page_num) tuples from OCR
+            markdown_pages: Optional list of (content, page_num, metadata) tuples from OCR
             workflow_id: Optional parent workflow ID
             
         Returns:

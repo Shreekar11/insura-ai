@@ -11,7 +11,7 @@ workflow code.
 """
 
 from temporalio import activity
-from typing import List, Dict, Tuple, Optional
+from typing import List, Dict, Tuple, Optional, Any
 from uuid import UUID
 
 from app.core.database import async_session_maker
@@ -90,7 +90,7 @@ async def extract_page_signals(document_id: str) -> List[Dict]:
                     f"Found {len(existing_pages)} existing pages. Extracting signals from Markdown.",
                     extra={"document_id": document_id}
                 )
-                markdown_pages = [(p.markdown, p.page_number) for p in existing_pages]
+                markdown_pages = [(p.markdown, p.page_number, p.metadata) for p in existing_pages]
                 # extract_signals_from_markdown returns (signals, doc_type, confidence)
                 signals, doc_type, confidence = await pipeline.extract_signals_from_markdown(
                     document_id=UUID(document_id), 
@@ -160,7 +160,7 @@ async def extract_page_signals(document_id: str) -> List[Dict]:
 @activity.defn
 async def extract_page_signals_from_markdown(
     document_id: str, 
-    markdown_pages: List[Tuple[str, int]]
+    markdown_pages: List[Tuple[str, int, Optional[Dict[str, Any]]]]
 ) -> List[Dict]:
     """Extract page signals from provided markdown pages using Docling output.
     
@@ -169,7 +169,7 @@ async def extract_page_signals_from_markdown(
     
     Args:
         document_id: UUID string of the document
-        markdown_pages: List of (markdown_content, page_number) tuples
+        markdown_pages: List of (markdown_content, page_number, metadata) tuples
         
     Returns:
         List of page signal dictionaries

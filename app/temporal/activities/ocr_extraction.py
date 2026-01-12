@@ -65,7 +65,7 @@ async def extract_ocr(
             await session.commit()
             
             pages_processed = [int(p.page_number) for p in pages]
-            markdown_pages = [(p.markdown, int(p.page_number)) for p in pages]
+            markdown_pages = [(p.markdown, int(p.page_number), p.metadata) for p in pages]
             
             activity.logger.info(
                 "OCR Extraction Complete",
