@@ -40,8 +40,8 @@ class SectionTypeMapper:
     }
     
     GRANULAR_TO_CORE_MAP: dict[SectionType, SectionType] = {
-        SectionType.VEHICLE_DETAILS: SectionType.DECLARATIONS,
-        SectionType.INSURED_DECLARED_VALUE: SectionType.DECLARATIONS,
+        SectionType.VEHICLE_DETAILS: SectionType.COVERAGES,
+        SectionType.INSURED_DECLARED_VALUE: SectionType.COVERAGES,
         SectionType.LIABILITY_COVERAGES: SectionType.COVERAGES,
         SectionType.INSURING_AGREEMENT: SectionType.COVERAGES,
         SectionType.PREMIUM_SUMMARY: SectionType.DECLARATIONS,

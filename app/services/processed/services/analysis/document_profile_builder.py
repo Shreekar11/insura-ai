@@ -385,13 +385,24 @@ class DocumentProfileBuilder:
             page_count = run["end_page"] - run["start_page"] + 1
             avg_confidence = sum(run["confidences"]) / len(run["confidences"])
             
+            # Determine if this is a granular type that should be mapped to core
+            granular_type = run["page_type"]
+            core_type = SectionTypeMapper.page_type_to_section_type(granular_type)
+            norm_core_type = SectionTypeMapper.normalize_to_core_section(core_type)
+            
+            # If normalization changed the type, then the original granular type is the sub_section_type
+            sub_section_type = None
+            if core_type != norm_core_type:
+                sub_section_type = core_type.value
+            
             boundary = SectionBoundary(
-                section_type=run["page_type"],
+                section_type=norm_core_type.value,  # Use normalized core type string
                 start_page=run["start_page"],
                 end_page=run["end_page"],
                 confidence=round(avg_confidence, 3),
                 page_count=page_count,
                 anchor_text=run.get("reasoning"),
+                sub_section_type=sub_section_type,
             )
             boundaries.append(boundary)
         
@@ -419,15 +430,26 @@ class DocumentProfileBuilder:
         for c in classifications:
             if c.sections:
                 for s in c.sections:
+                    # Logic for span boundaries:
+                    # s.section_type is the granular PageType
+                    granular_type = s.section_type
+                    core_type = SectionTypeMapper.page_type_to_section_type(granular_type)
+                    norm_core_type = SectionTypeMapper.normalize_to_core_section(core_type)
+                    
+                    sub_section_type = None
+                    if core_type != norm_core_type:
+                        sub_section_type = core_type.value
+                        
                     span_boundaries.append(SectionBoundary(
-                        section_type=s.section_type,
+                        section_type=norm_core_type.value,
                         start_page=c.page_number,
                         end_page=c.page_number,
                         start_line=s.span.start_line if s.span else None,
                         end_line=s.span.end_line if s.span else None,
                         confidence=s.confidence,
                         page_count=1,
-                        anchor_text=s.reasoning
+                        anchor_text=s.reasoning,
+                        sub_section_type=sub_section_type,
                     ))
         return span_boundaries
     

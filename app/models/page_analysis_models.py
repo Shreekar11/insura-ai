@@ -271,6 +271,10 @@ class SectionBoundary(BaseModel):
         None, 
         description="Text that triggered section detection (from first page)"
     )
+    sub_section_type: Optional[str] = Field(
+        None,
+        description="Original granular section type if mapped to a broader category"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -280,7 +284,8 @@ class SectionBoundary(BaseModel):
                 "end_page": 5,
                 "confidence": 0.95,
                 "page_count": 5,
-                "anchor_text": "DECLARATIONS PAGE"
+                "anchor_text": "DECLARATIONS PAGE",
+                "sub_section_type": None
             }
         }
     )

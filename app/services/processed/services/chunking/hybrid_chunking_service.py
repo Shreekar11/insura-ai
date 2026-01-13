@@ -41,7 +41,6 @@ SECTION_ANCHORS = {
         r'^\s*COVERAGE\s+FORM\s*$',
         r'^\s*COVERAGE\s+[A-Z]\s*[-:]',
         r'^\s*PROPERTY\s+COVERAGE\s*$',
-        r'^\s*LIABILITY\s+COVERAGE\s*$',
     ],
     SectionType.CONDITIONS: [
         r'^\s*CONDITIONS?\s*$',
@@ -84,6 +83,24 @@ SECTION_ANCHORS = {
     SectionType.FINANCIAL_STATEMENT: [
         r'^\s*FINANCIAL\s+STATEMENT\s*$',
         r'^\s*FINANCIAL\s+INFORMATION\s*$',
+    ],
+    SectionType.VEHICLE_DETAILS: [
+        r'^\s*VEHICLE\s+DETAILS?\s*$',
+        r'^\s*VEHICLE\s+SCHEDULE\s*$',
+        r'^\s*COVERED\s+Auto(?:s|mobile|mobiles)?\s*$',
+        r'^\s*SCHEDULE\s+OF\s+COVERED\s+Auto(?:s|mobile|mobiles)?\s*$',
+    ],
+    SectionType.INSURED_DECLARED_VALUE: [
+        r'^\s*INSURED(?:\'\s*S)?\s+DECLARED\s+VALUE\s*$',
+        r'^\s*IDV\s*$',
+    ],
+    SectionType.LIABILITY_COVERAGES: [
+        r'^\s*LIABILITY\s+COVERAGES?\s*$',
+        r'^\s*LIABILITY\s+LIMITS?\s*$',
+    ],
+    SectionType.DRIVER_INFORMATION: [
+        r'^\s*DRIVER(?:S|\s+INFORMATION)?\s*$',
+        r'^\s*SCHEDULE\s+OF\s+DRIVERS?\s*$',
     ],
 }
 
@@ -282,6 +299,12 @@ class HybridChunkingService:
         for page_num, section_str in page_section_map.items():
             # Handle both string keys (from JSON) and int keys
             page_key = int(page_num) if isinstance(page_num, str) else page_num
+            # Handle comma-separated section types (take the first one as primary)
+            if isinstance(section_str, str) and "," in section_str:
+                primary_section_str = section_str.split(",")[0]
+                LOGGER.debug(f"Handling multi-section page {page_num}: '{section_str}' -> using primary '{primary_section_str}'")
+                section_str = primary_section_str
+
             # Use canonical mapper to normalize section type
             section_type = SectionTypeMapper.string_to_section_type(section_str)
             result[page_key] = section_type
@@ -490,6 +513,7 @@ class HybridChunkingService:
         chunk_index = 0
         
         current_section = SectionType.UNKNOWN
+        current_subsection: Optional[str] = None
         current_buffer = []
         current_tokens = 0
         current_page_range = set()
@@ -543,6 +567,8 @@ class HybridChunkingService:
                 
                 transition_occurred = False
                 new_section = current_section
+                new_subsection = current_subsection
+
                 
                 # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
                 if detected_section != SectionType.UNKNOWN and detected_section != current_section:
@@ -552,13 +578,34 @@ class HybridChunkingService:
                     )
                     transition_occurred = True
                     new_section = detected_section
-                elif boundary_section != SectionType.UNKNOWN and boundary_section != current_section:
-                    LOGGER.info(
-                        f"Section transition detected via boundary: {current_section} -> {boundary_section}",
-                        extra={"page": page_num, "line": current_line_estimation}
-                    )
-                    transition_occurred = True
-                    new_section = boundary_section
+                    
+                    # Normalize detected section to core/subsection
+                    core = SectionTypeMapper.normalize_to_core_section(detected_section)
+                    if core != detected_section:
+                        new_section = core
+                        new_subsection = detected_section.value
+                        LOGGER.info(f"Normalized detected section: {detected_section} -> {core}({new_subsection})")
+                if boundary_section != SectionType.UNKNOWN:
+                    # Check for subsection transition or section transition
+                    
+                    # Find the specific boundary object to get sub_section_type
+                    # We iterate to find the matching boundary for the current line
+                    current_boundary = None
+                    for b in page_boundaries:
+                        if b.start_line is not None and current_line_estimation >= b.start_line:
+                            # It's a candidate, check if it matches the detected boundary_section
+                             if SectionTypeMapper.page_type_to_section_type(b.section_type) == boundary_section:
+                                 current_boundary = b
+                                 
+                    # If detected boundary section is different OR subsection is different
+                    new_subsection = current_boundary.sub_section_type if current_boundary else None
+                    if boundary_section != current_section or new_subsection != current_subsection:
+                        LOGGER.info(
+                            f"Section transition detected via boundary: {current_section}({current_subsection}) -> {boundary_section}({new_subsection})",
+                            extra={"page": page_num, "line": current_line_estimation}
+                        )
+                        transition_occurred = True
+                        new_section = boundary_section
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
                     # Only use manifest section at start of page if no other transition detected
                     # Note: if manifest_section is "comma,separated", SectionTypeMapper should handle it
@@ -601,6 +648,7 @@ class HybridChunkingService:
                     # Update section if it was detected in this large paragraph
                     if transition_occurred:
                         current_section = new_section
+                        current_subsection = new_subsection
                     
                     # Split the paragraph
                     sub_paras = self.token_counter.split_by_token_limit(
@@ -612,6 +660,7 @@ class HybridChunkingService:
                         chunks.append(self._flush_chunk(
                             buffer=[sub_para],
                             section_type=current_section,
+                            subsection_type=current_subsection,
                             page_range={page_num},
                             document_id=document_id,
                             chunk_index=chunk_index,
@@ -642,6 +691,7 @@ class HybridChunkingService:
                     chunk = self._flush_chunk(
                         buffer=current_buffer,
                         section_type=current_section,
+                        subsection_type=current_subsection,
                         page_range=current_page_range,
                         document_id=document_id,
                         chunk_index=chunk_index,
@@ -675,6 +725,7 @@ class HybridChunkingService:
                 # Update current state
                 if transition_occurred:
                     current_section = new_section
+                    current_subsection = new_subsection
                 
                 current_buffer.append(para)
                 current_tokens += para_tokens
@@ -683,13 +734,14 @@ class HybridChunkingService:
                     current_has_tables = True
                     current_table_count = max(current_table_count, page_table_count)
                 
-                current_line_estimation += para_line_count
+                current_line_estimation += para_line_count + 1
         
         # Flush final chunk
         if current_buffer:
             chunk = self._flush_chunk(
                 buffer=current_buffer,
                 section_type=current_section,
+                subsection_type=current_subsection,
                 page_range=current_page_range,
                 document_id=document_id,
                 chunk_index=chunk_index,
@@ -705,6 +757,7 @@ class HybridChunkingService:
         self,
         buffer: List[str],
         section_type: SectionType,
+        subsection_type: Optional[str],
         page_range: set,
         document_id: Optional[UUID],
         chunk_index: int,
@@ -729,6 +782,7 @@ class HybridChunkingService:
             page_range=sorted_pages,
             section_type=section_type,
             section_name=section_type.value.replace("_", " ").title(),
+            subsection_type=subsection_type,
             chunk_index=chunk_index,
             token_count=tokens,
             stable_chunk_id=self._generate_stable_id(document_id, chunk_index),
