@@ -86,11 +86,18 @@ class ComparisonChange(BaseModel):
     field_name: str = Field(..., description="Name of the changed field")
     section_type: str = Field(..., description="Section where change occurred")
     coverage_name: Optional[str] = Field(None, description="Coverage name if applicable")
-    old_value: Optional[str | Decimal | dict] = Field(None, description="Value in first document")
-    new_value: Optional[str | Decimal | dict] = Field(None, description="Value in second document")
-    change_type: Literal["increase", "decrease", "no_change", "added", "removed", "modified"] = Field(
-        ..., description="Type of change"
-    )
+    old_value: Optional[str | int | float | bool | Decimal | dict | list] = Field(None, description="Value in first document")
+    new_value: Optional[str | int | float | bool | Decimal | dict | list] = Field(None, description="Value in second document")
+    change_type: Literal[
+        "increase", 
+        "decrease", 
+        "no_change", 
+        "added", 
+        "removed", 
+        "modified", 
+        "formatting_diff", 
+        "sequential"
+    ] = Field(..., description="Type of change")
     percent_change: Optional[Decimal] = Field(None, description="Percentage change for numeric fields")
     absolute_change: Optional[Decimal] = Field(None, description="Absolute change for numeric fields")
     severity: Literal["low", "medium", "high"] = Field(..., description="Severity of the change")

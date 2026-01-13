@@ -115,6 +115,15 @@ FIELD_PATHS: dict[str, list[str]] = {
     "coinsurance_pct": ["coinsurance_pct", "coinsurance", "percentage"],
 }
 
+# Fields to exclude from dynamic comparison
+EXCLUDED_FIELDS: set[str] = {
+    "confidence", 
+    "metadata", 
+    "_meta", 
+    "source_page",
+    "coordinates"
+}
+
 # Workflow Output Configuration
 MINIMUM_CONFIDENCE_FOR_COMPLETION: float = float(
     os.getenv("POLICY_COMPARISON_MIN_CONFIDENCE", "0.75")

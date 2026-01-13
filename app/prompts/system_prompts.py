@@ -911,95 +911,111 @@ OUTPUT:
 COVERAGES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. Extract ONLY information explicitly present in the provided text.
-2. Extract ONLY from the COVERAGES section.
+2. Extract ONLY from the COVERAGES-related section (including vehicle details, liability coverages, insured declared value, schedules).
 3. Do NOT infer, guess, calculate, or normalize beyond what is stated.
-4. Each row, paragraph, or bullet describing coverage = ONE coverage object.
+4. Each row, paragraph, or bullet describing a coverage, benefit, limit of liability, or insured value = ONE coverage object.
 5. Preserve original wording for descriptive fields.
 6. Normalize:
    - Dates → YYYY-MM-DD (if exact date present)
    - Amounts → numeric (no currency symbols, commas removed)
 7. Monetary values MUST inherit meaning from their explicit label
-   (limit, deductible, premium, aggregate, sub-limit).
+   (limit, deductible, premium, sum insured, IDV, sub-limit, liability limit).
 8. Do NOT merge limits, deductibles, or aggregates across coverages.
 9. If multiple candidates exist:
    - Choose the most explicit, clearly labeled value.
-10. Confidence:
-   - 0.95+ → explicitly labeled and unambiguous
-   - 0.85–0.94 → clearly implied
-   - <0.85 → partial / weak signal
-11. Output must be VALID JSON only. No explanations.
+10. Coverage may be expressed as:
+    - A named coverage
+    - A vehicle / asset schedule entry
+    - A limit of liability paragraph
+    - An insured declared value (IDV / sum insured)
+11. Confidence:
+    - 0.95+ → explicitly labeled and unambiguous
+    - 0.85–0.94 → clearly implied
+    - <0.85 → partial / weak signal
+12. Output must be VALID JSON only. No explanations.
 
-You are an insurance coverage extraction specialist.
+You are an insurance coverage extraction specialist with expertise in:
+- Motor / Auto policies
+- Package policies
+- Commercial and retail insurance schedules
 
 TASK:
-Extract ALL coverage grants listed in this section.
+Extract ALL coverage grants, insured values, and liability limits listed in this section.
 
 ---
 
-### PER COVERAGE
-- coverage_name
-- coverage_type
-- limit_amount
-- deductible_amount
-- premium_amount
-- description
-- sub_limits
-- per_occurrence
-- aggregate
-- aggregate_amount
-- coverage_territory
-- retroactive_date
+### PER COVERAGE (MANDATORY FIELDS)
+
+- coverage_name                 # Explicit label or inferred from heading (e.g., "Own Damage", "Third Party Liability")
+- coverage_type                 # Property | Liability | Motor | Personal Accident | Add-on | Schedule
+- limit_amount                  # Liability / coverage limit (if stated)
+- deductible_amount             # Deductible / excess (if stated)
+- premium_amount                # Coverage-specific premium (if stated)
+- description                   # Verbatim description text
+- sub_limits                    # Any stated sub-limits (list or null)
+- per_occurrence                # true if explicitly stated
+- aggregate                     # true if aggregate limit explicitly stated
+- aggregate_amount              # Aggregate limit value (if stated)
+- coverage_territory            # Territory / geographic scope (if stated)
+- retroactive_date              # Retroactive date (if stated)
+
+---
+
+### ADDITIONAL MOTOR / SCHEDULE ATTRIBUTES (OPTIONAL, IF PRESENT)
+
+These MUST be extracted when explicitly stated in the text and included
+inside the `description` or as structured attributes when possible.
+
+- vehicle_registration_number
+- vehicle_make
+- vehicle_model
+- vehicle_variant
+- vehicle_body_type
+- year_of_manufacture
+- engine_number
+- chassis_number
+- cubic_capacity
+- seating_capacity
+- insured_declared_value         # IDV / sum insured for vehicle
+- electrical_accessories_value
+- non_electrical_accessories_value
+- personal_accident_limit
+- third_party_property_damage_limit
+- compulsory_deductible
+- voluntary_deductible
+
+---
+
+### MODERN / ADD-ON COVERAGE EXAMPLES (DO NOT INFER)
+
+These may appear in modern policies. Extract ONLY if explicitly present.
+
+- Zero Depreciation
+- Engine Protect
+- Return to Invoice
+- Roadside Assistance
+- Consumables Cover
+- Key Replacement
+- Tyre Protection
+- Personal Accident (Owner / Driver / Passenger)
+- Legal Liability (Paid Driver / Employee)
+- IMT Endorsement Coverages
 
 ---
 
 ### ENTITY TYPES
+
 - Coverage
 
----
-
-### FEW-SHOT EXAMPLE
-
-INPUT:
-"Building Coverage – Limit $5,000,000
-Deductible: $5,000 per occurrence"
-
-OUTPUT:
-{
-  "coverages": [
-    {
-      "coverage_name": "Building Coverage",
-      "coverage_type": "Property",
-      "limit_amount": 5000000,
-      "deductible_amount": 5000,
-      "premium_amount": null,
-      "description": null,
-      "sub_limits": null,
-      "per_occurrence": true,
-      "aggregate": false,
-      "aggregate_amount": null,
-      "coverage_territory": null,
-      "retroactive_date": null
-    }
-  ],
-  "entities": [
-    {
-      "type": "Coverage",
-      "id": "cov_building_coverage",
-      "confidence": 0.96,
-      "attributes": {
-        "name": "Building Coverage",
-        "limit_amount": 5000000,
-        "deductible_amount": 5000,
-        "per_occurrence": true
-      }
-    }
-  ],
-  "confidence": 0.93
-}
+Each extracted coverage MUST produce:
+- One Coverage entity
+- Confidence score
+- Attributes aligned to extracted fields
 
 ---
 
 ### OUTPUT FORMAT
+
 {
   "coverages": [ ... ],
   "entities": [ ... ],

@@ -6,7 +6,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.product.policy_comparison.preflight_validator import PreflightValidator
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
-from app.services.product.policy_comparison.numeric_diff_service import NumericDiffService
+from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
 from app.repositories.workflow_output_repository import WorkflowOutputRepository
 from app.schemas.workflows.policy_comparison import (
     PolicyComparisonResult,
@@ -38,7 +38,7 @@ class PolicyComparisonService:
         self.session = session
         self.preflight_validator = PreflightValidator(session)
         self.section_alignment_service = SectionAlignmentService(session)
-        self.numeric_diff_service = NumericDiffService(session)
+        self.detailed_comparison_service = DetailedComparisonService(session)
         self.output_repo = WorkflowOutputRepository(session)
 
     async def execute_comparison(
@@ -78,8 +78,8 @@ class PolicyComparisonService:
             section_types=REQUIRED_SECTIONS,
         )
 
-        # Step 3: Numeric diff computation
-        changes = await self.numeric_diff_service.compute_numeric_diffs(
+        # Step 3: Detailed comparison
+        changes = await self.detailed_comparison_service.compute_comparison(
             aligned_sections=aligned_sections
         )
 

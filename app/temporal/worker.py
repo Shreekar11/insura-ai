@@ -120,7 +120,7 @@ async def main():
             policy_comparison_activities.check_document_readiness_activity,
             policy_comparison_activities.phase_b_preflight_activity,
             policy_comparison_activities.section_alignment_activity,
-            policy_comparison_activities.numeric_diff_activity,
+            policy_comparison_activities.detailed_comparison_activity,
             policy_comparison_activities.persist_comparison_result_activity,
         ],
         max_concurrent_activities=5,

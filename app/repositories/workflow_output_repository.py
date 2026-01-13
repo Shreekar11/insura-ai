@@ -14,7 +14,7 @@ class WorkflowOutputRepository(BaseRepository[WorkflowOutput]):
     """Repository for managing workflow outputs."""
 
     def __init__(self, session: AsyncSession):
-        super().__init__(WorkflowOutput, session)
+        super().__init__(session, WorkflowOutput)
 
     async def create_output(
         self,
@@ -40,7 +40,7 @@ class WorkflowOutputRepository(BaseRepository[WorkflowOutput]):
         Returns:
             Created WorkflowOutput instance
         """
-        output = WorkflowOutput(
+        return await self.create(
             workflow_id=workflow_id,
             workflow_definition_id=workflow_definition_id,
             workflow_name=workflow_name,
@@ -49,9 +49,6 @@ class WorkflowOutputRepository(BaseRepository[WorkflowOutput]):
             result=result,
             output_metadata=output_metadata or {},
         )
-        self.session.add(output)
-        await self.session.flush()
-        return output
 
     async def get_by_workflow_id(self, workflow_id: UUID) -> Optional[WorkflowOutput]:
         """Retrieve workflow output by workflow ID.

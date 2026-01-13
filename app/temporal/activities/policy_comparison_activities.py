@@ -6,7 +6,7 @@ from temporalio import activity
 from app.core.database import async_session_maker
 from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
-from app.services.product.policy_comparison.numeric_diff_service import NumericDiffService
+from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
 from app.schemas.workflows.policy_comparison import SectionAlignment
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
@@ -141,7 +141,7 @@ async def check_document_readiness_activity(workflow_id: str, document_ids: list
 
 
 @activity.defn
-async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str], document_profile: dict) -> dict:
+async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) -> dict:
     """Phase B: Capability Pre-Flight Validation.
     
     Validates that documents have required capabilities after processing:
@@ -156,7 +156,6 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str], 
     Args:
         workflow_id: UUID of the workflow execution (as string)
         document_ids: List of 2 document UUIDs (as strings)
-        document_profile: Document profile (as dictionary)
         
     Returns:
         Dictionary with capability validation results and comparison scope
@@ -261,10 +260,10 @@ async def section_alignment_activity(workflow_id: str, document_ids: list[str]) 
 
 
 @activity.defn
-async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dict:
-    """Temporal activity for numeric diff computation.
+async def detailed_comparison_activity(workflow_id: str, alignment_result: dict) -> dict:
+    """Temporal activity for detailed comparison.
     
-    Computes numeric differences for aligned sections.
+    Computes detailed differences for aligned sections using recursive traversal.
     
     Args:
         workflow_id: UUID of the workflow execution (as string)
@@ -274,10 +273,10 @@ async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dic
         Dictionary with computed changes (serialized)
     """
     try:
-        LOGGER.info(f"Starting numeric diff activity for workflow {workflow_id}")
+        LOGGER.info(f"Starting detailed comparison activity for workflow {workflow_id}")
 
         async with async_session_maker() as session:
-            diff_service = NumericDiffService(session)
+            diff_service = DetailedComparisonService(session)
 
             # Deserialize alignments
             from decimal import Decimal
@@ -293,9 +292,14 @@ async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dic
                 for a in alignment_result["alignments"]
             ]
 
-            changes = await diff_service.compute_numeric_diffs(aligned_sections=alignments)
+            changes = await diff_service.compute_comparison(aligned_sections=alignments)
 
             # Serialize changes for Temporal
+            def sanitize(val):
+                if isinstance(val, Decimal):
+                    return float(val)
+                return val
+
             serialized_changes = [
                 {
                     "field_name": c.field_name,
@@ -318,7 +322,7 @@ async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dic
             ]
 
             LOGGER.info(
-                f"Numeric diff completed for workflow {workflow_id}: {len(changes)} changes detected"
+                f"Detailed comparison completed for workflow {workflow_id}: {len(changes)} items processed"
             )
 
             return {
@@ -327,7 +331,7 @@ async def numeric_diff_activity(workflow_id: str, alignment_result: dict) -> dic
             }
 
     except Exception as e:
-        LOGGER.error(f"Numeric diff failed for workflow {workflow_id}: {e}", exc_info=True)
+        LOGGER.error(f"Detailed comparison failed for workflow {workflow_id}: {e}", exc_info=True)
         raise
 
 

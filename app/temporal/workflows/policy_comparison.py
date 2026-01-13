@@ -226,17 +226,17 @@ class PolicyComparisonWorkflow:
 
         workflow.logger.info(f"Section alignment completed: {alignment_result}")
 
-        # Numeric Diff Computation
-        self._current_step = "numeric_diff"
+        # Detailed Entity Comparison
+        self._current_step = "detailed_comparison"
         self._progress = 0.75
 
         diff_result = await workflow.execute_activity(
-            "numeric_diff_activity",
+            "detailed_comparison_activity",
             args=[workflow_id, alignment_result],
             start_to_close_timeout=timedelta(seconds=120),
         )
 
-        workflow.logger.info(f"Numeric diff completed: {diff_result}")
+        workflow.logger.info(f"Detailed comparison completed: {diff_result}")
 
         # Persist Comparison Result
         self._current_step = "persist_result"
