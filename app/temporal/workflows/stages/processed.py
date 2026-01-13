@@ -88,9 +88,12 @@ class ProcessedStageWorkflow:
             table_result = {"tables_found": 0}
         
         # Phase 4: Hybrid Chunking
+        document_profile = page_manifest.get('document_profile', {})
+        section_boundaries = document_profile.get('section_boundaries', [])
+        
         chunking_result = await workflow.execute_child_workflow(
             HybridChunkingWorkflow.run,
-            args=[workflow_id, document_id, page_section_map, target_sections],
+            args=[workflow_id, document_id, page_section_map, target_sections, section_boundaries],
             id=f"stage-processed-chunking-{document_id}",
             task_queue="documents-queue",
         )

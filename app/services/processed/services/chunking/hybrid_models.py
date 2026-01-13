@@ -28,6 +28,25 @@ class SectionType(str, Enum):
     FINANCIAL_STATEMENT = "financial_statement"
     UNKNOWN = "unknown"
 
+    # LOB-specific sections (ADD THESE)
+    VEHICLE_DETAILS = "vehicle_details"
+    LIABILITY_COVERAGES = "liability_coverages"
+    INSURED_DECLARED_VALUE = "insured_declared_value"
+    DRIVER_INFORMATION = "driver_information"
+    VEHICLE_INFORMATION = "vehicle_information"
+    AUTO_COVERAGES = "auto_coverages"
+    BUILDING_INFORMATION = "building_information"
+    PROPERTY_DETAILS = "property_details"
+    CONSTRUCTION_DETAILS = "construction_details"
+    PROPERTY_COVERAGES = "property_coverages"
+    LOCATION_DETAILS = "location_details"
+    CLASS_CODES = "class_codes"
+    PAYROLL_INFORMATION = "payroll_information"
+    EXPERIENCE_MODIFICATION = "experience_modification"
+    PREMIUM_BREAKDOWN = "premium_breakdown"
+    PAYMENT_SCHEDULE = "payment_schedule"
+    BILLING_INFORMATION = "billing_information"
+
 
 class ChunkRole(str, Enum):
     """Role classification for chunks based on content type."""
@@ -318,6 +337,27 @@ SECTION_CONFIG = {
         "max_chunks": 5,
         "max_tokens": 5000,
         "priority": 4,
+        "requires_llm": True,
+        "table_only": False,
+    },
+    SectionType.VEHICLE_DETAILS: {
+        "max_chunks": 5,
+        "max_tokens": 5000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+    },
+    SectionType.INSURED_DECLARED_VALUE: {
+        "max_chunks": 3,
+        "max_tokens": 4000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+    },
+    SectionType.LIABILITY_COVERAGES: {
+        "max_chunks": 5,
+        "max_tokens": 5000,
+        "priority": 2,
         "requires_llm": True,
         "table_only": False,
     },

@@ -33,8 +33,21 @@ class SectionTypeMapper:
         PageType.BOILERPLATE: SectionType.UNKNOWN,
         PageType.DUPLICATE: SectionType.UNKNOWN,
         PageType.TABLE_OF_CONTENTS: SectionType.UNKNOWN,
+        PageType.VEHICLE_DETAILS: SectionType.VEHICLE_DETAILS,
+        PageType.INSURED_DECLARED_VALUE: SectionType.INSURED_DECLARED_VALUE,
+        PageType.LIABILITY_COVERAGES: SectionType.LIABILITY_COVERAGES,
         PageType.UNKNOWN: SectionType.UNKNOWN,
     }
+    
+    GRANULAR_TO_CORE_MAP: dict[SectionType, SectionType] = {
+        SectionType.VEHICLE_DETAILS: SectionType.DECLARATIONS,
+        SectionType.INSURED_DECLARED_VALUE: SectionType.DECLARATIONS,
+        SectionType.LIABILITY_COVERAGES: SectionType.COVERAGES,
+        SectionType.INSURING_AGREEMENT: SectionType.COVERAGES,
+        SectionType.PREMIUM_SUMMARY: SectionType.DECLARATIONS,
+        SectionType.FINANCIAL_STATEMENT: SectionType.DECLARATIONS,
+    }
+
     
     # Reverse mapping for SectionType -> PageType
     SECTION_TO_PAGE_MAP: dict[SectionType, PageType] = {
@@ -49,6 +62,9 @@ class SectionTypeMapper:
         SectionType.INSURING_AGREEMENT: PageType.UNKNOWN,
         SectionType.PREMIUM_SUMMARY: PageType.UNKNOWN,
         SectionType.FINANCIAL_STATEMENT: PageType.UNKNOWN,
+        SectionType.VEHICLE_DETAILS: PageType.VEHICLE_DETAILS,
+        SectionType.INSURED_DECLARED_VALUE: PageType.INSURED_DECLARED_VALUE,
+        SectionType.LIABILITY_COVERAGES: PageType.LIABILITY_COVERAGES,
         SectionType.UNKNOWN: PageType.UNKNOWN,
     }
     
@@ -68,6 +84,9 @@ class SectionTypeMapper:
         "insuring_agreement": SectionType.INSURING_AGREEMENT,
         "premium_summary": SectionType.PREMIUM_SUMMARY,
         "financial_statement": SectionType.FINANCIAL_STATEMENT,
+        "vehicle_details": SectionType.VEHICLE_DETAILS,
+        "insured_declared_value": SectionType.INSURED_DECLARED_VALUE,
+        "liability_coverages": SectionType.LIABILITY_COVERAGES,
         "unknown": SectionType.UNKNOWN,
     }
     
@@ -140,3 +159,65 @@ class SectionTypeMapper:
         """
         return cls.page_type_to_section_type(page_type)
 
+    @classmethod
+    def normalize_to_core_section(cls, section_type: SectionType) -> SectionType:
+        """Normalize a granular section type to a core policy section type.
+        
+        Maps motor-policy-specific section types to core policy sections 
+        that have extractors (e.g., vehicle_details -> declarations).
+        
+        Args:
+            section_type: The granular SectionType to normalize
+            
+        Returns:
+            Core SectionType for chunking/extraction
+        """
+        return cls.GRANULAR_TO_CORE_MAP.get(section_type, section_type)
+    
+    @classmethod
+    def normalize_string_to_core_section(cls, section_str: str) -> SectionType:
+        """Normalize a section string to a core policy section type.
+        
+        Args:
+            section_str: Section type as string
+            
+        Returns:
+            Core SectionType for chunking/extraction
+        """
+        section_type = cls.string_to_section_type(section_str)
+        return cls.normalize_to_core_section(section_type)
+    # Mapping from granular SectionType to core product concepts
+    # This is used for checking if a document "has coverages", etc.
+    PRODUCT_CONCEPT_MAP: dict[SectionType, str] = {
+        SectionType.DECLARATIONS: "declarations",
+        SectionType.VEHICLE_DETAILS: "declarations",
+        SectionType.INSURED_DECLARED_VALUE: "declarations",
+        SectionType.PREMIUM_SUMMARY: "declarations",
+        SectionType.FINANCIAL_STATEMENT: "declarations",
+        SectionType.COVERAGES: "coverages",
+        SectionType.LIABILITY_COVERAGES: "coverages",
+        SectionType.INSURING_AGREEMENT: "coverages",
+        SectionType.CONDITIONS: "conditions",
+        SectionType.EXCLUSIONS: "exclusions",
+        SectionType.ENDORSEMENTS: "endorsements",
+        SectionType.DEFINITIONS: "definitions",
+        SectionType.SOV: "sov",
+        SectionType.LOSS_RUN: "loss_run",
+    }
+
+    @classmethod
+    def get_product_concepts(cls, section_types: list[SectionType]) -> list[str]:
+        """Map a list of SectionTypes to unique core product concepts.
+        
+        Args:
+            section_types: List of SectionType enums
+            
+        Returns:
+            List of unique product concept strings
+        """
+        concepts = set()
+        for st in section_types:
+            concept = cls.PRODUCT_CONCEPT_MAP.get(st)
+            if concept:
+                concepts.add(concept)
+        return sorted(list(concepts))

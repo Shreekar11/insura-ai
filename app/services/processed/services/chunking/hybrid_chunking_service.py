@@ -11,6 +11,7 @@ import re
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
+from app.models.page_analysis_models import SectionBoundary
 from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     HybridChunkMetadata,
@@ -174,6 +175,7 @@ class HybridChunkingService:
         pages: List[PageData],
         document_id: Optional[UUID] = None,
         page_section_map: Optional[Dict[int, str]] = None,
+        section_boundaries: Optional[List[SectionBoundary]] = None,
     ) -> ChunkingResult:
         """Chunk document pages using hybrid strategy.
         
@@ -209,6 +211,7 @@ class HybridChunkingService:
                 "document_id": str(document_id) if document_id else None,
                 "page_count": len(pages),
                 "has_page_section_map": page_section_map is not None,
+                "has_section_boundaries": section_boundaries is not None,
                 "has_metadata_sections": has_metadata_sections,
             }
         )
@@ -228,7 +231,12 @@ class HybridChunkingService:
             page_sections = self._detect_page_sections(pages)
         
         # Step 2: Create hybrid chunks
-        chunks = self._create_hybrid_chunks(pages, page_sections, document_id)
+        chunks = self._create_hybrid_chunks(
+            pages, 
+            page_sections, 
+            document_id,
+            section_boundaries=section_boundaries
+        )
         
         # Step 3: Build section super-chunks
         super_chunks = self._build_super_chunks(chunks, document_id)
@@ -460,6 +468,7 @@ class HybridChunkingService:
         pages: List[PageData],
         page_sections: Dict[int, SectionType],
         document_id: Optional[UUID],
+        section_boundaries: Optional[List[SectionBoundary]] = None,
     ) -> List[HybridChunk]:
         """Create hybrid chunks from pages with semantic section awareness.
         
@@ -470,10 +479,13 @@ class HybridChunkingService:
             pages: List of pages
             page_sections: Initial mapping of page numbers to sections (baselines)
             document_id: Document ID for metadata
+            section_boundaries: Optional intra-page section boundaries
             
         Returns:
             List of HybridChunks
         """
+        from app.utils.section_type_mapper import SectionTypeMapper
+        
         chunks = []
         chunk_index = 0
         
@@ -486,6 +498,14 @@ class HybridChunkingService:
         current_has_tables = False
         current_table_count = 0
         
+        # Index boundaries by page for fast lookup
+        boundaries_by_page = {}
+        if section_boundaries:
+            for b in section_boundaries:
+                if b.start_page not in boundaries_by_page:
+                    boundaries_by_page[b.start_page] = []
+                boundaries_by_page[b.start_page].append(b)
+
         for page in pages:
             page_num = page.page_number
             content = page.get_content()
@@ -498,15 +518,33 @@ class HybridChunkingService:
             page_has_tables = page.metadata.get("has_tables", False)
             page_table_count = page.metadata.get("table_count", 0)
             
+            # Line tracking for boundaries (very simplified, assumes 1 para = few lines)
+            # This is a bit of a heuristic since we've split by paragraphs not lines
+            # but usually paragraph transitions align with section transitions.
+            current_line_estimation = 1
+            
             for para_idx, para in enumerate(paragraphs):
                 para_tokens = self.token_counter.count_tokens(para)
+                para_line_count = para.count('\n') + 1
                 
-                # Detect section transition within the paragraph
+                # Detect section transition
                 detected_section = self._detect_section_type(para)
+                
+                # Check for explicit boundary transition
+                page_boundaries = boundaries_by_page.get(page_num, [])
+                boundary_section = SectionType.UNKNOWN
+                for b in page_boundaries:
+                    # If boundary specifies a line number, and we've reached it
+                    if b.start_line is not None:
+                        if current_line_estimation >= b.start_line:
+                            boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
+                    # If it doesn't specify a line but is a multi-section mapping for this page
+                    # we rely on detected_section or first paragraph for now
                 
                 transition_occurred = False
                 new_section = current_section
                 
+                # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
                 if detected_section != SectionType.UNKNOWN and detected_section != current_section:
                     LOGGER.info(
                         f"Section transition detected via header: {current_section} -> {detected_section}",
@@ -514,13 +552,31 @@ class HybridChunkingService:
                     )
                     transition_occurred = True
                     new_section = detected_section
-                elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
+                elif boundary_section != SectionType.UNKNOWN and boundary_section != current_section:
                     LOGGER.info(
-                        f"Section transition detected via manifest: {current_section} -> {manifest_section}",
-                        extra={"page": page_num}
+                        f"Section transition detected via boundary: {current_section} -> {boundary_section}",
+                        extra={"page": page_num, "line": current_line_estimation}
                     )
                     transition_occurred = True
-                    new_section = manifest_section
+                    new_section = boundary_section
+                elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
+                    # Only use manifest section at start of page if no other transition detected
+                    # Note: if manifest_section is "comma,separated", SectionTypeMapper should handle it
+                    # although it currently returns UNKNOWN for comma-separated.
+                    # We might need to handle the first element of comma-separated list here.
+                    
+                    actual_manifest_section = manifest_section
+                    if isinstance(manifest_section, str) and "," in manifest_section:
+                        first_type = manifest_section.split(",")[0]
+                        actual_manifest_section = SectionTypeMapper.string_to_section_type(first_type)
+
+                    if actual_manifest_section != current_section:
+                        LOGGER.info(
+                            f"Section transition detected via manifest: {current_section} -> {actual_manifest_section}",
+                            extra={"page": page_num}
+                        )
+                        transition_occurred = True
+                        new_section = actual_manifest_section
                 
                 # Handle oversized paragraph - split it internally
                 if para_tokens > self.max_tokens:
@@ -626,6 +682,8 @@ class HybridChunkingService:
                 if page_has_tables:
                     current_has_tables = True
                     current_table_count = max(current_table_count, page_table_count)
+                
+                current_line_estimation += para_line_count
         
         # Flush final chunk
         if current_buffer:

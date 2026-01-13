@@ -27,6 +27,7 @@ class HybridChunkingWorkflow:
         document_id: str,
         page_section_map: Optional[Dict[int, str]] = None,
         target_sections: Optional[List[str]] = None,
+        section_boundaries: Optional[List[Dict]] = None,
     ) -> dict:
         """
         Perform hybrid chunking on document pages.
@@ -67,7 +68,7 @@ class HybridChunkingWorkflow:
         # Execute hybrid chunking activity with section map and target sections
         result = await workflow.execute_activity(
             "perform_hybrid_chunking",
-            args=[workflow_id, document_id, page_section_map, target_sections],
+            args=[workflow_id, document_id, page_section_map, target_sections, section_boundaries],
             start_to_close_timeout=timedelta(minutes=15),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),

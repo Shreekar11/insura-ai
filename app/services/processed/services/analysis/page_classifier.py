@@ -10,7 +10,9 @@ from typing import List, Dict, Tuple, Optional
 from app.models.page_analysis_models import (
     PageSignals,
     PageClassification,
-    PageType
+    PageType,
+    SectionSpan,
+    TextSpan
 )
 from app.utils.logging import get_logger
 
@@ -185,6 +187,32 @@ class PageClassifier:
             r'il\s+\d{2}\s+\d{2}',
             r'all\s+rights\s+reserved',
             r'proprietary\s+information',
+        ],
+        PageType.VEHICLE_DETAILS: [
+            r'vehicle\s+details',
+            r'particulars\s+of\s+(insured\s+)?vehicle',
+            r'schedule\s+of\s+vehicles?',
+            r'description\s+of\s+vehicles?',
+            r'registration\s+no\.?',
+            r'chassis\s+number',
+            r'engine\s+number',
+            r'make\s*/\s*model',
+            r'year\s+of\s+manufacture',
+        ],
+        PageType.INSURED_DECLARED_VALUE: [
+            r'insured\'?s?\s+declared\s+value',
+            r'idv\s*$',
+            r'idv\s*[:\-]',
+            r'sum\s+insured',
+            r'total\s+sum\s+insured',
+        ],
+        PageType.LIABILITY_COVERAGES: [
+            r'liability\s+coverage',
+            r'third\s+party\s+liability',
+            r'personal\s+accident\s+cover',
+            r'limits?\s+of\s+liability',
+            r'compulsory\s+pa\s+cover',
+            r'liability\s+to\s+third\s+parties',
         ]
     }
     
@@ -260,6 +288,15 @@ class PageClassifier:
             should_process=should_process,
             reasoning=reasoning
         )
+
+        # Detect multiple section spans if we have full text
+        if signals.all_lines:
+            spans = self._detect_section_spans(signals.all_lines, initial_type=page_type)
+            if spans:
+                classification.sections = spans
+                # If we detected multiple high-confidence spans, boost should_process
+                if len(spans) > 1 and any(s.confidence > 0.8 for s in spans):
+                    classification.should_process = True
         
         logger.debug(
             f"Page {signals.page_number} classified as {page_type} "
@@ -285,6 +322,16 @@ class PageClassifier:
         """
         best_match = PageType.UNKNOWN
         best_score = 0.0
+        match_scores: dict[PageType, tuple[int, float]] = {}
+        
+        # Priority section types that should be preferred over granular types
+        PRIORITY_TYPES = {PageType.DECLARATIONS, PageType.COVERAGES}
+        # Granular types that map to priority types
+        GRANULAR_TYPES = {
+            PageType.VEHICLE_DETAILS, 
+            PageType.INSURED_DECLARED_VALUE, 
+            PageType.LIABILITY_COVERAGES
+        }
         
         for page_type, patterns in self.SECTION_PATTERNS.items():
             matches = 0
@@ -295,11 +342,25 @@ class PageClassifier:
             # Calculate score based on match ratio
             if matches > 0:
                 score = min(matches / len(patterns) + 0.5, 1.0)
+                match_scores[page_type] = (matches, score)
                 if score > best_score:
                     best_score = score
                     best_match = page_type
         
+        # Priority adjustment: If both a priority type and a granular type match,
+        # prefer the priority type if it has reasonable matches
+        if best_match in GRANULAR_TYPES:
+            for priority_type in PRIORITY_TYPES:
+                if priority_type in match_scores:
+                    priority_matches, priority_score = match_scores[priority_type]
+                    # If priority type has at least 2 matches, prefer it
+                    if priority_matches >= 2:
+                        best_match = priority_type
+                        best_score = priority_score
+                        break
+        
         return best_match, best_score
+
     
     def _match_declarations_patterns(
         self, 
@@ -432,7 +493,9 @@ class PageClassifier:
         key_sections = [
             PageType.DECLARATIONS,
             PageType.COVERAGES,
-            PageType.ENDORSEMENT
+            PageType.ENDORSEMENT,
+            PageType.VEHICLE_DETAILS,
+            PageType.LIABILITY_COVERAGES,
         ]
         if page_type in key_sections:
             if page_type == PageType.DECLARATIONS and signals.page_number <= 3:
@@ -443,7 +506,8 @@ class PageClassifier:
         table_sections = [
             PageType.SOV,
             PageType.LOSS_RUN,
-            PageType.INVOICE
+            PageType.INVOICE,
+            PageType.INSURED_DECLARED_VALUE,
         ]
         if page_type in table_sections:
             return True
@@ -466,6 +530,72 @@ class PageClassifier:
         
         return False
     
+    def _detect_section_spans(self, lines: List[str], initial_type: PageType = PageType.UNKNOWN) -> List[SectionSpan]:
+        """Detect multiple section spans within a page.
+        
+        This uses anchor detection to find where new sections start on a page.
+        """
+        spans = []
+        current_type = initial_type
+        current_start = 1
+        
+        line_count = len(lines)
+        
+        # We only care about specific section types that often co-exist on a page
+        TARGET_SPAN_TYPES = [
+            PageType.DECLARATIONS,
+            PageType.VEHICLE_DETAILS,
+            PageType.INSURED_DECLARED_VALUE,
+            PageType.LIABILITY_COVERAGES,
+            PageType.COVERAGES,
+            PageType.DEFINITIONS,
+        ]
+        
+        for i, line in enumerate(lines, 1):
+            line_clean = line.strip().lower()
+            if not line_clean:
+                continue
+            
+            # Check for section headers/anchors
+            detected_type = PageType.UNKNOWN
+            max_p_confidence = 0.0
+            
+            for p_type in TARGET_SPAN_TYPES:
+                patterns = self.SECTION_PATTERNS.get(p_type, [])
+                for pattern in patterns:
+                    # For span detection, we look for more definitive matches (usually start of line)
+                    if re.match(r'^#*\s*' + pattern, line_clean, re.IGNORECASE):
+                        detected_type = p_type
+                        max_p_confidence = 0.85
+                        break
+                if detected_type != PageType.UNKNOWN:
+                    break
+            
+            if detected_type != PageType.UNKNOWN:
+                # If we were in a section, close it (only if it has content)
+                if current_type != PageType.UNKNOWN and i - 1 >= current_start:
+                    spans.append(SectionSpan(
+                        section_type=current_type,
+                        confidence=0.9,
+                        span=TextSpan(start_line=current_start, end_line=i-1),
+                        reasoning=f"Detected {current_type.value} until next section anchor"
+                    ))
+                
+                # Start new section
+                current_type = detected_type
+                current_start = i
+        
+        # Close the last section
+        if current_type != PageType.UNKNOWN:
+            spans.append(SectionSpan(
+                section_type=current_type,
+                confidence=0.9,
+                span=TextSpan(start_line=current_start, end_line=line_count),
+                reasoning=f"Detected {current_type.value} until end of page"
+            ))
+            
+        return spans
+
     def _generate_reasoning(
         self, 
         page_type: PageType, 

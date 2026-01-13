@@ -25,6 +25,9 @@ class PageType(str, Enum):
     DUPLICATE = "duplicate"
     DEFINITIONS = "definitions"
     TABLE_OF_CONTENTS = "table_of_contents"
+    VEHICLE_DETAILS = "vehicle_details"
+    INSURED_DECLARED_VALUE = "insured_declared_value"
+    LIABILITY_COVERAGES = "liability_coverages"
     UNKNOWN = "unknown"
 
 
@@ -55,7 +58,11 @@ class PageSignals(BaseModel):
     page_number: int = Field(..., description="1-indexed page number")
     top_lines: List[str] = Field(
         ..., 
-        description="First 5-10 lines of text from the page"
+        description="First few lines of the page or detected headings"
+    )
+    all_lines: List[str] = Field(
+        default_factory=list,
+        description="All lines of text for multi-section span detection"
     )
     text_density: float = Field(
         ..., 
@@ -98,6 +105,22 @@ class PageSignals(BaseModel):
     )
 
 
+class TextSpan(BaseModel):
+    """Represents a span of text within a page using line numbers."""
+    
+    start_line: int = Field(..., ge=1, description="Starting line number (1-indexed)")
+    end_line: int = Field(..., ge=1, description="Ending line number (inclusive)")
+
+
+class SectionSpan(BaseModel):
+    """Represents a classified section block within a page."""
+    
+    section_type: PageType = Field(..., description="Type of section detected in span")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence for this span")
+    span: Optional[TextSpan] = Field(None, description="Coordinates of the section in the text")
+    reasoning: Optional[str] = Field(None, description="Reasoning for this span detection")
+
+
 class PageClassification(BaseModel):
     """Classification result for a single page."""
     
@@ -120,6 +143,10 @@ class PageClassification(BaseModel):
     reasoning: Optional[str] = Field(
         None, 
         description="Human-readable explanation of classification"
+    )
+    sections: List[SectionSpan] = Field(
+        default_factory=list,
+        description="List of detected sections within the page (for multi-section pages)"
     )
     
     model_config = ConfigDict(
@@ -231,6 +258,8 @@ class SectionBoundary(BaseModel):
     section_type: PageType = Field(..., description="Type of section")
     start_page: int = Field(..., ge=1, description="Starting page number (1-indexed)")
     end_page: int = Field(..., ge=1, description="Ending page number (inclusive)")
+    start_line: Optional[int] = Field(None, description="Starting line number within start_page")
+    end_line: Optional[int] = Field(None, description="Ending line number within end_page")
     confidence: float = Field(
         ..., 
         ge=0.0, 
@@ -288,9 +317,17 @@ class DocumentProfile(BaseModel):
         ..., 
         description="Mapping of page numbers to section types"
     )
+    section_type_distribution: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of pages by normalized section type"
+    )
+    product_concepts: List[str] = Field(
+        default_factory=list,
+        description="List of core insurance concepts found (declarations, coverages, etc.)"
+    )
     page_type_distribution: Dict[str, int] = Field(
         ..., 
-        description="Count of pages by type"
+        description="Count of pages by raw page type"
     )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
@@ -305,6 +342,8 @@ class DocumentProfile(BaseModel):
     @property
     def has_declarations(self) -> bool:
         """Whether document has a declarations section."""
+        if self.product_concepts:
+            return "declarations" in self.product_concepts
         return any(
             sb.section_type == PageType.DECLARATIONS 
             for sb in self.section_boundaries
@@ -313,8 +352,20 @@ class DocumentProfile(BaseModel):
     @property
     def has_coverages(self) -> bool:
         """Whether document has a coverages section."""
+        if self.product_concepts:
+            return "coverages" in self.product_concepts
         return any(
             sb.section_type == PageType.COVERAGES 
+            for sb in self.section_boundaries
+        )
+    
+    @property
+    def has_endorsements(self) -> bool:
+        """Whether document has an endorsements section."""
+        if self.product_concepts:
+            return "endorsements" in self.product_concepts
+        return any(
+            sb.section_type == PageType.ENDORSEMENT 
             for sb in self.section_boundaries
         )
     

@@ -138,6 +138,7 @@ class MarkdownPageAnalyzer:
         return PageSignals(
             page_number=page_number,
             top_lines=headings if headings else top_lines,
+            all_lines=markdown_content.split('\n'),
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
