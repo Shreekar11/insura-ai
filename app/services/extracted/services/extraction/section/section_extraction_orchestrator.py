@@ -33,7 +33,8 @@ from app.services.extracted.services.extraction.section.extractors import (
     ExclusionsExtractor,
     EndorsementsExtractor,
     InsuringAgreementExtractor,
-    PremiumSummaryExtractor,
+    PremiumExtractor,
+    DeductiblesExtractor,
     DefaultSectionExtractor,
 )
 from app.utils.logging import get_logger
@@ -197,7 +198,9 @@ class SectionExtractionOrchestrator:
             SectionType.EXCLUSIONS: ExclusionsExtractor,
             SectionType.ENDORSEMENTS: EndorsementsExtractor,
             SectionType.INSURING_AGREEMENT: InsuringAgreementExtractor,
-            SectionType.PREMIUM_SUMMARY: PremiumSummaryExtractor,
+            SectionType.PREMIUM_SUMMARY: PremiumExtractor,
+            SectionType.PREMIUM: PremiumExtractor,
+            SectionType.DEDUCTIBLES: DeductiblesExtractor,
         }
         
         # Register each extractor with its section type and aliases
@@ -237,6 +240,8 @@ class SectionExtractionOrchestrator:
             SectionType.ENDORSEMENTS: ["endorsement", "endorsement forms"],
             SectionType.INSURING_AGREEMENT: ["insuring agreement", "agreement"],
             SectionType.PREMIUM_SUMMARY: ["premium", "premiums", "premium summary"],
+            SectionType.PREMIUM: ["premium", "premiums", "premium summary"],
+            SectionType.DEDUCTIBLES: ["deductible", "deductibles", "retention", "sir"],
         }
         return alias_map.get(section_type, [])
     
@@ -613,8 +618,10 @@ class SectionExtractionOrchestrator:
             return {"endorsements": parsed.get("endorsements", [])}
         elif section_type == SectionType.INSURING_AGREEMENT:
             return parsed.get("insuring_agreement", parsed)
-        elif section_type == SectionType.PREMIUM_SUMMARY:
+        elif section_type == SectionType.PREMIUM_SUMMARY or section_type == SectionType.PREMIUM:
             return parsed.get("premium", parsed)
+        elif section_type == SectionType.DEDUCTIBLES:
+            return {"deductibles": parsed.get("deductibles", [])}
         else:
             return parsed.get("extracted_data", parsed)
     

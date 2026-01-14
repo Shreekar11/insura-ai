@@ -36,6 +36,8 @@ class SectionTypeMapper:
         PageType.VEHICLE_DETAILS: SectionType.VEHICLE_DETAILS,
         PageType.INSURED_DECLARED_VALUE: SectionType.INSURED_DECLARED_VALUE,
         PageType.LIABILITY_COVERAGES: SectionType.LIABILITY_COVERAGES,
+        PageType.DEDUCTIBLES: SectionType.DEDUCTIBLES,
+        PageType.PREMIUM: SectionType.PREMIUM,
         PageType.UNKNOWN: SectionType.UNKNOWN,
     }
     
@@ -65,6 +67,8 @@ class SectionTypeMapper:
         SectionType.VEHICLE_DETAILS: PageType.VEHICLE_DETAILS,
         SectionType.INSURED_DECLARED_VALUE: PageType.INSURED_DECLARED_VALUE,
         SectionType.LIABILITY_COVERAGES: PageType.LIABILITY_COVERAGES,
+        SectionType.DEDUCTIBLES: PageType.DEDUCTIBLES,
+        SectionType.PREMIUM: PageType.PREMIUM,
         SectionType.UNKNOWN: PageType.UNKNOWN,
     }
     
@@ -87,6 +91,8 @@ class SectionTypeMapper:
         "vehicle_details": SectionType.VEHICLE_DETAILS,
         "insured_declared_value": SectionType.INSURED_DECLARED_VALUE,
         "liability_coverages": SectionType.LIABILITY_COVERAGES,
+        "deductibles": SectionType.DEDUCTIBLES,
+        "premium": SectionType.PREMIUM,
         "unknown": SectionType.UNKNOWN,
     }
     
@@ -203,6 +209,8 @@ class SectionTypeMapper:
         SectionType.DEFINITIONS: "definitions",
         SectionType.SOV: "sov",
         SectionType.LOSS_RUN: "loss_run",
+        SectionType.DEDUCTIBLES: "deductibles",
+        SectionType.PREMIUM: "premium",
     }
 
     @classmethod

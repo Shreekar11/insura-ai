@@ -213,6 +213,24 @@ class PageClassifier:
             r'limits?\s+of\s+liability',
             r'compulsory\s+pa\s+cover',
             r'liability\s+to\s+third\s+parties',
+        ],
+        PageType.DEDUCTIBLES: [
+            r'deductibles?\s+schedule',
+            r'deductible\s+amount',
+            r'retention\s*[:\-]',
+            r'self-?insured\s+retention',
+            r'sir\s*[:\-]',
+            r'deductible\s+type',
+            r'applies\s+to\s+deductible',
+        ],
+        PageType.PREMIUM: [
+            r'premium\s+summary',
+            r'premium\s+schedule',
+            r'total\s+premium\s*[:\-]?\s*\$',
+            r'premium\s+calculation',
+            r'taxes\s+and\s+fees',
+            r'installment\s+plan',
+            r'minimum\s+earned\s+premium',
         ]
     }
     

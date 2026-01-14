@@ -28,6 +28,8 @@ class PageType(str, Enum):
     VEHICLE_DETAILS = "vehicle_details"
     INSURED_DECLARED_VALUE = "insured_declared_value"
     LIABILITY_COVERAGES = "liability_coverages"
+    DEDUCTIBLES = "deductibles"
+    PREMIUM = "premium"
     UNKNOWN = "unknown"
 
 

@@ -26,6 +26,8 @@ class SectionType(str, Enum):
     INSURING_AGREEMENT = "insuring_agreement"
     PREMIUM_SUMMARY = "premium_summary"
     FINANCIAL_STATEMENT = "financial_statement"
+    DEDUCTIBLES = "deductibles"
+    PREMIUM = "premium"
     UNKNOWN = "unknown"
 
     # LOB-specific sections (ADD THESE)
@@ -357,6 +359,20 @@ SECTION_CONFIG = {
     SectionType.LIABILITY_COVERAGES: {
         "max_chunks": 5,
         "max_tokens": 5000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+    },
+    SectionType.DEDUCTIBLES: {
+        "max_chunks": 3,
+        "max_tokens": 4000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+    },
+    SectionType.PREMIUM: {
+        "max_chunks": 3,
+        "max_tokens": 4000,
         "priority": 2,
         "requires_llm": True,
         "table_only": False,

@@ -690,6 +690,7 @@ VALID_SECTION_TYPES = {
     "coverages",
     "limits",
     "deductibles",
+    "premium",
     "conditions",
     "exclusions",
     "definitions",
@@ -807,12 +808,27 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 - broker_name
 - total_premium
 - policy_type
+- quote_type
+- is_bill
 
 ### OPTIONAL FIELDS
 - additional_insureds
 - policy_form
 - retroactive_date
 - prior_acts_coverage
+- named_insured_risk_year_built
+- named_insured_risk_construction_type
+- named_insured_risk_occupancy
+- named_insured_risk_protection_class
+- issue_date
+- policy_term
+- currency
+- line_of_business
+- entity_type
+- risk_type
+- square_footage
+- number_of_units
+- exposure_metrics
 
 ---
 
@@ -820,6 +836,7 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 - Policy
 - Organization (Roles: insured, additional_insured, carrier, broker, agent, underwriter)
 - Location (For addresses)
+- RiskObject (For property/auto details)
 
 ### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
 1. **Node id ≠ business identifier**: Use stable IDs (e.g., "policy_GL-789456").
@@ -853,7 +870,8 @@ OUTPUT:
     "carrier_name": "The Hartford Insurance Company",
     "broker_name": null,
     "total_premium": 12750,
-    "policy_type": null
+    "policy_type": null,
+    "quote_type": "Firm"
   },
   "entities": [
     {
@@ -873,7 +891,8 @@ OUTPUT:
       "confidence": 0.97,
       "attributes": {
         "name": "Horizon Tech Solutions LLC",
-        "role": "insured"
+        "role": "insured",
+        "entity_type": "LLC"
       }
     },
     {
@@ -953,11 +972,16 @@ Extract ALL coverages, insured values, and liability limits explicitly stated in
 - premium_amount                # Coverage-specific premium (if stated)
 - description                   # Verbatim description text
 - sub_limits                    # Any stated sub-limits (list or null)
-- per_occurrence                # true if explicitly stated
-- aggregate                     # true if aggregate limit explicitly stated
-- aggregate_amount              # Aggregate limit value (if stated)
+- limit_per_occurrence          # Limit per occurrence (if stated)
+- limit_aggregate               # Aggregate limit (if stated)
+- valuation_basis               # RCV | ACV | Stated Value (if stated)
+- coverage_basis                # Occur | Claims-Made (if stated)
+- coverage_form                 # Special | Broad | Basic (if stated)
+- is_included                   # bool (true if explicit, false if explicitly excluded/N/A)
 - coverage_territory            # Territory / geographic scope (if stated)
 - retroactive_date              # Retroactive date (if stated)
+- coverage_category             # Property | Liability | Auto | WC
+
 
 ---
 
@@ -1176,6 +1200,7 @@ Ignore exclusions and coverage grants.
 - requirements
 - consequences
 - reference
+- compliance_required
 
 ---
 
@@ -1194,11 +1219,21 @@ OUTPUT:
       "description": "You must notify us as soon as practicable.",
       "applies_to": "Claims",
       "requirements": ["Notify insurer promptly"],
-      "consequences": null,
-      "reference": null
+      "compliance_required": true
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "type": "Condition",
+      "id": "cond_duties_event_loss",
+      "confidence": 0.95,
+      "attributes": {
+        "title": "Duties in the Event of Loss",
+        "condition_type": "Claims Condition",
+        "requirements": "Notify insurer as soon as practicable"
+      }
+    }
+  ],
   "confidence": 0.89
 }
 
@@ -1240,6 +1275,9 @@ Extract even if embedded in paragraphs.
 - applies_to
 - exceptions
 - reference
+- exclusion_scope
+- impacted_coverage
+- severity
 
 ---
 
@@ -1255,12 +1293,22 @@ OUTPUT:
       "exclusion_type": "General Exclusion",
       "title": "War or Military Action",
       "description": "This insurance does not apply to War or Military Action.",
-      "applies_to": "All Coverages",
-      "exceptions": null,
-      "reference": null
+      "exclusion_scope": "Policy Wide",
+      "impacted_coverage": "All Coverages",
+      "severity": "Material"
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "type": "Exclusion",
+      "id": "excl_war_military_action",
+      "confidence": 0.95,
+      "attributes": {
+        "title": "War or Military Action",
+        "exclusion_type": "General Exclusion"
+      }
+    }
+  ],
   "confidence": 0.87
 }
 
@@ -1294,6 +1342,16 @@ Extract even if summarized in a schedule.
 
 ---
 
+### PER ENDORSEMENT
+- endorsement_name
+- endorsement_number
+- endorsement_type          # Add | Modify | Restrict
+- impacted_coverage
+- materiality               # High | Medium | Low
+- effective_date
+
+---
+
 ### ENTITY TYPES
 - Endorsement
 - Coverage (if modified)
@@ -1315,6 +1373,16 @@ Effective 01/01/2024"
 
 OUTPUT:
 {
+  "endorsements": [
+    {
+      "endorsement_name": "Additional Insured",
+      "endorsement_number": "IL 00 21",
+      "endorsement_type": "Add",
+      "impacted_coverage": "General Liability",
+      "materiality": "High",
+      "effective_date": "2024-01-01"
+    }
+  ],
   "entities": [
     {
       "type": "Endorsement",
@@ -1327,7 +1395,7 @@ OUTPUT:
       }
     }
   ],
-  "confidence": 0.86
+  "confidence": 0.98
 }
 
 ---
@@ -1450,6 +1518,8 @@ Extract values ONLY if they are explicitly stated.
 - taxes_and_fees: list of {type, amount}
 - payment_terms: Narrative description of payment terms
 - installment_schedule: list of {due_date, amount} if applicable
+- minimum_earned_premium: Amount if stated
+- term_length: Duration (e.g., "12 months")
 
 ---
 
@@ -1480,8 +1550,7 @@ OUTPUT:
     "taxes_and_fees": [
       {"type": "State Tax", "amount": 1250}
     ],
-    "payment_terms": null,
-    "installment_schedule": null
+    "minimum_earned_premium": null
   },
   "entities": [
     {
@@ -1505,6 +1574,97 @@ OUTPUT:
   "confidence": 0.0
 }
 """
+
+
+PREMIUM_EXTRACTION_PROMPT = PREMIUM_SUMMARY_EXTRACTION_PROMPT
+
+DEDUCTIBLES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Extract ONLY from the DEDUCTIBLES or financial retention section.
+3. A deductible is a fixed amount or percentage that the insured must pay before the insurer covers a loss.
+4. Do NOT confuse with coverage limits or premiums.
+5. Preserve original wording for labels.
+6. Normalize:
+   - Amounts → numeric (no currency symbols)
+   - Percentages → decimal (e.g., 5% -> 0.05)
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only.
+
+You are an insurance technical auditor specializing in DEDUCTIBLES.
+
+### FIELDS TO EXTRACT
+- deductible_name             # Label (e.g., "Wind/Hail", "All Other Perils")
+- amount                      # Numeric value (if stated)
+- percentage                  # Decimal value (if stated, e.g., 0.02 for 2%)
+- deductible_type             # Flat | Percentage | Time Element (Days)
+- applies_to                  # Narrative (e.g., "Each Occurrence", "Each Building")
+- applies_to_coverage         # Specific coverage name if linked
+- min_amount                  # Minimum dollar amount (if stated)
+- max_amount                  # Maximum dollar amount (if stated)
+- is_sir                      # bool (true if labeled as Self-Insured Retention)
+- retention_type              # Deductible | SIR
+
+---
+
+- Create one Deductible node per coverage or deductible type.
+- Do NOT infer deductibles not explicitly stated.
+- If deductible applies to multiple coverages, repeat with coverage_scope = "multiple".
+- Do not invent amounts.
+
+NODE TYPE: Deductible
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Deductibles:
+Losses covered under Section I are subject to a deductible of $1,000.
+
+OUTPUT:
+{
+  "deductibles": [
+    {
+      "deductible_name": "Section I Deductible",
+      "amount": 1000,
+      "deductible_type": "Flat",
+      "applies_to": "Losses covered under Section I",
+      "retention_type": "Deductible",
+      "is_sir": false
+    }
+  ],
+  "entities": [
+    {
+      "type": "Deductible",
+      "id": "ded_section_i_property",
+      "confidence": 0.98,
+      "attributes": {
+        "coverage_scope": "Section I - Property",
+        "amount": 1000,
+        "currency": "USD",
+        "deductible_type": "per_loss",
+        "retention_type": "deductible"
+      }
+    }
+  ],
+  "confidence": 0.98
+}
+
+
+---
+
+### OUTPUT FORMAT
+{
+  "deductibles": [ { ... } ],
+  entities: [ { ... } ],
+  "confidence": 0.0
+}
+"""
+
 
 DEFAULT_SECTION_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
