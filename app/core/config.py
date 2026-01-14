@@ -13,15 +13,18 @@ LOGGER = get_logger(__name__)
 # Find .env file - check multiple possible locations
 def find_env_file() -> Optional[Path]:
     """Find .env file in multiple possible locations."""
+    import os
+    current_dir = os.path.dirname(os.path.abspath(__file__))
+    
     possible_paths = [
-        Path.cwd() / ".env",  # Current working directory
-        Path(__file__).resolve().parent / ".env",  # Same directory as config.py
-        Path(__file__).resolve().parent.parent / ".env",  # Parent directory (project root)
-        Path(__file__).resolve().parent.parent.parent / ".env",  # Two levels up
+        os.path.join(current_dir, ".env"),
+        os.path.join(os.path.dirname(current_dir), ".env"),
+        os.path.join(os.path.dirname(os.path.dirname(current_dir)), ".env"),
     ]
     
-    for path in possible_paths:
-        if path.exists():
+    for path_str in possible_paths:
+        if os.path.exists(path_str):
+            path = Path(path_str)
             LOGGER.info(f"Found .env file at: {path}")
             return path
     

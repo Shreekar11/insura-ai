@@ -12,7 +12,7 @@ from app.repositories.workflow_repository import (
 )
 from app.repositories.stages_repository import StagesRepository
 from app.core.temporal_client import get_temporal_client
-from app.temporal.workflows.process_document import ProcessDocumentWorkflow
+from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
 from app.utils.logging import get_logger
 from app.services.base_service import BaseService
 from app.core.exceptions import ValidationError, AppError

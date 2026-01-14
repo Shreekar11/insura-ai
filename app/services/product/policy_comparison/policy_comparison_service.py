@@ -1,5 +1,6 @@
 """Main orchestration service for Policy Comparison workflow."""
 
+from typing import Optional
 from uuid import UUID
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -14,7 +15,7 @@ from app.schemas.workflows.policy_comparison import (
     ComparisonChange,
 )
 from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
-from app.temporal.configs.policy_comparison import (
+from app.temporal.product.policy_comparison.configs.policy_comparison import (
     REQUIRED_SECTIONS,
     WORKFLOW_NAME,
     WORKFLOW_VERSION,

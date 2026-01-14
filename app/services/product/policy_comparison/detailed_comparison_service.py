@@ -3,14 +3,14 @@
 import re
 import math
 from uuid import UUID
-from typing import Optional, Literal, Any
+from typing import Optional, Literal, Any, Dict
 from decimal import Decimal
 from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.schemas.workflows.policy_comparison import ComparisonChange, SectionProvenance
-from app.temporal.configs.policy_comparison import (
+from app.temporal.product.policy_comparison.configs.policy_comparison import (
     NUMERIC_FIELDS_CONFIG,
     EXCLUDED_FIELDS,
 )

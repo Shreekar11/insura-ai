@@ -6,7 +6,7 @@ from rapidfuzz import fuzz
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.exceptions import ValidationError
-from app.temporal.configs.policy_comparison import (
+from app.temporal.product.policy_comparison.configs.policy_comparison import (
     REQUIRED_SECTIONS,
     REQUIRED_ENTITIES,
     INSURED_NAME_MATCH_THRESHOLD,

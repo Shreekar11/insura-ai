@@ -1,6 +1,7 @@
-"""Temporal application package initialization."""
+"""Shared Temporal components."""
 
-from .shared import *
+from .workflows import *
+from .activities import *
 
 __all__ = [
     "ProcessDocumentWorkflow",
