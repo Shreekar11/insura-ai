@@ -940,7 +940,7 @@ You are an insurance coverage extraction specialist with expertise in:
 - Commercial and retail insurance schedules
 
 TASK:
-Extract ALL coverage grants, insured values, and liability limits listed in this section.
+Extract ALL coverages, insured values, and liability limits explicitly stated in this section.
 
 ---
 
@@ -1014,10 +1014,133 @@ Each extracted coverage MUST produce:
 
 ---
 
-### OUTPUT FORMAT
+### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
 
+1. **Coverage as First-Class Node**:  
+   Each distinct coverage MUST be emitted as a `Coverage` node with a stable, deterministic ID and linked via  
+   `Policy → HAS_COVERAGE → Coverage`.
+
+2. **No Legacy Entities**:  
+   Legacy entity types (PERSON, ORGANIZATION, ADDRESS, DATE, PREMIUM, LIMIT, DEDUCTIBLE) MUST NOT be emitted in the Coverage section.
+
+3. **Limits & Deductibles as Attributes**:  
+   Coverage limits, sublimits, aggregates, deductibles, and per-occurrence semantics MUST be captured as scalar attributes on the Coverage node.
+
+4. **Coverage Structure Handling**:  
+   Explicit coverage parts (e.g., Coverage A/B/C) MUST be emitted as child nodes (`CoveragePart`) and linked to the parent Coverage.
+
+5. **Optionality & Endorsement References**:  
+   Optional/conditional coverages MUST include a `coverage_status` attribute; endorsement references MUST be stored as string attributes only.
+
+6. **Ignore Narrative & Exclusions**:  
+   Descriptive text and exclusions MUST NOT be emitted as Coverage nodes and SHOULD be ignored unless explicitly required.
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Particulars of Insured Vehicle:
+Vehicle: Ford Figo 1.4 Duratorq LXI
+Registration No: RJ23CA4351
+Year of Manufacture: 2010
+Insured Declared Value (IDV): Rs. 2,30,769
+
+Limit of Liability:
+Third Party Property Damage Limit: Rs. 7,50,000
+Personal Accident Cover for Owner Driver: Rs. 2,00,000"
+
+OUTPUT:
 {
-  "coverages": [ ... ],
+  "fields": {
+    "coverages": [
+      {
+        "coverage_name": "Insured Declared Value",
+        "coverage_type": "Motor",
+        "limit_amount": null,
+        "deductible_amount": null,
+        "premium_amount": null,
+        "insured_declared_value": 230769,
+        "description": "Insured Declared Value (IDV) for Ford Figo 1.4 Duratorq LXI",
+        "sub_limits": null,
+        "per_occurrence": false,
+        "aggregate": false,
+        "aggregate_amount": null,
+        "coverage_territory": null,
+        "retroactive_date": null
+      },
+      {
+        "coverage_name": "Third Party Property Damage",
+        "coverage_type": "Liability",
+        "limit_amount": 750000,
+        "deductible_amount": null,
+        "premium_amount": null,
+        "insured_declared_value": null,
+        "description": "Third Party Property Damage Liability",
+        "sub_limits": null,
+        "per_occurrence": true,
+        "aggregate": false,
+        "aggregate_amount": null,
+        "coverage_territory": null,
+        "retroactive_date": null
+      },
+      {
+        "coverage_name": "Personal Accident Cover - Owner Driver",
+        "coverage_type": "Personal Accident",
+        "limit_amount": 200000,
+        "deductible_amount": null,
+        "premium_amount": null,
+        "insured_declared_value": null,
+        "description": "Personal Accident Cover for Owner Driver",
+        "sub_limits": null,
+        "per_occurrence": true,
+        "aggregate": false,
+        "aggregate_amount": null,
+        "coverage_territory": null,
+        "retroactive_date": null
+      }
+    ]
+  },
+  "entities": [
+    {
+      "type": "Coverage",
+      "id": "cov_idv_ford_figo",
+      "confidence": 0.96,
+      "attributes": {
+        "coverage_name": "Insured Declared Value",
+        "insured_declared_value": 230769,
+        "coverage_type": "Motor"
+      }
+    },
+    {
+      "type": "Coverage",
+      "id": "cov_tp_property_damage",
+      "confidence": 0.95,
+      "attributes": {
+        "coverage_name": "Third Party Property Damage",
+        "limit_amount": 750000,
+        "coverage_type": "Liability"
+      }
+    },
+    {
+      "type": "Coverage",
+      "id": "cov_pa_owner_driver",
+      "confidence": 0.95,
+      "attributes": {
+        "coverage_name": "Personal Accident Cover - Owner Driver",
+        "limit_amount": 200000,
+        "coverage_type": "Personal Accident"
+      }
+    }
+  ],
+  "confidence": 0.94
+}
+
+---
+
+### OUTPUT FORMAT
+{
+  "fields": { ... },
   "entities": [ ... ],
   "confidence": 0.0
 }
