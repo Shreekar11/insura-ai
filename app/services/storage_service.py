@@ -1,7 +1,8 @@
 """Storage service for handling Supabase storage operations."""
 
 import httpx
-from typing import Dict, Any, Optional
+import asyncio
+from typing import Dict, Any, Optional, Union
 from fastapi import UploadFile
 from app.core.config import settings
 from app.utils.logging import get_logger
@@ -23,9 +24,10 @@ class StorageService:
 
     async def upload_file(
         self, 
-        file: UploadFile, 
+        file: Any, 
         bucket: str, 
-        path: str
+        path: str,
+        content_type: str = "application/octet-stream"
     ) -> Dict[str, Any]:
         """Upload a file to Supabase storage.
 
@@ -43,11 +45,22 @@ class StorageService:
         upload_url = f"{self.base_api_url}/object/{bucket}/{path}"
         
         try:
-            content = await file.read()
+            if hasattr(file, "read"):
+                content = file.read()
+                if asyncio.iscoroutine(content):
+                    content = await content
+            else:
+                content = file
+                
+            # Use provided content_type or file's if available
+            final_content_type = content_type
+            if hasattr(file, "content_type") and file.content_type:
+                final_content_type = file.content_type
+
             async with httpx.AsyncClient() as client:
                 response = await client.post(
                     upload_url,
-                    headers={**self.headers, "Content-Type": file.content_type},
+                    headers={**self.headers, "Content-Type": final_content_type},
                     content=content,
                     timeout=settings.http_timeout
                 )

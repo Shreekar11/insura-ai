@@ -517,10 +517,11 @@ class WorkflowService(BaseService):
             temporal_client = await get_temporal_client()
             
             # Map workflow key to workflow class
-            from app.temporal.workflows.policy_comparison import PolicyComparisonWorkflow
+            from app.temporal.product.policy_comparison.workflows.policy_comparison import PolicyComparisonWorkflow
+            from app.temporal.product.proposal_generation.workflows.proposal_generation import ProposalGenerationWorkflow
             workflow_class_map = {
                 "policy_comparison": PolicyComparisonWorkflow,
-                # Add more mappings as needed
+                "proposal_generation": ProposalGenerationWorkflow,
             }
             
             wf_class = workflow_class_map.get(workflow_key)

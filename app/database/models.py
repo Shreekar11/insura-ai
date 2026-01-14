@@ -998,6 +998,9 @@ class Workflow(Base):
     workflow_outputs: Mapped[list["WorkflowOutput"]] = relationship(
         "WorkflowOutput", back_populates="workflow", cascade="all, delete-orphan"
     )
+    proposals: Mapped[list["Proposal"]] = relationship(
+        "Proposal", back_populates="workflow", cascade="all, delete-orphan"
+    )
 
 
 
@@ -1259,5 +1262,42 @@ class WorkflowOutput(Base):
 
     __table_args__ = (
         {"comment": "Generic storage for all product workflow outputs"},
+    )
+
+
+class Proposal(Base):
+    """Generated insurance proposals."""
+
+    __tablename__ = "proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    insured_name: Mapped[str] = mapped_column(String, nullable=False)
+    carrier_name: Mapped[str] = mapped_column(String, nullable=False)
+    policy_type: Mapped[str] = mapped_column(String, nullable=False)
+    executive_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # The full proposal object (JSON)
+    proposal_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    
+    # Path to the generated PDF in storage
+    pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="proposals")
+
+    __table_args__ = (
+        {"comment": "Generated insurance proposals with PDF links and executive summaries"},
     )
 
