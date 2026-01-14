@@ -4,7 +4,7 @@ import json
 from typing import List, Dict, Any, Optional
 from app.core.unified_llm import UnifiedLLMClient
 from app.core.config import settings
-from app.schemas.workflows.policy_comparison import ComparisonChange
+from app.schemas.product.policy_comparison import ComparisonChange
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 

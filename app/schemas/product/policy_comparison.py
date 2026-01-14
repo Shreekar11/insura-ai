@@ -101,6 +101,13 @@ class ComparisonChange(BaseModel):
     percent_change: Optional[Decimal] = Field(None, description="Percentage change for numeric fields")
     absolute_change: Optional[Decimal] = Field(None, description="Absolute change for numeric fields")
     severity: Literal["low", "medium", "high"] = Field(..., description="Severity of the change")
+    delta_type: Optional[Literal["GAP", "ADVANTAGE", "NEGATIVE_CHANGE", "POSITIVE_CHANGE", "NEUTRAL"]] = Field(
+        None, description="Strategic change type (GAP, ADVANTAGE, etc. for Proposals)"
+    )
+    delta_flag: Optional[Literal["NEGATIVE", "POSITIVE", "NEUTRAL"]] = Field(
+        None, description="Sentiment flag for the change"
+    )
+    canonical_coverage_name: Optional[str] = Field(None, description="Standardized coverage name")
     provenance: SectionProvenance = Field(..., description="Source section information")
     reasoning: Optional[str] = Field(None, description="Detailed explanation of the difference")
 

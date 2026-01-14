@@ -9,12 +9,13 @@ from datetime import datetime, date
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.section_extraction_repository import SectionExtractionRepository
-from app.schemas.workflows.policy_comparison import ComparisonChange, SectionProvenance
+from app.schemas.product.policy_comparison import ComparisonChange, SectionProvenance
 from app.temporal.product.policy_comparison.configs.policy_comparison import (
     NUMERIC_FIELDS_CONFIG,
     EXCLUDED_FIELDS,
 )
 from app.utils.logging import get_logger
+from app.services.product.proposal_generation.canonical_mapping_service import CanonicalMappingService
 
 LOGGER = get_logger(__name__)
 
@@ -238,17 +239,64 @@ class DetailedComparisonService:
 
         # Determine coverage_name from context
         coverage_name = context.get("coverage_name") or context.get("name") or context.get("label") or context.get("description")
+        
+        # Canonicalize coverage name
+        canonical_name = None
+        if coverage_name:
+            canonical_name = CanonicalMappingService.canonicalize_coverage(coverage_name)
+
+        # Calculate Delta Type and Flag (PRD Requirement)
+        delta_type = "NEUTRAL"
+        delta_flag = "NEUTRAL"
+        
+        if change_type == "added":
+            delta_type = "ADVANTAGE"
+            delta_flag = "POSITIVE"
+        elif change_type == "removed":
+            delta_type = "GAP"
+            delta_flag = "NEGATIVE"
+        elif change_type in ["increase", "decrease"]:
+            # Logic depends on field type
+            is_deductible = "deductible" in field_name.lower() or "retention" in field_name.lower()
+            is_limit = "limit" in field_name.lower() or "amount" in field_name.lower() or "value" in field_name.lower()
+            
+            if change_type == "increase":
+                if is_deductible:
+                    delta_type = "NEGATIVE_CHANGE"
+                    delta_flag = "NEGATIVE"
+                elif is_limit:
+                    delta_type = "POSITIVE_CHANGE"
+                    delta_flag = "POSITIVE"
+                else:
+                    delta_type = "NEUTRAL"
+                    delta_flag = "NEUTRAL"
+            else: # decrease
+                if is_deductible:
+                    delta_type = "POSITIVE_CHANGE"
+                    delta_flag = "POSITIVE"
+                elif is_limit:
+                    delta_type = "NEGATIVE_CHANGE"
+                    delta_flag = "NEGATIVE"
+                else:
+                    delta_type = "NEUTRAL"
+                    delta_flag = "NEUTRAL"
+        elif change_type == "modified":
+            delta_type = "NEUTRAL"
+            delta_flag = "NEUTRAL"
 
         return ComparisonChange(
             field_name=field_name,
             section_type=section_type,
             coverage_name=coverage_name,
+            canonical_coverage_name=canonical_name,
             old_value=val1,
             new_value=val2,
             change_type=change_type,
             percent_change=percent_change,
             absolute_change=absolute_change,
             severity=severity,
+            delta_type=delta_type,
+            delta_flag=delta_flag,
             provenance=provenance,
         )
 

@@ -7,7 +7,7 @@ from rapidfuzz import fuzz
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.section_extraction_repository import SectionExtractionRepository
-from app.schemas.workflows.policy_comparison import SectionAlignment
+from app.schemas.product.policy_comparison import SectionAlignment
 from app.temporal.product.policy_comparison.configs.policy_comparison import (
     ALIGNMENT_CONFIDENCE_THRESHOLD,
     COVERAGE_NAME_MATCH_THRESHOLD,

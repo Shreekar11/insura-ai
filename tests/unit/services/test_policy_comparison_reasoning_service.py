@@ -4,7 +4,7 @@ from unittest.mock import AsyncMock, patch
 from uuid import uuid4
 from decimal import Decimal
 from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
-from app.schemas.workflows.policy_comparison import ComparisonChange, SectionProvenance
+from app.schemas.product.policy_comparison import ComparisonChange, SectionProvenance
 
 @pytest.fixture
 def reasoning_service():

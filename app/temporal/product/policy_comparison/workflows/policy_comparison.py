@@ -15,11 +15,11 @@ from app.temporal.product.policy_comparison.workflows.policy_comparison_core imp
 
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
 from app.utils.logging import get_logger
-
-# Hardcoded config for now, will refactor configuration later
-PROCESSING_CONFIG = {"table_extraction": False}
-REQUIRED_SECTIONS = ["declarations", "coverages", "endorsements", "exclusions"]
-REQUIRED_ENTITIES = ["POLICY_NUMBER", "INSURED_NAME", "EFFECTIVE_DATE", "EXPIRATION_DATE", "LIMIT", "DEDUCTIBLE", "PREMIUM_AMOUNT"]
+from app.temporal.product.policy_comparison.configs.policy_comparison import (
+    PROCESSING_CONFIG,
+    REQUIRED_SECTIONS,
+    REQUIRED_ENTITIES,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -92,7 +92,7 @@ class PolicyComparisonWorkflow:
                         PROCESSING_CONFIG.get("table_extraction", False), 
                         REQUIRED_SECTIONS
                     ],
-                    id=f"gate-processed-{doc_id}",
+                    id=f"policy-comparison-processed-{doc_id}",
                 )
                 document_profile = processed_result.get("document_profile")
             else:
@@ -109,7 +109,7 @@ class PolicyComparisonWorkflow:
                 await workflow.execute_child_workflow(
                     ExtractedStageWorkflow.run,
                     args=[workflow_id, doc_id, document_profile, REQUIRED_SECTIONS, REQUIRED_ENTITIES],
-                    id=f"gate-extracted-{doc_id}",
+                    id=f"policy-comparison-extracted-{doc_id}",
                 )
 
             # Stage 3: Enriched
@@ -119,7 +119,7 @@ class PolicyComparisonWorkflow:
                 await workflow.execute_child_workflow(
                     EnrichedStageWorkflow.run,
                     args=[workflow_id, doc_id],
-                    id=f"gate-enriched-{doc_id}",
+                    id=f"policy-comparison-enriched-{doc_id}",
                 )
 
             # Stage 4: Summarized
@@ -129,7 +129,7 @@ class PolicyComparisonWorkflow:
                 await workflow.execute_child_workflow(
                     SummarizedStageWorkflow.run,
                     args=[workflow_id, doc_id, REQUIRED_SECTIONS],
-                    id=f"gate-indexed-{doc_id}",
+                    id=f"policy-comparison-indexed-{doc_id}",
                 )
 
         # Core Comparison
@@ -138,7 +138,7 @@ class PolicyComparisonWorkflow:
         core_result = await workflow.execute_child_workflow(
             PolicyComparisonCoreWorkflow.run,
             args=[workflow_id, document_ids],
-            id=f"gate-core-{workflow_id}",
+            id=f"policy-comparison-core-{workflow_id}",
         )
 
         phase_b_result = core_result.get("phase_b_result")

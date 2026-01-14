@@ -4,7 +4,7 @@ from decimal import Decimal
 from uuid import uuid4
 
 from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
-from app.schemas.workflows.policy_comparison import SectionAlignment
+from app.schemas.product.policy_comparison import SectionAlignment
 
 @pytest.fixture
 def mock_session():

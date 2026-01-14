@@ -9,7 +9,7 @@ from app.services.product.policy_comparison.preflight_validator import Preflight
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
 from app.repositories.workflow_output_repository import WorkflowOutputRepository
-from app.schemas.workflows.policy_comparison import (
+from app.schemas.product.policy_comparison import (
     PolicyComparisonResult,
     ComparisonSummary,
     ComparisonChange,

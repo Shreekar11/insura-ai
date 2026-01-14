@@ -10,7 +10,7 @@ from app.services.product.policy_comparison.policy_comparison_service import Pol
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
 from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
-from app.schemas.workflows.policy_comparison import SectionAlignment, ComparisonChange, SectionProvenance
+from app.schemas.product.policy_comparison import SectionAlignment, ComparisonChange, SectionProvenance
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository, WorkflowDocumentStageRunRepository 
