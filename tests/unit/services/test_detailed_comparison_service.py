@@ -106,3 +106,10 @@ async def test_compute_comparison_dynamic(service):
     city = next(c for c in changes if c.field_name == "address.city")
     assert city.change_type == "no_change"
     assert city.new_value == "Jaipur"
+    
+    # Check Context Capture (Premium field in Declarations)
+    # The declarations mock doesn't have a name field, but we can verify it's there
+    prem = next(c for c in changes if c.field_name == "premium_total")
+    assert prem.coverage_name is None # No identifier in parent dict
+    
+    # Let's add an identifier in a separate test or modify this one

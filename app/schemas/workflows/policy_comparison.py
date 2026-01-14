@@ -102,6 +102,7 @@ class ComparisonChange(BaseModel):
     absolute_change: Optional[Decimal] = Field(None, description="Absolute change for numeric fields")
     severity: Literal["low", "medium", "high"] = Field(..., description="Severity of the change")
     provenance: SectionProvenance = Field(..., description="Source section information")
+    reasoning: Optional[str] = Field(None, description="Detailed explanation of the difference")
 
 
 class ComparisonSummary(BaseModel):
@@ -132,6 +133,7 @@ class PolicyComparisonResult(BaseModel):
         default_factory=dict,
         description="Additional metadata (workflow version, processing time, etc.)"
     )
+    overall_explanation: Optional[str] = Field(None, description="Natural language summary of all changes")
 
 
 class PolicyComparisonResponse(BaseModel):

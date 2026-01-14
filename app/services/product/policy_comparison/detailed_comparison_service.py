@@ -71,7 +71,8 @@ class DetailedComparisonService:
                     doc2_section_id=doc2_section.id,
                     doc1_page_range=doc1_section.page_range,
                     doc2_page_range=doc2_section.page_range,
-                )
+                ),
+                context={}
             )
             all_changes.extend(section_changes)
 
@@ -88,9 +89,26 @@ class DetailedComparisonService:
         path_prefix: str,
         section_type: str,
         provenance: SectionProvenance,
+        context: Dict[str, Any],
     ) -> list[ComparisonChange]:
         """Recursively compare two values (dict, list, or scalar)."""
         changes = []
+        
+        # Merge values into context if they look like identifying fields
+        new_context = context.copy()
+        if isinstance(val1, dict):
+            # Prioritize specific identifiers
+            ident_keys = ["coverage_name", "name", "label", "id", "type", "description"]
+            for k in ident_keys:
+                if k in val1 and val1[k]:
+                    new_context[k] = val1[k]
+                    break
+        elif isinstance(val2, dict):
+            ident_keys = ["coverage_name", "name", "label", "id", "type", "description"]
+            for k in ident_keys:
+                if k in val2 and val2[k]:
+                    new_context[k] = val2[k]
+                    break
 
         # Handle Dictionaries
         if isinstance(val1, dict) and isinstance(val2, dict):
@@ -104,7 +122,7 @@ class DetailedComparisonService:
                 v2 = val2.get(key)
                 
                 changes.extend(
-                    self._compare_recursive(v1, v2, new_path, section_type, provenance)
+                    self._compare_recursive(v1, v2, new_path, section_type, provenance, new_context)
                 )
             return changes
 
@@ -119,13 +137,13 @@ class DetailedComparisonService:
                 v2 = val2[i] if i < len(val2) else None
                 
                 changes.extend(
-                    self._compare_recursive(v1, v2, new_path, section_type, provenance)
+                    self._compare_recursive(v1, v2, new_path, section_type, provenance, new_context)
                 )
             return changes
 
         # Handle Scalars (Leaf nodes)
         return [
-            self._compare_values(val1, val2, path_prefix, section_type, provenance)
+            self._compare_values(val1, val2, path_prefix, section_type, provenance, new_context)
         ]
 
     def _compare_values(
@@ -135,6 +153,7 @@ class DetailedComparisonService:
         field_name: str,
         section_type: str,
         provenance: SectionProvenance,
+        context: Dict[str, Any],
     ) -> ComparisonChange:
         """Compare two scalar values and determine change type/severity."""
         
@@ -217,10 +236,13 @@ class DetailedComparisonService:
                          change_type = "sequential"
                          severity = "low"
 
+        # Determine coverage_name from context
+        coverage_name = context.get("coverage_name") or context.get("name") or context.get("label") or context.get("description")
+
         return ComparisonChange(
             field_name=field_name,
             section_type=section_type,
-            coverage_name=None, # Contextual, hard to get from generic recursion without specific collection structure
+            coverage_name=coverage_name,
             old_value=val1,
             new_value=val2,
             change_type=change_type,

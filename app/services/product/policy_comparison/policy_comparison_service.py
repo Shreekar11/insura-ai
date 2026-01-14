@@ -11,7 +11,9 @@ from app.repositories.workflow_output_repository import WorkflowOutputRepository
 from app.schemas.workflows.policy_comparison import (
     PolicyComparisonResult,
     ComparisonSummary,
+    ComparisonChange,
 )
+from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
 from app.temporal.configs.policy_comparison import (
     REQUIRED_SECTIONS,
     WORKFLOW_NAME,
@@ -39,6 +41,7 @@ class PolicyComparisonService:
         self.preflight_validator = PreflightValidator(session)
         self.section_alignment_service = SectionAlignmentService(session)
         self.detailed_comparison_service = DetailedComparisonService(session)
+        self.reasoning_service = PolicyComparisonReasoningService()
         self.output_repo = WorkflowOutputRepository(session)
 
     async def execute_comparison(
@@ -83,29 +86,54 @@ class PolicyComparisonService:
             aligned_sections=aligned_sections
         )
 
-        # Step 4: Build comparison result
+        # Step 4: Generate reasoning
+        changes = await self.reasoning_service.enrich_changes_with_reasoning(changes)
+        overall_explanation = await self.reasoning_service.generate_overall_explanation(changes)
+
+        # Step 5: Finalize and persist result
+        return await self.finalize_comparison_result(
+            workflow_id=workflow_id,
+            workflow_definition_id=workflow_definition_id,
+            document_ids=document_ids,
+            aligned_sections=aligned_sections,
+            changes=changes,
+            overall_explanation=overall_explanation,
+            validation_result=validation_result
+        )
+
+    async def finalize_comparison_result(
+        self,
+        workflow_id: UUID,
+        workflow_definition_id: UUID,
+        document_ids: list[UUID],
+        aligned_sections: list,
+        changes: list[ComparisonChange],
+        overall_explanation: Optional[str] = None,
+        validation_result: Optional[dict] = None
+    ) -> dict:
+        """Finalize the comparison results and persist them to the database.
+        
+        This method is called by execute_comparison() or independently by Temporal activities.
+        """
+        # Build comparison result
         result = self._build_comparison_result(
             aligned_sections=aligned_sections,
             changes=changes,
             workflow_id=workflow_id,
+            overall_explanation=overall_explanation
         )
 
-        # Step 5: Determine output status
+        # Determine output status
         status = self._determine_output_status(result.comparison_summary)
         
-        # If pre-flight validation found missing sections/entities, 
-        # force status to NEEDS_REVIEW
-        if not validation_result.get("validation_passed", True):
+        # Handle pre-flight validation status override
+        if validation_result and not validation_result.get("validation_passed", True):
             status = "NEEDS_REVIEW"
             LOGGER.warning(
-                f"Pre-flight validation failed for workflow {workflow_id}, status set to NEEDS_REVIEW",
-                extra={
-                    "missing_sections": validation_result.get("missing_sections"),
-                    "missing_entities": validation_result.get("missing_entities")
-                }
+                f"Pre-flight validation failed for workflow {workflow_id}, status set to NEEDS_REVIEW"
             )
 
-        # Step 6: Persist result
+        # Persist result
         await self.output_repo.create_output(
             workflow_id=workflow_id,
             workflow_definition_id=workflow_definition_id,
@@ -116,15 +144,15 @@ class PolicyComparisonService:
             output_metadata={
                 "workflow_version": WORKFLOW_VERSION,
                 "documents_compared": [str(d) for d in document_ids],
-                "missing_sections": validation_result.get("missing_sections"),
-                "missing_entities": validation_result.get("missing_entities"),
+                "missing_sections": validation_result.get("missing_sections") if validation_result else None,
+                "missing_entities": validation_result.get("missing_entities") if validation_result else None,
             },
         )
 
         await self.session.commit()
 
         LOGGER.info(
-            f"Policy comparison completed for workflow {workflow_id}",
+            f"Policy comparison finalized for workflow {workflow_id}",
             extra={
                 "workflow_id": str(workflow_id),
                 "status": status,
@@ -141,8 +169,9 @@ class PolicyComparisonService:
     def _build_comparison_result(
         self,
         aligned_sections: list,
-        changes: list,
+        changes: list[ComparisonChange],
         workflow_id: UUID,
+        overall_explanation: Optional[str] = None
     ) -> PolicyComparisonResult:
         """Build the complete comparison result payload.
         
@@ -150,6 +179,7 @@ class PolicyComparisonService:
             aligned_sections: List of SectionAlignment objects
             changes: List of ComparisonChange objects
             workflow_id: Workflow UUID
+            overall_explanation: Optional natural language summary
             
         Returns:
             PolicyComparisonResult object
@@ -179,6 +209,7 @@ class PolicyComparisonService:
             comparison_summary=summary,
             changes=changes,
             section_alignments=aligned_sections,
+            overall_explanation=overall_explanation,
             metadata={
                 "workflow_version": WORKFLOW_VERSION,
                 "workflow_id": str(workflow_id),

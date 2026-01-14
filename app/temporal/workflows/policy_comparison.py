@@ -21,6 +21,7 @@ from app.temporal.workflows.stages import (
     EnrichedStageWorkflow,
     SummarizedStageWorkflow,
 )
+from app.temporal.workflows.child import PolicyComparisonCoreWorkflow
 from app.temporal.configs.policy_comparison import (
     PROCESSING_CONFIG,
     REQUIRED_SECTIONS,
@@ -201,50 +202,32 @@ class PolicyComparisonWorkflow:
 
         workflow.logger.info("All documents reached minimum readiness")
 
-
-        # Phase B: Capability Pre-Flight Validation
-        self._current_step = "phase_b_preflight"
-        self._progress = 0.45
-
-        phase_b_result = await workflow.execute_activity(
-            "phase_b_preflight_activity",
-            args=[workflow_id, document_ids],
-            start_to_close_timeout=timedelta(seconds=60),
-        )
-
-        workflow.logger.info(f"Phase B pre-flight completed: {phase_b_result}")
-
-        # Section Alignment
-        self._current_step = "section_alignment"
+        # Execute Core Comparison Child Workflow
+        self._current_step = "core_comparison"
         self._progress = 0.60
+        
+        workflow.logger.info(f"Executing PolicyComparisonCoreWorkflow for workflow {workflow_id}")
 
-        alignment_result = await workflow.execute_activity(
-            "section_alignment_activity",
+        core_result = await workflow.execute_child_workflow(
+            PolicyComparisonCoreWorkflow.run,
             args=[workflow_id, document_ids],
-            start_to_close_timeout=timedelta(seconds=120),
+            id=f"gate-core-{workflow_id}",
+            task_queue="documents-queue",
         )
 
-        workflow.logger.info(f"Section alignment completed: {alignment_result}")
+        phase_b_result = core_result.get("phase_b_result")
+        alignment_result = core_result.get("alignment_result")
+        reasoning_result = core_result.get("reasoning_result")
 
-        # Detailed Entity Comparison
-        self._current_step = "detailed_comparison"
-        self._progress = 0.75
-
-        diff_result = await workflow.execute_activity(
-            "detailed_comparison_activity",
-            args=[workflow_id, alignment_result],
-            start_to_close_timeout=timedelta(seconds=120),
-        )
-
-        workflow.logger.info(f"Detailed comparison completed: {diff_result}")
+        workflow.logger.info(f"Core comparison results received for workflow {workflow_id}")
 
         # Persist Comparison Result
         self._current_step = "persist_result"
-        self._progress = 0.90
+        self._progress = 0.95
 
         persist_result = await workflow.execute_activity(
             "persist_comparison_result_activity",
-            args=[workflow_id, workflow_definition_id, document_ids, alignment_result, diff_result],
+            args=[workflow_id, workflow_definition_id, document_ids, alignment_result, reasoning_result, phase_b_result],
             start_to_close_timeout=timedelta(seconds=60),
         )
 

@@ -4,6 +4,7 @@ from .table_extraction import TableExtractionWorkflow
 from .hybrid_chunking import HybridChunkingWorkflow
 from .extraction import ExtractionWorkflow
 from .entity_resolution import EntityResolutionWorkflow
+from .policy_comparison_core import PolicyComparisonCoreWorkflow
 
 __all__ = [
     "PageAnalysisWorkflow",
@@ -12,4 +13,5 @@ __all__ = [
     "HybridChunkingWorkflow",
     "ExtractionWorkflow",
     "EntityResolutionWorkflow",
+    "PolicyComparisonCoreWorkflow",
 ]

@@ -7,7 +7,8 @@ from app.core.database import async_session_maker
 from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
-from app.schemas.workflows.policy_comparison import SectionAlignment
+from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
+from app.schemas.workflows.policy_comparison import SectionAlignment, ComparisonChange, SectionProvenance
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository, WorkflowDocumentStageRunRepository 
@@ -305,8 +306,8 @@ async def detailed_comparison_activity(workflow_id: str, alignment_result: dict)
                     "field_name": c.field_name,
                     "section_type": c.section_type,
                     "coverage_name": c.coverage_name,
-                    "old_value": float(c.old_value) if c.old_value is not None else None,
-                    "new_value": float(c.new_value) if c.new_value is not None else None,
+                    "old_value": sanitize(c.old_value),
+                    "new_value": sanitize(c.new_value),
                     "change_type": c.change_type,
                     "percent_change": float(c.percent_change) if c.percent_change is not None else None,
                     "absolute_change": float(c.absolute_change) if c.absolute_change is not None else None,
@@ -336,26 +337,107 @@ async def detailed_comparison_activity(workflow_id: str, alignment_result: dict)
 
 
 @activity.defn
+async def generate_comparison_reasoning_activity(workflow_id: str, diff_result: dict) -> dict:
+    """Temporal activity for generating natural language reasoning.
+    
+    Args:
+        workflow_id: UUID of the workflow execution
+        diff_result: Dictionary with changes from detailed_comparison_activity
+        
+    Returns:
+        Dictionary with enriched changes and overall explanation
+    """
+    try:
+        LOGGER.info(f"Starting reasoning generation activity for workflow {workflow_id}")
+
+        reasoning_service = PolicyComparisonReasoningService()
+
+        # Deserialize changes
+        changes = []
+        for c in diff_result["changes"]:
+            changes.append(
+                ComparisonChange(
+                    field_name=c["field_name"],
+                    section_type=c["section_type"],
+                    coverage_name=c.get("coverage_name"),
+                    old_value=c["old_value"],
+                    new_value=c["new_value"],
+                    change_type=c["change_type"],
+                    percent_change=c.get("percent_change"),
+                    absolute_change=c.get("absolute_change"),
+                    severity=c["severity"],
+                    provenance=SectionProvenance(
+                        doc1_section_id=UUID(c["provenance"]["doc1_section_id"]),
+                        doc2_section_id=UUID(c["provenance"]["doc2_section_id"]),
+                        doc1_page_range=c["provenance"]["doc1_page_range"],
+                        doc2_page_range=c["provenance"]["doc2_page_range"],
+                    ),
+                )
+            )
+
+        # Enrich with reasoning
+        enriched_changes = await reasoning_service.enrich_changes_with_reasoning(changes)
+        overall_explanation = await reasoning_service.generate_overall_explanation(enriched_changes)
+
+        # Serialize back
+        def sanitize(val):
+            from decimal import Decimal
+            if isinstance(val, Decimal):
+                return float(val)
+            return val
+
+        serialized_enriched = [
+            {
+                "field_name": c.field_name,
+                "section_type": c.section_type,
+                "coverage_name": c.coverage_name,
+                "old_value": sanitize(c.old_value),
+                "new_value": sanitize(c.new_value),
+                "change_type": c.change_type,
+                "percent_change": float(c.percent_change) if c.percent_change is not None else None,
+                "absolute_change": float(c.absolute_change) if c.absolute_change is not None else None,
+                "severity": c.severity,
+                "provenance": {
+                    "doc1_section_id": str(c.provenance.doc1_section_id),
+                    "doc2_section_id": str(c.provenance.doc2_section_id),
+                    "doc1_page_range": c.provenance.doc1_page_range,
+                    "doc2_page_range": c.provenance.doc2_page_range,
+                },
+                "reasoning": c.reasoning
+            }
+            for c in enriched_changes
+        ]
+
+        LOGGER.info(f"Reasoning generation completed for workflow {workflow_id}")
+
+        return {
+            "changes": serialized_enriched,
+            "overall_explanation": overall_explanation
+        }
+
+    except Exception as e:
+        LOGGER.error(f"Reasoning activity failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
+@activity.defn
 async def persist_comparison_result_activity(
     workflow_id: str,
     workflow_definition_id: str,
     document_ids: list[str],
     alignment_result: dict,
-    diff_result: dict,
+    reasoning_result: dict,
+    phase_b_result: Optional[dict] = None,
 ) -> dict:
     """Temporal activity for persisting comparison results.
     
-    Aggregates results and persists to workflow_outputs table.
-    
     Args:
-        workflow_id: UUID of the workflow execution (as string)
-        workflow_definition_id: UUID of the workflow definition (as string)
-        document_ids: List of 2 document UUIDs (as strings)
+        workflow_id: UUID of the workflow execution
+        workflow_definition_id: UUID of the workflow definition
+        document_ids: List of 2 document UUIDs
         alignment_result: Dictionary with aligned sections
-        diff_result: Dictionary with computed changes
-        
-    Returns:
-        Dictionary with persistence confirmation
+        reasoning_result: Dictionary with enriched changes and overall explanation
+        phase_b_result: Optional dictionary with preflight results
     """
     try:
         LOGGER.info(f"Starting persist result activity for workflow {workflow_id}")
@@ -363,14 +445,54 @@ async def persist_comparison_result_activity(
         async with async_session_maker() as session:
             comparison_service = PolicyComparisonService(session)
 
-            # The service will handle deserialization and persistence
-            result = await comparison_service.execute_comparison(
+            # Deserialize everything for the service
+            from decimal import Decimal
+
+            alignments = [
+                SectionAlignment(
+                    section_type=a["section_type"],
+                    doc1_section_id=UUID(a["doc1_section_id"]),
+                    doc2_section_id=UUID(a["doc2_section_id"]),
+                    alignment_confidence=Decimal(str(a["alignment_confidence"])),
+                    alignment_method=a.get("alignment_method"),
+                )
+                for a in alignment_result["alignments"]
+            ]
+
+            changes = [
+                ComparisonChange(
+                    field_name=c["field_name"],
+                    section_type=c["section_type"],
+                    coverage_name=c.get("coverage_name"),
+                    old_value=c["old_value"],
+                    new_value=c["new_value"],
+                    change_type=c["change_type"],
+                    percent_change=Decimal(str(c["percent_change"])) if c.get("percent_change") is not None else None,
+                    absolute_change=Decimal(str(c["absolute_change"])) if c.get("absolute_change") is not None else None,
+                    severity=c["severity"],
+                    provenance=SectionProvenance(
+                        doc1_section_id=UUID(c["provenance"]["doc1_section_id"]),
+                        doc2_section_id=UUID(c["provenance"]["doc2_section_id"]),
+                        doc1_page_range=c["provenance"]["doc1_page_range"],
+                        doc2_page_range=c["provenance"]["doc2_page_range"],
+                    ),
+                    reasoning=c.get("reasoning")
+                )
+                for c in reasoning_result["changes"]
+            ]
+
+            # The service handling persistence
+            result = await comparison_service.finalize_comparison_result(
                 workflow_id=UUID(workflow_id),
                 workflow_definition_id=UUID(workflow_definition_id),
                 document_ids=[UUID(d) for d in document_ids],
+                aligned_sections=alignments,
+                changes=changes,
+                overall_explanation=reasoning_result.get("overall_explanation"),
+                validation_result=phase_b_result
             )
 
-            LOGGER.info(f"Comparison result persisted for workflow {workflow_id}")
+            LOGGER.info(f"Comparison result finalized for workflow {workflow_id}")
             return result
 
     except Exception as e:

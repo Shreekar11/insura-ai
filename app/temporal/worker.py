@@ -21,6 +21,7 @@ from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
 from app.temporal.workflows.child.extraction import ExtractionWorkflow
 from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
 from app.temporal.workflows.child.indexing import IndexingWorkflow
+from app.temporal.workflows.child.policy_comparison_core import PolicyComparisonCoreWorkflow
 
 # Import all stages workflows
 from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
@@ -84,6 +85,7 @@ async def main():
 
             # Insurance business-specific workflows
             PolicyComparisonWorkflow,
+            PolicyComparisonCoreWorkflow,
         ],
         activities=[
             # OCR activities
@@ -121,6 +123,7 @@ async def main():
             policy_comparison_activities.phase_b_preflight_activity,
             policy_comparison_activities.section_alignment_activity,
             policy_comparison_activities.detailed_comparison_activity,
+            policy_comparison_activities.generate_comparison_reasoning_activity,
             policy_comparison_activities.persist_comparison_result_activity,
         ],
         max_concurrent_activities=5,
