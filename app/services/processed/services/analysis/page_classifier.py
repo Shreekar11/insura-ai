@@ -103,7 +103,7 @@ class PageClassifier:
             r'recovered\s+property',
         ],
         PageType.EXCLUSIONS: [
-            r'exclusions?\s*$',
+            r'exclusions?',
             r'general\s+exclusions?',
             r'property\s+not\s+covered',
             r'what\s+is\s+not\s+covered',
@@ -113,6 +113,9 @@ class PageClassifier:
             r'this\s+policy\s+does\s+not\s+cover',
             r'loss\s+or\s+damage\s+caused\s+by',
             r'the\s+following\s+are\s+excluded',
+            r'excluded\s+causes\s+of\s+loss',
+            r'not\s+covered',
+            r'does\s+not\s+provide\s+coverage',
         ],
         PageType.ENDORSEMENT: [
             r'endorsement\s+no\.?\s*\d*',
@@ -126,6 +129,8 @@ class PageClassifier:
             r'waiver\s+of\s+subrogation',
             r'blanket\s+additional\s+insured',
             r'primary\s+and\s+non-?contributory',
+            r'forms?\s+and\s+endorsements?',
+            r'form\s+[A-Z0-9\-]{2,}',
         ],
         PageType.SOV: [
             r'schedule\s+of\s+values',
@@ -231,6 +236,14 @@ class PageClassifier:
             r'taxes\s+and\s+fees',
             r'installment\s+plan',
             r'minimum\s+earned\s+premium',
+        ],
+        PageType.COVERAGES_CONTEXT: [
+            r'scheduled\s+items',
+            r'details\s+of\s+coverage',
+            r'property\s+information',
+            r'description\s+of\s+property',
+            r'valuation\s+and\s+coinsurance',
+            r'limits\s+and\s+deductibles',
         ]
     }
     
@@ -438,8 +451,8 @@ class PageClassifier:
         # Extract metadata if available
         meta = signals.additional_metadata or {}
         structure_type = meta.get("structure_type", "standard")
-        block_count = meta.get("block_count", 0)
-        table_blocks = meta.get("table_block_count", 0)
+        block_count = meta.get("block_count") or 0
+        table_blocks = meta.get("table_block_count") or 0
         
         # Heuristic 1: Page 1 with declarations keywords gets strong boost
         if signals.page_number == 1 and page_type == PageType.DECLARATIONS:
@@ -566,6 +579,9 @@ class PageClassifier:
             PageType.INSURED_DECLARED_VALUE,
             PageType.LIABILITY_COVERAGES,
             PageType.COVERAGES,
+            PageType.COVERAGES_CONTEXT,
+            PageType.EXCLUSIONS,
+            PageType.ENDORSEMENT,
             PageType.DEFINITIONS,
         ]
         
@@ -574,22 +590,19 @@ class PageClassifier:
             if not line_clean:
                 continue
             
-            # Check for section headers/anchors
             detected_type = PageType.UNKNOWN
-            max_p_confidence = 0.0
-            
             for p_type in TARGET_SPAN_TYPES:
                 patterns = self.SECTION_PATTERNS.get(p_type, [])
                 for pattern in patterns:
-                    # For span detection, we look for more definitive matches (usually start of line)
-                    if re.match(r'^#*\s*' + pattern, line_clean, re.IGNORECASE):
+                    # For span detection, we look for matches anywhere in the line for headers/anchors
+                    if re.search(r'#*\s*' + pattern, line_clean, re.IGNORECASE):
                         detected_type = p_type
                         max_p_confidence = 0.85
                         break
                 if detected_type != PageType.UNKNOWN:
                     break
             
-            if detected_type != PageType.UNKNOWN:
+            if detected_type != PageType.UNKNOWN and detected_type != current_type:
                 # If we were in a section, close it (only if it has content)
                 if current_type != PageType.UNKNOWN and i - 1 >= current_start:
                     spans.append(SectionSpan(

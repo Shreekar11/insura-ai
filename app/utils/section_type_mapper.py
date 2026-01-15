@@ -38,6 +38,7 @@ class SectionTypeMapper:
         PageType.LIABILITY_COVERAGES: SectionType.LIABILITY_COVERAGES,
         PageType.DEDUCTIBLES: SectionType.DEDUCTIBLES,
         PageType.PREMIUM: SectionType.PREMIUM,
+        PageType.COVERAGES_CONTEXT: SectionType.COVERAGES_CONTEXT,
         PageType.UNKNOWN: SectionType.UNKNOWN,
     }
     
@@ -69,6 +70,7 @@ class SectionTypeMapper:
         SectionType.LIABILITY_COVERAGES: PageType.LIABILITY_COVERAGES,
         SectionType.DEDUCTIBLES: PageType.DEDUCTIBLES,
         SectionType.PREMIUM: PageType.PREMIUM,
+        SectionType.COVERAGES_CONTEXT: PageType.COVERAGES_CONTEXT,
         SectionType.UNKNOWN: PageType.UNKNOWN,
     }
     
@@ -93,6 +95,7 @@ class SectionTypeMapper:
         "liability_coverages": SectionType.LIABILITY_COVERAGES,
         "deductibles": SectionType.DEDUCTIBLES,
         "premium": SectionType.PREMIUM,
+        "coverages_context": SectionType.COVERAGES_CONTEXT,
         "unknown": SectionType.UNKNOWN,
     }
     
@@ -107,6 +110,18 @@ class SectionTypeMapper:
             Canonical SectionType enum value
         """
         return cls.PAGE_TO_SECTION_MAP.get(page_type, SectionType.UNKNOWN)
+
+    @classmethod
+    def section_type_to_page_type(cls, section_type: SectionType) -> PageType:
+        """Convert SectionType to canonical PageType.
+        
+        Args:
+            section_type: SectionType enum value
+            
+        Returns:
+            Canonical PageType enum value
+        """
+        return cls.SECTION_TO_PAGE_MAP.get(section_type, PageType.UNKNOWN)
     
     @classmethod
     def string_to_section_type(cls, section_str: str) -> SectionType:
@@ -211,6 +226,7 @@ class SectionTypeMapper:
         SectionType.LOSS_RUN: "loss_run",
         SectionType.DEDUCTIBLES: "deductibles",
         SectionType.PREMIUM: "premium",
+        SectionType.COVERAGES_CONTEXT: "coverages",
     }
 
     @classmethod

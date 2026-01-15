@@ -51,6 +51,7 @@ class DocumentProfileBuilder:
         PageType.LOSS_RUN: DocumentType.LOSS_RUN,
         PageType.INVOICE: DocumentType.INVOICE,
         PageType.DEFINITIONS: DocumentType.POLICY,
+        PageType.COVERAGES_CONTEXT: DocumentType.POLICY,
         PageType.TABLE_OF_CONTENTS: DocumentType.POLICY,
         PageType.BOILERPLATE: DocumentType.UNKNOWN,
         PageType.DUPLICATE: DocumentType.UNKNOWN,
@@ -395,8 +396,11 @@ class DocumentProfileBuilder:
             if core_type != norm_core_type:
                 sub_section_type = core_type.value
             
+            # Convert back to PageType for SectionBoundary which enforces PageType classification
+            page_type = SectionTypeMapper.section_type_to_page_type(norm_core_type)
+            
             boundary = SectionBoundary(
-                section_type=norm_core_type.value,  # Use normalized core type string
+                section_type=page_type,
                 start_page=run["start_page"],
                 end_page=run["end_page"],
                 confidence=round(avg_confidence, 3),
@@ -440,8 +444,11 @@ class DocumentProfileBuilder:
                     if core_type != norm_core_type:
                         sub_section_type = core_type.value
                         
+                    # Convert back to PageType for SectionBoundary which enforces PageType classification
+                    page_type = SectionTypeMapper.section_type_to_page_type(norm_core_type)
+
                     span_boundaries.append(SectionBoundary(
-                        section_type=norm_core_type.value,
+                        section_type=page_type,
                         start_page=c.page_number,
                         end_page=c.page_number,
                         start_line=s.span.start_line if s.span else None,

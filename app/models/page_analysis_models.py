@@ -30,6 +30,7 @@ class PageType(str, Enum):
     LIABILITY_COVERAGES = "liability_coverages"
     DEDUCTIBLES = "deductibles"
     PREMIUM = "premium"
+    COVERAGES_CONTEXT = "coverages_context"
     UNKNOWN = "unknown"
 
 
