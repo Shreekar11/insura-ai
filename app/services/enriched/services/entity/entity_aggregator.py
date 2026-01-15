@@ -83,6 +83,7 @@ class EntityAggregator:
         
         # Strategy 1: Try fetching from entity_mentions
         entity_mentions = await self._fetch_entity_mentions(document_id)
+        chunks = None
         
         if entity_mentions:
             LOGGER.info(
@@ -128,8 +129,6 @@ class EntityAggregator:
             )
             section_extractions = await self.section_extraction_repo.get_by_document(document_id)
             
-            chunks = None
-
             # Extract from section_extractions
             all_entities = []
             chunk_mappings = []

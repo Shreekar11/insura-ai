@@ -1,7 +1,7 @@
-"""Global relationship extractor service (Pass 2).
+"""Global relationship extractor service.
 
-This service extracts relationships between entities using full document context
-after canonical entity resolution. This is Pass 2 of the two-pass extraction strategy.
+This service extracts relationships between entities using 
+full document context after canonical entity resolution.
 """
 
 from app.core.unified_llm import UnifiedLLMClient
