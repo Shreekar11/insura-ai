@@ -112,7 +112,6 @@ class ProposalGenerationWorkflow:
                     args=[
                         workflow_id, 
                         doc_id, 
-                        PROCESSING_CONFIG.get("table_extraction", False), 
                         REQUIRED_SECTIONS
                     ],
                     id=f"proposal-processed-{doc_id}",

@@ -81,7 +81,7 @@ class ProcessDocumentWorkflow:
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        # Stage 3: Enriched
+        # Stage 3: Enriched (Canonical Resolution + Relationships Extraction)
         self._progress = 0.6
         self._current_phase = "enriched"
         await workflow.execute_activity(
@@ -89,7 +89,7 @@ class ProcessDocumentWorkflow:
             args=[workflow_id, document_id, "enriched", "running"],
             start_to_close_timeout=timedelta(seconds=30),
         )
-        await workflow.execute_child_workflow(
+        enriched_result = await workflow.execute_child_workflow(
             EnrichedStageWorkflow.run,
             args=[workflow_id, document_id],
             id=f"gate-enriched-{document_id}",
@@ -130,7 +130,7 @@ class ProcessDocumentWorkflow:
             "stages": {
                 "processed": processed_result,
                 "extracted": extracted_result,
-                "enriched": {}, # enrichment_result had different keys than enrichment_result in summarized stage etc.
+                "enriched": enriched_result,
                 "summarized": summarized_result,
             }
         }

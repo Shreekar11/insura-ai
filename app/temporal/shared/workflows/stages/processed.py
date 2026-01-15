@@ -23,7 +23,6 @@ class ProcessedStageWorkflow:
         self, 
         workflow_id: str, 
         document_id: str,
-        ensure_table_extraction: bool = True,
         target_sections: Optional[List[str]] = None
     ) -> dict:
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
@@ -57,14 +56,11 @@ class ProcessedStageWorkflow:
         page_section_map = page_manifest.get('page_section_map')
         pages_to_process = page_manifest.get('pages_to_process', [])
         
-        if ensure_table_extraction:
-            table_result = await workflow.execute_child_workflow(
-                TableExtractionWorkflow.run,
-                args=[workflow_id, document_id, pages_to_process],
-                id=f"stage-processed-table-{document_id}",
-            )
-        else:
-            table_result = {"tables_found": 0}
+        table_result = await workflow.execute_child_workflow(
+            TableExtractionWorkflow.run,
+            args=[workflow_id, document_id, pages_to_process],
+            id=f"stage-processed-table-{document_id}",
+        )
         
         section_boundaries = document_profile.get('section_boundaries', [])
         
