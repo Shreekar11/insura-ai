@@ -337,9 +337,7 @@ class ProposalComparisonService:
             delta_type, delta_flag = self._calculate_delta(field_name, old_value, new_value, section_type)
             
             # Canonical name lookup
-            canonical_name = None
-            if section_type == "coverages":
-                canonical_name = self.canonical_mapper.get_canonical_coverage_name(field_name)
+            canonical_name = self.canonical_mapper.get_canonical_name(section_type, field_name)
             
             change = ComparisonChange(
                 section=section_type,

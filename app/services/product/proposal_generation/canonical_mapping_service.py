@@ -63,6 +63,19 @@ class CanonicalMappingService:
         "berkshire hathaway": "Berkshire Hathaway",
         "geico": "GEICO",
     }
+    
+    # Generic Mapping for Deductibles
+    DEDUCTIBLE_MAP: Dict[str, str] = {
+        "aop": "All Other Perils",
+        "all other perils": "All Other Perils",
+        "wind": "Wind/Hail",
+        "hail": "Wind/Hail",
+        "wind/hail": "Wind/Hail",
+        "named storm": "Named Storm",
+        "earthquake": "Earthquake",
+        "eq": "Earthquake",
+        "flood": "Flood",
+    }
 
     @classmethod
     def canonicalize_coverage(cls, label: str) -> str:
@@ -81,7 +94,55 @@ class CanonicalMappingService:
                 return value
                 
         # Return title-cased original if no match
+        # Return title-cased original if no match
         return label.title()
+
+    @classmethod
+    def get_canonical_coverage_name(cls, label: str) -> str:
+        """Alias for canonicalize_coverage."""
+        return cls.canonicalize_coverage(label)
+
+    @classmethod
+    def get_canonical_deductible_name(cls, label: str) -> str:
+        """Map a deductible label to its canonical name."""
+        if not label:
+            return "Unknown Deductible"
+            
+        normalized = label.lower().strip()
+        if normalized in cls.DEDUCTIBLE_MAP:
+            return cls.DEDUCTIBLE_MAP[normalized]
+            
+        for key, value in cls.DEDUCTIBLE_MAP.items():
+            if key in normalized:
+                return value
+                
+        return label.title()
+
+    @classmethod
+    def get_canonical_exclusion_name(cls, label: str) -> str:
+        """Map an exclusion label to its canonical name."""
+        # For now, just title case, can add specific mappings later
+        return label.title() if label else "Unknown Exclusion"
+
+    @classmethod
+    def get_canonical_endorsement_name(cls, label: str) -> str:
+        """Map an endorsement label to its canonical name."""
+        # For now, just title case, can add specific mappings later
+        return label.title() if label else "Unknown Endorsement"
+
+    @classmethod
+    def get_canonical_name(cls, section_type: str, label: str) -> str:
+        """Get canonical name based on section type."""
+        if section_type == "coverages":
+            return cls.get_canonical_coverage_name(label)
+        elif section_type == "deductibles":
+            return cls.get_canonical_deductible_name(label)
+        elif section_type == "exclusions":
+            return cls.get_canonical_exclusion_name(label)
+        elif section_type == "endorsements":
+            return cls.get_canonical_endorsement_name(label)
+        else:
+            return label.title() if label else "Unknown"
 
     @classmethod
     def canonicalize_carrier(cls, name: str) -> str:
