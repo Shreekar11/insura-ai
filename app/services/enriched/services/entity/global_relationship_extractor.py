@@ -10,6 +10,8 @@ import asyncio
 from typing import List, Dict, Any, Optional
 from uuid import UUID
 
+from app.utils.json_parser import parse_json_safely
+
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -704,7 +706,10 @@ class RelationshipExtractorGlobal:
             response = await self.client.generate_content(
                 contents=user_message,
                 system_instruction=RELATIONSHIP_EXTRACTION_PROMPT,
-                generation_config={"response_mime_type": "application/json"}
+                generation_config={
+                    "response_mime_type": "application/json",
+                    "max_output_tokens": 64000 
+                }
             )
             
             # Parse JSON response
@@ -725,17 +730,18 @@ class RelationshipExtractorGlobal:
         Returns:
             Parsed dictionary
         """
-        # Remove markdown code fences if present
-        llm_response = llm_response.strip()
-        if llm_response.startswith("```"):
-            lines = llm_response.split("\n")
-            llm_response = "\n".join(lines[1:-1])
+        parsed = parse_json_safely(llm_response)
         
-        try:
-            return json.loads(llm_response)
-        except json.JSONDecodeError as e:
-            LOGGER.error(f"Failed to parse LLM response: {e}")
-            return {"relationships": []}
+        if parsed is None:
+             LOGGER.error(
+                 f"Failed to parse LLM response",
+                 extra={"llm_response_snippet": llm_response[:1000] if llm_response else "Empty"}
+             )
+             # Log full response for debugging
+             LOGGER.debug(f"Full failed LLM response: {llm_response}")
+             return {"relationships": []}
+             
+        return parsed
     
     async def _create_relationship(
         self,
