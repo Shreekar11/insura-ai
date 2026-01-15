@@ -4,7 +4,7 @@ from uuid import UUID
 from typing import Dict, Any, List
 from temporalio import activity
 
-from app.core.database import get_db
+from app.core.database import async_session_maker
 from app.services.product.proposal_generation.proposal_comparison_service import ProposalComparisonService
 from app.utils.logging import get_logger
 
@@ -25,8 +25,8 @@ async def detect_document_roles_activity(
     Returns:
         Dict with 'expiring' and 'renewal' document IDs
     """
-    async for db in get_db():
-        service = ProposalComparisonService(db)
+    async with async_session_maker() as session:
+        service = ProposalComparisonService(session)
         
         uuid_doc_ids = [UUID(d) if isinstance(d, str) else d for d in document_ids]
         uuid_workflow_id = UUID(workflow_id) if isinstance(workflow_id, str) else workflow_id
@@ -58,8 +58,8 @@ async def compare_documents_for_proposal_activity(
     Returns:
         List of comparison changes as dicts
     """
-    async for db in get_db():
-        service = ProposalComparisonService(db)
+    async with async_session_maker() as session:
+        service = ProposalComparisonService(session)
         
         changes = await service.compare_for_proposal(
             workflow_id=UUID(workflow_id),

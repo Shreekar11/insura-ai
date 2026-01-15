@@ -10,8 +10,9 @@ from datetime import datetime
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.product.proposal_generation.canonical_mapping_service import CanonicalMappingService
-from app.repositories.step_repository import StepSectionOutputRepository
+from app.repositories.step_repository import StepSectionOutputRepository, StepEntityOutputRepository
 from app.schemas.product.policy_comparison import ComparisonChange
+from app.schemas.product.extracted_data import SECTION_DATA_MODELS
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -22,9 +23,20 @@ PROPOSAL_SECTIONS = [
     "coverages",
     "deductibles",
     "premium",
+    "conditions",
     "exclusions",
     "endorsements",
 ]
+
+# Map section types to entity types for fallback
+SECTION_ENTITY_MAP = {
+    "coverages": "Coverage",
+    "deductibles": "Deductible",
+    "exclusions": "Exclusion",
+    "endorsements": "Endorsement",
+    "declarations": "Policy",
+    "conditions": "Condition",
+}
 
 
 class ProposalComparisonService:
@@ -33,6 +45,7 @@ class ProposalComparisonService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.section_repo = StepSectionOutputRepository(session)
+        self.entity_repo = StepEntityOutputRepository(session)
         self.canonical_mapper = CanonicalMappingService()
 
     async def detect_document_roles(
@@ -62,7 +75,6 @@ class ProposalComparisonService:
             # Fetch declarations section for this document
             declarations = await self.section_repo.get_by_document_and_section(
                 document_id=doc_id,
-                workflow_id=workflow_id,
                 section_type="declarations"
             )
             
@@ -76,7 +88,7 @@ class ProposalComparisonService:
                 quote_type = payload.get("quote_type", "").lower()
                 
                 # Try to get effective_date
-                date_str = payload.get("effective_date") or payload.get("policy_effective_date")
+                date_str = payload.get("effective_date")
                 if date_str:
                     try:
                         effective_date = datetime.strptime(str(date_str), "%Y-%m-%d")
@@ -128,20 +140,17 @@ class ProposalComparisonService:
         changes: List[ComparisonChange] = []
         
         for section_type in PROPOSAL_SECTIONS:
-            # Get section data for both documents
-            expiring_section = await self.section_repo.get_by_document_and_section(
+            # Get and normalize section data for both documents
+            expiring_data = await self._fetch_and_normalize_data(
                 document_id=expiring_doc_id,
                 workflow_id=workflow_id,
                 section_type=section_type
             )
-            renewal_section = await self.section_repo.get_by_document_and_section(
+            renewal_data = await self._fetch_and_normalize_data(
                 document_id=renewal_doc_id,
                 workflow_id=workflow_id,
                 section_type=section_type
             )
-            
-            expiring_data = expiring_section.display_payload if expiring_section else {}
-            renewal_data = renewal_section.display_payload if renewal_section else {}
             
             # Compare section fields
             section_changes = self._compare_section_fields(
@@ -152,6 +161,159 @@ class ProposalComparisonService:
             changes.extend(section_changes)
         
         return changes
+
+    async def _fetch_and_normalize_data(
+        self,
+        document_id: UUID,
+        workflow_id: UUID,
+        section_type: str
+    ) -> Dict[str, Any]:
+        """Fetch data from section repo or entity repo as fallback, then normalize."""
+        # 1. Try fetching from section repository
+        section_output = await self.section_repo.get_by_document_and_section(
+            document_id=document_id,
+            section_type=section_type
+        )
+        
+        raw_data = section_output.display_payload if section_output else {}
+        
+        # 2. Check if we need fallback to entities
+        # Usually section data is a dict like {"coverages": []} or {"endorsements": []} if empty
+        is_empty = not raw_data
+        if not is_empty and isinstance(raw_data, dict):
+            # Check for empty lists in common keys
+            for key in ["coverages", "deductibles", "exclusions", "endorsements", "conditions", "fields"]:
+                if key in raw_data and (raw_data[key] is None or (isinstance(raw_data[key], list) and not raw_data[key])):
+                    is_empty = True
+                    break
+        
+        if is_empty:
+            entity_type = SECTION_ENTITY_MAP.get(section_type)
+            if entity_type:
+                entities = await self.entity_repo.get_by_document_and_type(
+                    document_id=document_id,
+                    entity_type=entity_type,
+                    workflow_id=workflow_id
+                )
+                if entities:
+                    # Transform entity list into a format similar to section output for normalization
+                    if section_type == "coverages":
+                        raw_data = {"coverages": [e.display_payload.get("attributes", {}) for e in entities]}
+                    elif section_type == "deductibles":
+                        raw_data = {"deductibles": [e.display_payload.get("attributes", {}) for e in entities]}
+                    elif section_type == "exclusions":
+                        raw_data = {"exclusions": [e.display_payload.get("attributes", {}) for e in entities]}
+                    elif section_type == "endorsements":
+                        raw_data = {"endorsements": [e.display_payload.get("attributes", {}) for e in entities]}
+                    elif section_type == "declarations":
+                        # Merge all Policy entity attributes (usually just one)
+                        merged_policy = {}
+                        for e in entities:
+                            merged_policy.update(e.display_payload.get("attributes", {}))
+                        raw_data = {"fields": merged_policy} if merged_policy else {}
+
+        # 3. Normalize to flat key-value pairs
+        return self._normalize_section_data(section_type, raw_data)
+
+    def _normalize_section_data(self, section_type: str, data: Dict[str, Any]) -> Dict[str, Any]:
+        """Normalize structured section data into flat comparable key-value pairs using Pydantic schemas."""
+        if not data:
+            return {}
+            
+        flat_data = {}
+        model_class = SECTION_DATA_MODELS.get(section_type)
+        
+        if section_type == "coverages":
+            items = data.get("coverages", [])
+            for item in items:
+                try:
+                    # Validate item using Pydantic model
+                    validated = model_class(**item) if model_class else item
+                    name = validated.coverage_name if hasattr(validated, "coverage_name") else (item.get("coverage_name") or item.get("id"))
+                    
+                    if not name:
+                        continue
+                        
+                    # Handle limits, deductibles, premiums from validated model
+                    if hasattr(validated, "limit_amount") and validated.limit_amount is not None:
+                        flat_data[name] = validated.limit_amount
+                    if hasattr(validated, "deductible_amount") and validated.deductible_amount is not None:
+                        flat_data[f"{name} Deductible"] = validated.deductible_amount
+                    if hasattr(validated, "premium_amount") and validated.premium_amount is not None:
+                        flat_data[f"{name} Premium"] = validated.premium_amount
+                except Exception as e:
+                    LOGGER.error(f"Validation error in coverages for {item}: {e}")
+                    # Fallback to raw item if validation fails
+                    name = item.get("coverage_name") or item.get("id")
+                    if name:
+                        flat_data[name] = item.get("limit_amount")
+                    
+        elif section_type == "deductibles":
+            items = data.get("deductibles", [])
+            for item in items:
+                try:
+                    validated = model_class(**item) if model_class else item
+                    name = validated.deductible_name if hasattr(validated, "deductible_name") else (item.get("deductible_name") or item.get("id"))
+                    if name:
+                        flat_data[name] = validated.amount if hasattr(validated, "amount") else item.get("amount")
+                except Exception as e:
+                    LOGGER.error(f"Validation error in deductibles for {item}: {e}")
+                    name = item.get("deductible_name") or item.get("id")
+                    if name:
+                        flat_data[name] = item.get("amount")
+                    
+        elif section_type == "exclusions":
+            items = data.get("exclusions", [])
+            for item in items:
+                try:
+                    validated = model_class(**item) if model_class else item
+                    name = validated.title if hasattr(validated, "title") else (item.get("title") or item.get("id"))
+                    if name:
+                        flat_data[name] = "Present"
+                except Exception as e:
+                    LOGGER.error(f"Validation error in exclusions for {item}: {e}")
+                    name = item.get("title") or item.get("id")
+                    if name:
+                        flat_data[name] = "Present"
+                    
+        elif section_type == "endorsements":
+            items = data.get("endorsements", [])
+            for item in items:
+                try:
+                    validated = model_class(**item) if model_class else item
+                    name = validated.endorsement_name if hasattr(validated, "endorsement_name") else (item.get("endorsement_name") or item.get("id"))
+                    if name:
+                        flat_data[name] = "Present"
+                except Exception as e:
+                    LOGGER.error(f"Validation error in endorsements for {item}: {e}")
+                    name = item.get("endorsement_name") or item.get("id")
+                    if name:
+                        flat_data[name] = "Present"
+                    
+        elif section_type == "declarations":
+            # Declarations ('fields') is usually a single object
+            fields = data.get("fields", data)
+            try:
+                validated = model_class(**fields) if model_class else fields
+                # Return dict representation of validated fields
+                flat_data = validated.model_dump() if hasattr(validated, "model_dump") else fields
+            except Exception as e:
+                LOGGER.error(f"Validation error in declarations: {e}")
+                flat_data = fields
+            
+        else:
+            # For other sections (like premium), just try to validate as a whole if model exists
+            try:
+                if model_class:
+                    validated = model_class(**data)
+                    flat_data = validated.model_dump()
+                else:
+                    flat_data = data
+            except Exception as e:
+                LOGGER.error(f"Validation error in {section_type}: {e}")
+                flat_data = data
+            
+        return flat_data
 
     def _compare_section_fields(
         self,
