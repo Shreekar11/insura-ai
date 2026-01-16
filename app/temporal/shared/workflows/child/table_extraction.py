@@ -5,7 +5,7 @@ from temporalio.common import RetryPolicy
 from typing import Dict, Any, Optional, List
 from datetime import timedelta
 
-from app.utils.workflow_schemas import (
+from app.schemas.product.shared_workflow_schemas import (
     TableExtractionOutputSchema,
     validate_workflow_output,
 )

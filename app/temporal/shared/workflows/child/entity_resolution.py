@@ -4,7 +4,7 @@ from temporalio import workflow
 from datetime import timedelta
 from typing import Optional, Dict, List
 
-from app.utils.workflow_schemas import (
+from app.schemas.product.shared_workflow_schemas import (
     EntityResolutionOutputSchema,
     validate_workflow_output,
 )

@@ -2,7 +2,7 @@ from temporalio import workflow
 from datetime import timedelta
 from typing import Optional, List
 from temporalio.common import RetryPolicy
-from app.utils.workflow_schemas import validate_workflow_output, IndexingOutputSchema
+from app.schemas.product.shared_workflow_schemas import validate_workflow_output, IndexingOutputSchema
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
 
 @WorkflowRegistry.register(category=WorkflowType.SHARED)
