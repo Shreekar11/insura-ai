@@ -64,10 +64,11 @@ async def get_neo4j_driver() -> AsyncDriver:
     """Dependency for getting Neo4j driver."""
     return await Neo4jClientManager.get_driver()
 
-async def init_neo4j() -> None:
+async def init_neo4j(ensure_constraints: bool = True) -> None:
     """Initialize Neo4j connection and ensure constraints."""
     await Neo4jClientManager.get_driver()
-    await Neo4jClientManager.ensure_constraints()
+    if ensure_constraints:
+        await Neo4jClientManager.ensure_constraints()
 
 async def close_neo4j() -> None:
     """Close Neo4j connection."""

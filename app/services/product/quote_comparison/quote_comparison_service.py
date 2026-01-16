@@ -221,6 +221,7 @@ class QuoteComparisonService:
             )
             
             row = CoverageComparisonRow(
+                broker_note="",
                 canonical_coverage=cov_name,
                 category=cov1.category if cov1 else (cov2.category if cov2 else "add_on"),
                 quote1_present=cov1 is not None,

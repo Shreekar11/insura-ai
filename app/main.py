@@ -4,6 +4,7 @@ from contextlib import asynccontextmanager
 from typing import AsyncGenerator
 
 from uuid import uuid4
+import os
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel, Field
@@ -46,14 +47,30 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     
     # Initialize database connection and run auto-migration
     try:
+        # Check if this is a reload using parent process ID (uvicorn watcher)
+        ppid = os.getppid()
+        lock_file = f"/tmp/insura_ai_init_{ppid}.lock"
+        should_initialize = not os.path.exists(lock_file)
+        
+        if should_initialize:
+            LOGGER.info(f"First startup detected (PPID: {ppid}), running migrations...")
+            # Create lock file to indicate initialization happened
+            try:
+                with open(lock_file, "w") as f:
+                    f.write("initialized")
+            except Exception as e:
+                LOGGER.warning(f"Failed to create init lock file: {e}")
+        else:
+            LOGGER.info(f"Reload detected (PPID: {ppid}), skipping migrations...")
+
         LOGGER.info("Initializing database...")
         await init_database(
-            auto_migrate=True,
+            auto_migrate=should_initialize,
             drop_existing=False 
         )
         LOGGER.info("Database initialized successfully")
 
-        await init_neo4j()
+        await init_neo4j(ensure_constraints=should_initialize)
         LOGGER.info("Neo4j initialized successfully")
     except Exception as e:
         LOGGER.error(
