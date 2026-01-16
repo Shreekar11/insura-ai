@@ -139,6 +139,24 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_document_by_section(self, document_id: UUID, section_type: str) -> List[SectionExtraction]:
+        """Get section extractions for a document and section type.
+        
+        Args:
+            document_id: Document ID
+            section_type: Section type
+            
+        Returns:
+            List of SectionExtraction records
+        """
+        stmt = select(SectionExtraction).where(
+            SectionExtraction.document_id == document_id,
+            SectionExtraction.section_type == section_type,
+        )
+        
+        result = await self.session.execute(stmt)
+        return list(result.scalars().all())
     
     async def get_by_id(self, extraction_id: UUID) -> Optional[SectionExtraction]:
         """Get section extraction by ID.

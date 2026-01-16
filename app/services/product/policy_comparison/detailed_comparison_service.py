@@ -245,7 +245,7 @@ class DetailedComparisonService:
         if coverage_name:
             canonical_name = CanonicalMappingService.canonicalize_coverage(coverage_name)
 
-        # Calculate Delta Type and Flag (PRD Requirement)
+        # Calculate Delta Type and Flag
         delta_type = "NEUTRAL"
         delta_flag = "NEUTRAL"
         

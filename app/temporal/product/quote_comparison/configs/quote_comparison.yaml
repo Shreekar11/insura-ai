@@ -1,0 +1,145 @@
+workflow:
+  name: quote_comparison
+  version: v1
+  description: >
+    Compare multiple carrier quote packages by normalizing
+    coverage data, evaluating adequacy, and producing
+    side-by-side broker-facing outputs.
+  min_documents: 2
+  max_documents: 5
+
+intent:
+  allowed_document_types:
+    - quote
+    - proposal
+    - acord_application
+  quote_roles:
+    - carrier_a
+    - carrier_b
+
+# -------------------------------
+# Phase A: Input / Intent Preflight
+# -------------------------------
+preflight:
+  phase_a:
+    checks:
+      - document_count
+      - document_ownership
+      - allowed_document_types
+      - workflow_enabled
+
+  # Phase B runs AFTER conditional processing
+  phase_b:
+    capability_rules:
+      premiums:
+        min_documents: 2
+      coverages:
+        min_documents: 2
+    compatibility:
+      validate_lob_match: true
+
+# --------------------------------
+# Conditional Document Processing
+# --------------------------------
+document_processing:
+  strategy: intent_driven
+  ensure:
+    table_extraction: false
+    classification: true
+    page_analysis: true
+
+    section_extraction:
+      sections:
+        - premiums
+        - coverages
+        - conditions
+        - endorsements
+        - exclusions
+
+    enrichment:
+      entities:
+        - CARRIER_NAME
+        - INSURED_NAME
+        - COVERAGE_NAME
+        - LIMIT
+        - DEDUCTIBLE
+        - PREMIUM_AMOUNT
+        - EFFECTIVE_DATE
+        - EXPIRATION_DATE
+
+    indexing:
+      async: true
+      embeddings:
+        sections:
+          - coverages
+          - endorsements
+          - conditions
+          - exclusions
+
+# -------------------------------
+# Execution DAG
+# -------------------------------
+execution:
+  steps:
+    - name: coverage_normalization
+      uses: product.quote_comparison.coverage_normalization
+      inputs:
+        sections:
+          - coverages
+          - endorsements
+      outputs:
+        - canonical_coverages
+
+    - name: quality_evaluation
+      uses: product.quote_comparison.quality_evaluation
+      inputs:
+        from_steps: [coverage_normalization]
+      outputs:
+        - coverage_scores
+
+    - name: pricing_comparison
+      uses: product.quote_comparison.pricing_comparison
+      inputs:
+        sections: [premiums]
+      outputs:
+        - pricing_analysis
+
+    - name: side_by_side_matrix
+      uses: product.quote_comparison.side_by_side_matrix
+      inputs:
+        from_steps: [coverage_normalization, quality_evaluation, pricing_comparison]
+      outputs:
+        - comparison_matrix
+        - coverage_gaps
+        - material_differences
+
+# -------------------------------
+# Output Contract
+# -------------------------------
+output:
+  schema: QuoteComparisonResult
+  include_provenance: true
+  include_source_snippets: true
+  required_fields:
+    - comparison_matrix
+    - coverage_gaps
+    - pricing_analysis
+  comparison_scope_field: comparison_scope  # full | partial
+
+# -------------------------------
+# HITL Configuration
+# -------------------------------
+hitl:
+  enabled: true
+  trigger_conditions:
+    - severity: high
+    - confidence_below: 0.7
+    - coverage_gaps: true
+    - premium_variance_pct_above: 30
+
+# -------------------------------
+# Exports
+# -------------------------------
+exports:
+  supported_formats:
+    - pdf
