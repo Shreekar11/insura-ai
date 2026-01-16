@@ -533,6 +533,7 @@ class WorkflowService(BaseService):
                 {
                     "workflow_id": str(workflow_id),
                     "workflow_definition_id": str(definition.id),
+                    "workflow_name": workflow_key,
                     "documents": documents_data,
                     "metadata": metadata or {},
                 },

@@ -22,7 +22,8 @@ class PageAnalysisWorkflow:
         self, 
         document_id: str, 
         markdown_pages: List[Tuple[str, int, Optional[Dict[str, Any]]]] = None,
-        workflow_id: Optional[str] = None
+        workflow_id: Optional[str] = None,
+        workflow_name: Optional[str] = None,
     ) -> Dict:
         """Execute page analysis and create processing manifest with document profile."""
         if markdown_pages:
@@ -64,7 +65,7 @@ class PageAnalysisWorkflow:
         
         manifest = await workflow.execute_activity(
             "create_page_manifest",
-            args=[document_id, classifications],
+            args=[document_id, classifications, workflow_name],
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,

@@ -132,7 +132,8 @@ class PageAnalysisPipeline:
     async def build_document_profile(
         self, 
         document_id: UUID, 
-        classifications: List[PageClassification]
+        classifications: List[PageClassification],
+        workflow_name: Optional[str] = None
     ) -> DocumentProfile:
         """Build document profile from page classifications.
         
@@ -145,7 +146,9 @@ class PageAnalysisPipeline:
         Returns:
             DocumentProfile with document type, section boundaries, and page map
         """
-        profile = self.profile_builder.build_profile(document_id, classifications)
+        profile = self.profile_builder.build_profile(
+            document_id, classifications, workflow_name=workflow_name
+        )
         
         LOGGER.info(
             f"Built document profile for {document_id}",
@@ -163,6 +166,7 @@ class PageAnalysisPipeline:
         document_id: UUID, 
         classifications: List[PageClassification],
         document_profile: DocumentProfile = None,
+        workflow_name: Optional[str] = None,
     ) -> PageManifest:
         """Create and persist page manifest with document profile.
         
@@ -179,7 +183,9 @@ class PageAnalysisPipeline:
         
         # Build document profile if not provided
         if document_profile is None:
-            document_profile = await self.build_document_profile(document_id, classifications)
+            document_profile = await self.build_document_profile(
+                document_id, classifications, workflow_name=workflow_name
+            )
         
         # Build page section map from profile
         page_section_map = document_profile.page_section_map

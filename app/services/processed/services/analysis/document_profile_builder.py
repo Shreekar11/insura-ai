@@ -53,6 +53,8 @@ class DocumentProfileBuilder:
         PageType.DEFINITIONS: DocumentType.POLICY,
         PageType.COVERAGES_CONTEXT: DocumentType.POLICY,
         PageType.TABLE_OF_CONTENTS: DocumentType.POLICY,
+        PageType.ACORD_APPLICATION: DocumentType.ACORD_APPLICATION,
+        PageType.PROPOSAL: DocumentType.PROPOSAL,
         PageType.BOILERPLATE: DocumentType.UNKNOWN,
         PageType.DUPLICATE: DocumentType.UNKNOWN,
         PageType.UNKNOWN: DocumentType.UNKNOWN,
@@ -72,6 +74,10 @@ class DocumentProfileBuilder:
         ([PageType.ENDORSEMENT], DocumentType.ENDORSEMENT, 0.85),
         # If majority invoice -> invoice document
         ([PageType.INVOICE], DocumentType.INVOICE, 0.90),
+        # If majority ACORD -> ACORD document
+        ([PageType.ACORD_APPLICATION], DocumentType.ACORD_APPLICATION, 0.95),
+        # If majority Proposal -> Proposal document
+        ([PageType.PROPOSAL], DocumentType.PROPOSAL, 0.90),
     ]
     
     # Minimum pages for a section to be considered valid
@@ -104,6 +110,7 @@ class DocumentProfileBuilder:
         self,
         document_id: UUID,
         classifications: List[PageClassification],
+        workflow_name: Optional[str] = None,
     ) -> DocumentProfile:
         """Build document profile from page classifications.
         
@@ -134,7 +141,8 @@ class DocumentProfileBuilder:
         # Step 2: Determine document type
         document_type, doc_confidence = self._infer_document_type(
             sorted_classifications, 
-            page_type_distribution
+            page_type_distribution,
+            workflow_name=workflow_name
         )
         
         # Step 3: Detect section boundaries
@@ -244,6 +252,7 @@ class DocumentProfileBuilder:
         self,
         classifications: List[PageClassification],
         distribution: Dict[str, int],
+        workflow_name: Optional[str] = None,
     ) -> Tuple[DocumentType, float]:
         """Infer document type from page classifications.
         
@@ -266,6 +275,14 @@ class DocumentProfileBuilder:
                 continue
         
         # Apply inference rules in order
+                if all(pt in page_types_present for pt in required_types):
+                    ...
+                return doc_type, round(confidence, 3)
+        
+        # Determine document type (internal helper for override)
+        inferred_type = DocumentType.UNKNOWN
+        final_confidence = 0.0
+
         for required_types, doc_type, base_confidence in self.DOCUMENT_TYPE_RULES:
             if all(pt in page_types_present for pt in required_types):
                 # Calculate confidence based on coverage
@@ -278,39 +295,42 @@ class DocumentProfileBuilder:
                 
                 # Adjust confidence based on coverage
                 confidence = base_confidence * (0.5 + 0.5 * coverage_ratio)
-                
-                LOGGER.debug(
-                    f"Document type inferred: {doc_type.value}",
-                    extra={
-                        "required_types": [pt.value for pt in required_types],
-                        "coverage_ratio": coverage_ratio,
-                        "confidence": confidence,
-                    }
-                )
-                
-                return doc_type, round(confidence, 3)
+                inferred_type = doc_type
+                final_confidence = round(confidence, 3)
+                break
         
-        # Fallback: use most common non-trivial page type
-        non_trivial_types = {
-            pt: count for pt, count in distribution.items()
-            if pt not in [PageType.UNKNOWN.value, PageType.BOILERPLATE.value, PageType.DUPLICATE.value]
-        }
-        
-        if non_trivial_types:
-            most_common = max(non_trivial_types.items(), key=lambda x: x[1])
-            try:
-                dominant_page_type = PageType(most_common[0])
-                doc_type = self.PAGE_TO_DOCUMENT_TYPE.get(
-                    dominant_page_type, 
-                    DocumentType.UNKNOWN
-                )
-                # Lower confidence for fallback inference
-                confidence = 0.6 * (most_common[1] / len(classifications))
-                return doc_type, round(confidence, 3)
-            except ValueError:
-                pass
-        
-        return DocumentType.UNKNOWN, 0.0
+        if inferred_type == DocumentType.UNKNOWN:
+            # Fallback: use most common non-trivial page type
+            non_trivial_types = {
+                pt: count for pt, count in distribution.items()
+                if pt not in [PageType.UNKNOWN.value, PageType.BOILERPLATE.value, PageType.DUPLICATE.value]
+            }
+            
+            if non_trivial_types:
+                most_common = max(non_trivial_types.items(), key=lambda x: x[1])
+                try:
+                    dominant_page_type = PageType(most_common[0])
+                    inferred_type = self.PAGE_TO_DOCUMENT_TYPE.get(
+                        dominant_page_type, 
+                        DocumentType.UNKNOWN
+                    )
+                    # Lower confidence for fallback inference
+                    final_confidence = round(0.6 * (most_common[1] / len(classifications)), 3)
+                except ValueError:
+                    pass
+
+        # Workflow-aware override: Quote vs Policy 
+        # (Quote and Policy share same sections/fields, differ by context)
+        if workflow_name == "quote_comparison":
+            if inferred_type == DocumentType.POLICY:
+                LOGGER.info("Overriding DocumentType.POLICY to DocumentType.QUOTE for quote_comparison workflow")
+                inferred_type = DocumentType.QUOTE
+        elif workflow_name != "quote_comparison":
+            if inferred_type == DocumentType.QUOTE:
+                LOGGER.info(f"Overriding DocumentType.QUOTE to DocumentType.POLICY for workflow: {workflow_name}")
+                inferred_type = DocumentType.POLICY
+
+        return inferred_type, final_confidence
     
     def _detect_section_boundaries(
         self,

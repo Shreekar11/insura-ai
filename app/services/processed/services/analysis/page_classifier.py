@@ -244,6 +244,24 @@ class PageClassifier:
             r'description\s+of\s+property',
             r'valuation\s+and\s+coinsurance',
             r'limits\s+and\s+deductibles',
+        ],
+        PageType.ACORD_APPLICATION: [
+            r'acord\s+\d{2,4}',
+            r'applicant\s+information',
+            r'producer\s+information',
+            r'requested\s+coverage',
+            r'prior\s+carrier',
+            r'loss\s+history',
+            r'commercial\s+insurance\s+application',
+        ],
+        PageType.PROPOSAL: [
+            r'proposal\s+',
+            r'we\s+recommend',
+            r'our\s+recommendation',
+            r'summary\s+of\s+coverage\s+options',
+            r'presented\s+for\s+your\s+review',
+            r'insurance\s+proposal',
+            r'broker\s+recommendation',
         ]
     }
     
@@ -531,6 +549,14 @@ class PageClassifier:
         if page_type in key_sections:
             if page_type == PageType.DECLARATIONS and signals.page_number <= 3:
                 return True
+            return True
+        
+        # Process discovery/context sections
+        context_sections = [
+            PageType.ACORD_APPLICATION,
+            PageType.PROPOSAL,
+        ]
+        if page_type in context_sections:
             return True
         
         # Process table sections (SOV, Loss Run)

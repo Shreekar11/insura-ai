@@ -51,6 +51,7 @@ class PolicyComparisonWorkflow:
         """Execute the policy comparison workflow."""
         workflow_id = payload.get("workflow_id")
         workflow_definition_id = payload.get("workflow_definition_id")
+        workflow_name = payload.get("workflow_name")
         documents = payload.get("documents")
         document_ids = [doc.get("document_id") for doc in documents]
 
@@ -89,7 +90,8 @@ class PolicyComparisonWorkflow:
                     args=[
                         workflow_id, 
                         doc_id, 
-                        REQUIRED_SECTIONS
+                        REQUIRED_SECTIONS,
+                        workflow_name
                     ],
                     id=f"policy-comparison-processed-{doc_id}",
                 )
@@ -97,7 +99,7 @@ class PolicyComparisonWorkflow:
             else:
                 document_profile = await workflow.execute_activity(
                     "get_document_profile_activity",
-                    args=[doc_id],
+                    args=[doc_id, workflow_name],
                     start_to_close_timeout=timedelta(seconds=30),
                 )
 

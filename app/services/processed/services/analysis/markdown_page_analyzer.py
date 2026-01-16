@@ -47,6 +47,14 @@ class MarkdownPageAnalyzer:
             DocumentType.ENDORSEMENT: [
                 "ENDORSEMENT", "AMENDMENT", "RIDER", "ATTACHMENT"
             ],
+            DocumentType.ACORD_APPLICATION: [
+                "ACORD", "APPLICANT INFORMATION", "PRODUCER INFORMATION", 
+                "REQUESTED COVERAGE", "PRIOR CARRIER", "LOSS HISTORY"
+            ],
+            DocumentType.PROPOSAL: [
+                "PROPOSAL", "WE RECOMMEND", "OUR RECOMMENDATION", 
+                "SUMMARY OF COVERAGE OPTIONS", "PRESENTED FOR YOUR REVIEW"
+            ],
         }
 
     def analyze_markdown_batch(

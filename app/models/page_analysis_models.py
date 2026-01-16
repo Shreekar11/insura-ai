@@ -31,6 +31,8 @@ class PageType(str, Enum):
     DEDUCTIBLES = "deductibles"
     PREMIUM = "premium"
     COVERAGES_CONTEXT = "coverages_context"
+    ACORD_APPLICATION = "acord_application"
+    PROPOSAL = "proposal"
     UNKNOWN = "unknown"
 
 
@@ -43,6 +45,7 @@ class DocumentType(str, Enum):
     ENDORSEMENT = "endorsement"
     QUOTE = "quote"
     SUBMISSION = "submission"
+    ACORD_APPLICATION = "acord_application"
     PROPOSAL = "proposal"
     INVOICE = "invoice"
     CERTIFICATE = "certificate"

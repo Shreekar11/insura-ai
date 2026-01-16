@@ -23,7 +23,8 @@ class ProcessedStageWorkflow:
         self, 
         workflow_id: str, 
         document_id: str,
-        target_sections: Optional[List[str]] = None
+        target_sections: Optional[List[str]] = None,
+        workflow_name: Optional[str] = None
     ) -> dict:
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
 
@@ -48,7 +49,7 @@ class ProcessedStageWorkflow:
         
         page_manifest = await workflow.execute_child_workflow(
             PageAnalysisWorkflow.run,
-            args=[document_id, markdown_pages, workflow_id],
+            args=[document_id, markdown_pages, workflow_id, workflow_name],
             id=f"stage-processed-page-analysis-{document_id}",
         )
         

@@ -95,7 +95,11 @@ async def classify_pages(document_id: str, page_signals: List[Dict]) -> List[Dic
 
 @ActivityRegistry.register("shared", "create_page_manifest")
 @activity.defn
-async def create_page_manifest(document_id: str, classifications: List[Dict]) -> Dict:
+async def create_page_manifest(
+    document_id: str, 
+    classifications: List[Dict],
+    workflow_name: Optional[str] = None
+) -> Dict:
     """Create and persist page manifest with document profile to database."""
     try:
         async with async_session_maker() as session:
@@ -105,12 +109,14 @@ async def create_page_manifest(document_id: str, classifications: List[Dict]) ->
             document_profile = await pipeline.build_document_profile(
                 document_id=UUID(document_id), 
                 classifications=class_objs,
+                workflow_name=workflow_name,
             )
             
             manifest = await pipeline.create_manifest(
                 document_id=UUID(document_id),
                 classifications=class_objs,
                 document_profile=document_profile,
+                workflow_name=workflow_name,
             )
             
             from app.repositories.document_repository import DocumentRepository
