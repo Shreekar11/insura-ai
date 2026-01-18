@@ -185,3 +185,39 @@ class UserService:
             User database instance
         """
         return await self.get_or_create_user_from_jwt(current_user)
+
+    async def get_current_user_profile_data(self, current_user: CurrentUser) -> UserProfile:
+        """Get profile for the currently authenticated user.
+        
+        Args:
+            current_user: Current authenticated user
+            
+        Returns:
+            UserProfile data
+        """
+        user = await self.get_or_create_user_from_jwt(current_user)
+        return UserProfile(
+            id=user.supabase_user_id,
+            email=user.email,
+            full_name=user.full_name or "",
+            role=user.role,
+            created_at=user.created_at,
+        )
+
+    async def sync_current_user(self, current_user: CurrentUser) -> UserProfile:
+        """Sync the currently authenticated user with database.
+        
+        Args:
+            current_user: Current authenticated user
+            
+        Returns:
+            UserProfile data
+        """
+        user = await self.ensure_user_exists(current_user)
+        return UserProfile(
+            id=user.supabase_user_id,
+            email=user.email,
+            full_name=user.full_name or "",
+            role=user.role,
+            created_at=user.created_at,
+        )

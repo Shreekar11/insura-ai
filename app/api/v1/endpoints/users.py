@@ -1,16 +1,11 @@
-"""Authentication and user management endpoints.
-
-This module provides API endpoints for user authentication,
-profile management, and user-related operations.
-"""
-
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
 from app.core.auth import get_current_user
 from app.core.dependencies import get_user_service
-from app.schemas.auth import CurrentUser, UserProfile
+from app.schemas.auth import CurrentUser
+from app.schemas.generated.users import UserProfile
 from app.services.user_service import UserService
 from app.utils.logging import get_logger
 
@@ -34,29 +29,9 @@ async def get_current_user_profile(
     This endpoint returns the profile information for the currently
     authenticated user, including their Supabase user ID, email,
     full name, role, and account creation date.
-
-    Args:
-        current_user: Current authenticated user from JWT
-        user_service: User service for business logic
-
-    Returns:
-        UserProfile: User profile information
-
-    Raises:
-        HTTPException: If user profile cannot be retrieved
     """
-    # Get user profile using Supabase user ID
-    user_profile = await user_service.get_user_profile_by_supabase_id(current_user.id)
-
-    LOGGER.info("User profile retrieved successfully")
-
-    if not user_profile:
-        raise HTTPException(
-            status_code=status.HTTP_404_NOT_FOUND,
-            detail="User profile not found",
-        )
-
-    return user_profile
+    LOGGER.info(f"User profile retrieved for user: {current_user.id}")
+    return await user_service.get_current_user_profile_data(current_user)
 
 
 @router.post(
@@ -74,23 +49,21 @@ async def sync_user(
 
     This endpoint ensures that the currently authenticated user from
     Supabase has a corresponding record in the database.
-
-    Args:
-        current_user: Current authenticated user from JWT
-        user_service: User service for business logic
-
-    Returns:
-        UserProfile: Synced user profile information
     """
-    user = await user_service.ensure_user_exists(current_user)
+    LOGGER.info(f"Syncing user: {current_user.id}")
+    return await user_service.sync_current_user(current_user)
 
-    LOGGER.info("User synced successfully")
+
+@router.get(
+    "/logout",
+    summary="Logout user",
+    description="Logs out the current user by clearing the session/token on the client side",
+    operation_id="logout_user",
+)
+async def logout_user():
+    """Logout user.
     
-    # Return profile from user object
-    return UserProfile(
-        id=user.supabase_user_id,
-        email=user.email,
-        full_name=user.full_name,
-        role=user.role,
-        created_at=user.created_at,
-    )
+    Note: Token invalidation usually happens on the client side (deleting the token),
+    but this endpoint can be used to perform any necessary server-side cleanup.
+    """
+    return {"message": "Logged out successfully", "status": "success"}
