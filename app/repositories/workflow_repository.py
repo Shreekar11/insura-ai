@@ -3,6 +3,7 @@ from typing import Optional, List, Sequence, Any
 from datetime import datetime, timezone
 
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun
@@ -41,6 +42,34 @@ class WorkflowRepository(BaseRepository[Workflow]):
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
+
+    async def get_all_with_definitions(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: dict[str, Any] | None = None
+    ) -> Sequence[Workflow]:
+        """Get all workflows with their definitions loaded.
+        
+        Args:
+            skip: Number of records to skip
+            limit: Max records to return
+            filters: Dictionary of filters
+            
+        Returns:
+            List of Workflow instances with definition loaded
+        """
+        query = select(Workflow).options(selectinload(Workflow.workflow_definition))
+        
+        if filters:
+            for key, value in filters.items():
+                if hasattr(Workflow, key):
+                    query = query.where(getattr(Workflow, key) == value)
+        
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def update_temporal_id(
         self,

@@ -11,11 +11,14 @@ from app.repositories.workflow_repository import (
     WorkflowDocumentRepository,
 )
 from app.repositories.stages_repository import StagesRepository
-from app.core.temporal_client import get_temporal_client
+from fastapi import UploadFile
 from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
 from app.utils.logging import get_logger
 from app.services.base_service import BaseService
+from app.services.storage_service import StorageService
 from app.core.exceptions import ValidationError, AppError
+from app.schemas.generated.workflows import WorkflowResponse, WorkflowExecutionResponse
+from app.repositories.section_extraction_repository import SectionExtractionRepository
 
 LOGGER = get_logger(__name__)
 
@@ -40,6 +43,8 @@ class WorkflowService(BaseService):
         self.wf_doc_repo = WorkflowDocumentRepository(session)
         self.def_repo = WorkflowDefinitionRepository(session)
         self.stage_repo = StagesRepository(session)
+        self.extraction_repo = SectionExtractionRepository(session)
+        self.storage_service = StorageService()
 
     async def run(self, *args, **kwargs) -> Any:
         """Route to appropriate handler based on action.
@@ -567,3 +572,164 @@ class WorkflowService(BaseService):
                 f"Failed to execute generic workflow {workflow_key}: {str(e)}",
                 original_error=e
             )
+
+    async def list_workflows(
+        self, 
+        user_id: UUID, 
+        limit: int = 50, 
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """List workflows for a user.
+        
+        Args:
+            user_id: User ID
+            limit: Limit
+            offset: Offset
+            
+        Returns:
+            Dict with total and list of workflows
+        """
+        filters = {"user_id": user_id}
+        workflows = await self.wf_repo.get_all_with_definitions(skip=offset, limit=limit, filters=filters)
+        total = await self.wf_repo.count(filters=filters)
+        
+        return {
+            "total": total,
+            "workflows": [
+                WorkflowResponse(
+                    id=wf.id,
+                    definition_id=wf.workflow_definition_id,
+                    name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
+                    key=wf.workflow_definition.workflow_key if wf.workflow_definition else "unknown",
+                    status=wf.status,
+                    created_at=wf.created_at,
+                    updated_at=wf.updated_at
+                ) for wf in workflows
+            ]
+        }
+
+    async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[WorkflowResponse]:
+        """Get workflow details.
+        
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+            
+        Returns:
+            WorkflowResponse or None
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+            
+        return WorkflowResponse(
+            id=wf.id,
+            definition_id=wf.workflow_definition_id,
+            status=wf.status,
+            created_at=wf.created_at,
+            updated_at=wf.updated_at
+        )
+
+    async def list_definitions(self) -> List[Dict[str, Any]]:
+        """Get all workflow definitions.
+        
+        Returns:
+            List of definitions
+        """
+        definitions = await self.def_repo.get_all()
+        return [
+            {
+                "id": d.id,
+                "key": d.workflow_key,
+                "name": d.display_name,
+                "description": d.description
+            } for d in definitions
+        ]
+
+    async def get_workflow_extraction(
+        self, 
+        workflow_id: UUID, 
+        document_id: UUID, 
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get extracted data for a document in a workflow.
+        
+        Args:
+            workflow_id: Workflow ID
+            document_id: Document ID
+            user_id: User ID
+            
+        Returns:
+            Extraction data or None if not found/access denied
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+            
+        extractions = await self.extraction_repo.get_by_document_and_workflow(document_id, workflow_id)
+        
+        return {
+            "workflow_id": workflow_id,
+            "document_id": document_id,
+            "extractions": [
+                {
+                    "section_type": e.section_type,
+                    "fields": e.extracted_fields,
+                    "confidence": e.confidence
+                } for e in extractions
+            ]
+        }
+
+    async def submit_product_workflow(
+        self,
+        workflow_name: str,
+        workflow_definition_id: str,
+        files: List[UploadFile],
+        user_id: UUID,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> Dict[str, Any]:
+        """Submit a product workflow (handle uploads and execution).
+        
+        Args:
+            workflow_name: Name of workflow
+            workflow_definition_id: ID of definition
+            files: List of files
+            user_id: User ID
+            metadata: Metadata
+            
+        Returns:
+            Workflow execution result
+        """
+        document_ids = []
+        
+        # 1. Handle file uploads
+        for file in files:
+            import uuid
+            file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
+            storage_path = f"{user_id}/workflows/{workflow_name}/{uuid.uuid4()}.{file_extension}"
+            
+            await self.storage_service.upload_file(file, bucket="docs", path=storage_path)
+            storage_result = await self.storage_service.get_signed_url(bucket="docs", path=storage_path)
+            pdf_url = storage_result["public_url"]
+            
+            document = await self.doc_repo.create_document(
+                file_path=pdf_url,
+                page_count=0,
+                user_id=user_id,
+            )
+            document_ids.append(document.id)
+
+        await self.session.commit()
+        
+        # 2. Get definition to verify key
+        wf_def = await self.def_repo.get_by_id(UUID(workflow_definition_id))
+        if not wf_def:
+            raise ValidationError("Workflow definition not found")
+            
+        # 3. Start workflow
+        return await self.execute_workflow(
+            workflow_key=wf_def.workflow_key,
+            document_ids=document_ids,
+            user_id=user_id,
+            metadata=metadata
+        )
