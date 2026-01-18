@@ -1,0 +1,130 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "User API",
+        "version": "1.0.0",
+        "description": "API for user profile management and authentication sync."
+    },
+    "paths": {
+        "/api/v1/users/whoami": {
+            "get": {
+                "summary": "Get current user profile",
+                "operationId": "get_whoami",
+                "responses": {
+                    "200": {
+                        "description": "User profile retrieved successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserProfile"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/users/sync": {
+            "post": {
+                "summary": "Sync user with database",
+                "operationId": "sync_user",
+                "responses": {
+                    "200": {
+                        "description": "User synced successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/UserProfile"
+                                }
+                            }
+                        }
+                    },
+                    "401": {
+                        "description": "Unauthorized"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/users/logout": {
+            "get": {
+                "summary": "Logout user",
+                "operationId": "logout_user",
+                "responses": {
+                    "200": {
+                        "description": "Logged out successfully",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "message": {
+                                            "type": "string"
+                                        },
+                                        "status": {
+                                            "type": "string"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        },
+        "schemas": {
+            "UserProfile": {
+                "type": "object",
+                "required": [
+                    "id",
+                    "email",
+                    "full_name",
+                    "role",
+                    "created_at"
+                ],
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "description": "Supabase User ID"
+                    },
+                    "email": {
+                        "type": "string",
+                        "format": "email"
+                    },
+                    "full_name": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "role": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            }
+        }
+    }
+}
