@@ -582,6 +582,11 @@ class HybridChunkingService:
                             boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
                             current_boundary = b
 
+                # Capture effective section type from boundary if available
+                boundary_effective_type = None
+                if current_boundary and hasattr(current_boundary, 'effective_section_type') and current_boundary.effective_section_type:
+                    boundary_effective_type = SectionTypeMapper.page_type_to_section_type(current_boundary.effective_section_type)
+
                 
                 # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
                 if detected_section != SectionType.UNKNOWN and detected_section != current_section:
@@ -611,17 +616,16 @@ class HybridChunkingService:
                         new_coverage_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.coverage_effects or [])]
                         new_exclusion_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.exclusion_effects or [])]
 
-                    if boundary_section != current_section or new_subsection != current_subsection:
+                    if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role:
                         LOGGER.info(
-                            f"Section transition detected via boundary: {current_section}({current_subsection}) -> {boundary_section}({new_subsection})",
+                            f"Section transition detected via boundary: {current_section}({current_semantic_role}) -> {boundary_section}({new_semantic_role})",
                             extra={"page": page_num, "line": current_line_estimation}
                         )
                         transition_occurred = True
                         new_section = boundary_section
-                        if current_boundary:
-                            new_semantic_role = current_boundary.semantic_role.value if current_boundary.semantic_role else None
-                            new_coverage_effects = [e.value for e in current_boundary.coverage_effects] if current_boundary.coverage_effects else []
-                            new_exclusion_effects = [e.value for e in current_boundary.exclusion_effects] if current_boundary.exclusion_effects else []
+                        # Use effective type if specifically set in boundary
+                        if boundary_effective_type:
+                            new_section = boundary_effective_type
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
                     
                     actual_manifest_section = manifest_section
@@ -708,23 +712,31 @@ class HybridChunkingService:
                 )
                 
                 if should_flush:
-                    # Create and store the chunk
-                    chunk = self._flush_chunk(
-                        buffer=current_buffer,
-                        section_type=current_section,
-                        subsection_type=current_subsection,
-                        page_range=current_page_range,
-                        document_id=document_id,
-                        chunk_index=chunk_index,
-                        tokens=current_tokens,
-                        has_tables=current_has_tables,
-                        table_count=current_table_count,
-                        semantic_role=current_semantic_role,
-                        coverage_effects=current_coverage_effects,
-                        exclusion_effects=current_exclusion_effects,
+                    # Determine effective section types (may return multiple for dual emission)
+                    effective_types = self._get_effective_section_types(
+                        current_section, 
+                        current_semantic_role
                     )
-                    chunks.append(chunk)
-                    chunk_index += 1
+                    
+                    for eff_type in effective_types:
+                        # Create and store the chunk
+                        chunk = self._flush_chunk(
+                            buffer=current_buffer,
+                            section_type=eff_type,
+                            original_section_type=current_section,
+                            subsection_type=current_subsection,
+                            page_range=current_page_range,
+                            document_id=document_id,
+                            chunk_index=chunk_index,
+                            tokens=current_tokens,
+                            has_tables=current_has_tables,
+                            table_count=current_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
+                        )
+                        chunks.append(chunk)
+                        chunk_index += 1
                     
                     # Prepare for next chunk
                     if transition_occurred:
@@ -765,28 +777,77 @@ class HybridChunkingService:
         
         # Flush final chunk
         if current_buffer:
-            chunk = self._flush_chunk(
-                buffer=current_buffer,
-                section_type=current_section,
-                subsection_type=current_subsection,
-                page_range=current_page_range,
-                document_id=document_id,
-                chunk_index=chunk_index,
-                tokens=current_tokens,
-                has_tables=current_has_tables,
-                table_count=current_table_count,
-                semantic_role=current_semantic_role,
-                coverage_effects=current_coverage_effects,
-                exclusion_effects=current_exclusion_effects,
+            effective_types = self._get_effective_section_types(
+                current_section, 
+                current_semantic_role
             )
-            chunks.append(chunk)
+            for eff_type in effective_types:
+                chunk = self._flush_chunk(
+                    buffer=current_buffer,
+                    section_type=eff_type,
+                    original_section_type=current_section,
+                    subsection_type=current_subsection,
+                    page_range=current_page_range,
+                    document_id=document_id,
+                    chunk_index=chunk_index,
+                    tokens=current_tokens,
+                    has_tables=current_has_tables,
+                    table_count=current_table_count,
+                    semantic_role=current_semantic_role,
+                    coverage_effects=current_coverage_effects,
+                    exclusion_effects=current_exclusion_effects,
+                )
+                chunks.append(chunk)
+                chunk_index += 1
             
         return chunks
+
+    def _get_effective_section_types(
+        self, 
+        section_type: SectionType, 
+        semantic_role: Optional[str]
+    ) -> List[SectionType]:
+        """Resolve structural section to one or more effective extraction sections.
+        
+        This implements the "Semantic Projection" logic where endorsements 
+        become virtual coverage/exclusion sections.
+        """
+        # Use string comparison to be safe with enums vs strings
+        role_val = semantic_role.value if hasattr(semantic_role, 'value') else str(semantic_role) if semantic_role else None
+        
+        from app.models.page_analysis_models import SemanticRole
+        
+        # 1. Dual Emission (BOTH) takes highest priority for any section
+        if role_val == SemanticRole.BOTH:
+            return [SectionType.COVERAGES, SectionType.EXCLUSIONS]
+            
+        # 2. Endorsement Semantic Projection
+        if section_type == SectionType.ENDORSEMENTS and role_val:
+            if role_val == SemanticRole.COVERAGE_MODIFIER:
+                return [SectionType.COVERAGES]
+            elif role_val == SemanticRole.EXCLUSION_MODIFIER:
+                return [SectionType.EXCLUSIONS]
+            elif role_val == SemanticRole.ADMINISTRATIVE_ONLY:
+                return [SectionType.ENDORSEMENTS]
+                
+        # 3. Base Policy Sections are authoritative
+        if section_type in {
+            SectionType.COVERAGES, 
+            SectionType.EXCLUSIONS, 
+            SectionType.CONDITIONS, 
+            SectionType.DEFINITIONS,
+            SectionType.DECLARATIONS
+        }:
+            return [SectionType(section_type)]
+
+        # 4. Default: Use structural section
+        return [section_type]
 
     def _flush_chunk(
         self,
         buffer: List[str],
         section_type: SectionType,
+        original_section_type: Optional[SectionType],
         subsection_type: Optional[str],
         page_range: set,
         document_id: Optional[UUID],
@@ -829,13 +890,13 @@ class HybridChunkingService:
             exclusion_effects=exclusion_effects or [],
         )
         
-        # Enrich with contextualized text for better embeddings
-        context_header = metadata.context_header or ""
-        contextualized_text = f"{context_header}\n{content}" if context_header else content
-        
+        # Enrich metadata with original section if it was projected
+        if original_section_type and original_section_type != section_type:
+            metadata.subsection_type = f"projected_from_{original_section_type.value}"
+
         return HybridChunk(
             text=content,
-            contextualized_text=contextualized_text,
+            contextualized_text=f"{metadata.context_header}\n\n{content}" if metadata.context_header else content,
             metadata=metadata,
         )
     

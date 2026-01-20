@@ -375,6 +375,10 @@ class SectionBoundary(BaseModel):
     exclusion_effects: List[ExclusionEffect] = Field(
         default_factory=list, description="Exclusion effects for this section"
     )
+    effective_section_type: Optional[PageType] = Field(
+        None,
+        description="Effective section type for extraction (e.g., endorsement projected to coverages)"
+    )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional context metadata for the section (e.g. parent policy section)"

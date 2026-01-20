@@ -146,6 +146,7 @@ async def create_page_manifest(
                         'page_count': sb.page_count,
                         'anchor_text': sb.anchor_text,
                         'semantic_role': sb.semantic_role.value if sb.semantic_role else None,
+                        'effective_section_type': sb.effective_section_type.value if sb.effective_section_type else None,
                         'coverage_effects': [e.value for e in sb.coverage_effects],
                         'exclusion_effects': [e.value for e in sb.exclusion_effects],
                     }
@@ -206,6 +207,7 @@ async def get_document_profile_activity(document_id: str) -> Dict:
                     'page_count': sb.page_count,
                     'anchor_text': sb.anchor_text,
                     'semantic_role': sb.semantic_role.value if sb.semantic_role else None,
+                    'effective_section_type': sb.effective_section_type.value if sb.effective_section_type else None,
                     'coverage_effects': [e.value for e in sb.coverage_effects],
                     'exclusion_effects': [e.value for e in sb.exclusion_effects],
                 }

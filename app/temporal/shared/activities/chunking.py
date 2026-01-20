@@ -46,14 +46,33 @@ async def perform_hybrid_chunking(
         if section_boundaries:
             from app.models.page_analysis_models import SectionBoundary, PageType
             boundaries = []
+            from app.models.page_analysis_models import SectionBoundary, PageType, SemanticRole
+            boundaries = []
             for b in section_boundaries:
                 # PageType is an enum, we need to convert from string
                 st_value = b.get('section_type')
                 try:
                     section_type = PageType(st_value)
                 except ValueError:
-                    # Fallback for old/unknown types
                     section_type = PageType.UNKNOWN
+                
+                # Handle enum conversion for effective_section_type
+                eff_st_value = b.get('effective_section_type')
+                effective_section_type = None
+                if eff_st_value:
+                    try:
+                        effective_section_type = PageType(eff_st_value)
+                    except ValueError:
+                        effective_section_type = None
+
+                # Handle SemanticRole enum
+                role_val = b.get('semantic_role')
+                semantic_role = None
+                if role_val:
+                    try:
+                        semantic_role = SemanticRole(role_val)
+                    except ValueError:
+                        semantic_role = None
                 
                 boundaries.append(SectionBoundary(
                     section_type=section_type,
@@ -63,7 +82,12 @@ async def perform_hybrid_chunking(
                     end_line=b.get('end_line'),
                     confidence=b.get('confidence', 1.0),
                     page_count=b.get('page_count', 1),
-                    anchor_text=b.get('anchor_text')
+                    anchor_text=b.get('anchor_text'),
+                    semantic_role=semantic_role,
+                    effective_section_type=effective_section_type,
+                    coverage_effects=b.get('coverage_effects', []),
+                    exclusion_effects=b.get('exclusion_effects', []),
+                    sub_section_type=b.get('sub_section_type')
                 ))
 
         async with async_session_maker() as session:

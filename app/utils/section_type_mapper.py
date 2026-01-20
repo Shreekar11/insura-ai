@@ -267,3 +267,40 @@ class SectionTypeMapper:
             if concept:
                 concepts.add(concept)
         return sorted(list(concepts))
+
+    @classmethod
+    def resolve_effective_section_type(
+        cls, 
+        page_type: PageType, 
+        semantic_role: Optional[str]
+    ) -> PageType:
+        """Resolve a physical page type to its effective extraction type.
+        
+        Implements semantic projection for endorsements and validates 
+        core policy sections.
+        """
+        # 1. Base Policy Sections are authoritative
+        authoritative = {
+            PageType.COVERAGES, 
+            PageType.EXCLUSIONS, 
+            PageType.CONDITIONS, 
+            PageType.DEFINITIONS,
+            PageType.DECLARATIONS
+        }
+        if page_type in authoritative:
+            return page_type
+            
+        # 2. Endorsement Semantic Projection
+        if page_type == PageType.ENDORSEMENT and semantic_role:
+            from app.models.page_analysis_models import SemanticRole
+            
+            # String comparison to be enum-safe
+            role_val = semantic_role.value if hasattr(semantic_role, 'value') else str(semantic_role)
+            
+            if role_val == SemanticRole.COVERAGE_MODIFIER:
+                return PageType.COVERAGES
+            elif role_val == SemanticRole.EXCLUSION_MODIFIER:
+                return PageType.EXCLUSIONS
+                
+        # 3. Default: Use original page type
+        return page_type

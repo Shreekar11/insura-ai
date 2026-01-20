@@ -426,6 +426,13 @@ class DocumentProfileBuilder:
                     if r["start_page"] > 2:
                         is_extractable = False
             
+            # Calculate effective section type
+            semantic_role = r.get("semantic_role") if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN
+            effective_type = SectionTypeMapper.resolve_effective_section_type(
+                r["page_type"], 
+                semantic_role
+            )
+
             boundaries.append(SectionBoundary(
                 section_type=r["page_type"],
                 semantic_section=semantic,
@@ -435,7 +442,8 @@ class DocumentProfileBuilder:
                 page_count=r["end_page"] - r["start_page"] + 1,
                 anchor_text=r.get("reasoning"),
                 extractable=is_extractable,
-                semantic_role=r.get("semantic_role") if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN,
+                semantic_role=semantic_role,
+                effective_section_type=effective_type,
                 coverage_effects=r.get("coverage_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else [],
                 exclusion_effects=r.get("exclusion_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else []
             ))
@@ -525,6 +533,13 @@ class DocumentProfileBuilder:
                             if c.page_number > 2:
                                 is_extractable = False
                     
+                    # Calculate effective section type
+                    semantic_role = s.semantic_role if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN
+                    effective_type = SectionTypeMapper.resolve_effective_section_type(
+                        norm_pt, 
+                        semantic_role
+                    )
+
                     span_boundaries.append(SectionBoundary(
                         section_type=norm_pt,
                         semantic_section=semantic,
@@ -536,7 +551,8 @@ class DocumentProfileBuilder:
                         page_count=1,
                         anchor_text=s.reasoning or c.reasoning,
                         extractable=is_extractable,
-                        semantic_role=s.semantic_role if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN,
+                        semantic_role=semantic_role,
+                        effective_section_type=effective_type,
                         coverage_effects=s.coverage_effects if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else [],
                         exclusion_effects=s.exclusion_effects if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else []
                     ))
