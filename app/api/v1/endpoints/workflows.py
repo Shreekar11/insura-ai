@@ -13,7 +13,11 @@ from app.schemas.auth import CurrentUser
 from app.schemas.generated.workflows import (
     WorkflowExecutionResponse, 
     WorkflowResponse, 
-    WorkflowExecutionRequest
+    WorkflowExecutionRequest,
+    WorkflowExtractRequest,
+    WorkflowDefinitionResponse,
+    WorkflowStatusResponse,
+    WorkflowExtractedDataResponse
 )
 from app.utils.logging import get_logger
 
@@ -78,6 +82,7 @@ async def execute_workflow(
 
 @router.get(
     "/",
+    response_model=List[WorkflowResponse],
     summary="List workflows",
     operation_id="list_workflows",
 )
@@ -87,7 +92,7 @@ async def list_workflows(
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-):
+) -> List[WorkflowResponse]:
     """List workflow executions for the current user."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     return await workflow_service.list_workflows(user.id, limit=limit, offset=offset)
@@ -95,12 +100,13 @@ async def list_workflows(
 
 @router.get(
     "/definitions",
+    response_model=List[WorkflowDefinitionResponse],
     summary="Get workflow definitions",
     operation_id="get_workflow_definitions",
 )
 async def get_workflow_definitions(
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-):
+) -> List[WorkflowDefinitionResponse]:
     """Retrieve all available workflow definitions."""
     return await workflow_service.list_definitions()
 
@@ -129,19 +135,21 @@ async def get_workflow(
 
 @router.get(
     "/{workflow_id}/status",
+    response_model=WorkflowStatusResponse,
     summary="Get workflow status",
     operation_id="get_workflow_status",
 )
 async def get_workflow_status(
     workflow_id: str,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-):
+) -> WorkflowStatusResponse:
     """Check current workflow status and progress from Temporal."""
     return await workflow_service.execute_get_status(workflow_id)
 
 
 @router.get(
     "/{workflow_id}/extracted/{document_id}",
+    response_model=WorkflowExtractedDataResponse,
     summary="Get extracted data",
     operation_id="get_extracted_data",
 )
@@ -151,7 +159,7 @@ async def get_extracted_data(
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-):
+) -> WorkflowExtractedDataResponse:
     """Retrieve extraction results for a document within a workflow."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     
@@ -170,15 +178,15 @@ async def get_extracted_data(
     operation_id="start_extraction",
 )
 async def start_extraction(
+    request: WorkflowExtractRequest,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)],
     current_user: Annotated[CurrentUser, Depends(get_current_user)],
     user_service: Annotated[UserService, Depends(get_user_service)],
-    pdf_url: str,
 ):
     """Start document extraction workflow."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     result = await workflow_service.execute_start_extraction(
-        pdf_url=pdf_url,
+        pdf_url=request.pdf_url,
         user_id=user.id
     )
     return result

@@ -10,7 +10,6 @@ from app.core.auth import get_current_user
 from app.schemas.auth import CurrentUser
 from app.schemas.generated.documents import (
     DocumentResponse,
-    MultiDocumentResponse,
     EntityResponse,
     SectionResponse
 )
@@ -32,7 +31,7 @@ async def get_document_service(
 
 @router.post(
     "/upload",
-    response_model=MultiDocumentResponse,
+    response_model=List[DocumentResponse],
     status_code=status.HTTP_201_CREATED,
     summary="Upload one or multiple documents",
     operation_id="upload_documents",
@@ -45,7 +44,7 @@ async def upload_documents(
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     document_service: Annotated[DocumentService, Depends(get_document_service)] = None,
-) -> MultiDocumentResponse:
+) -> List[DocumentResponse]:
     """
     Upload one or multiple documents.
     

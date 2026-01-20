@@ -19,6 +19,7 @@ from app.services.storage_service import StorageService
 from app.core.exceptions import ValidationError, AppError
 from app.schemas.generated.workflows import WorkflowResponse, WorkflowExecutionResponse
 from app.repositories.section_extraction_repository import SectionExtractionRepository
+from app.repositories.step_repository import StepEntityOutputRepository, StepSectionOutputRepository
 from app.core.temporal_client import get_temporal_client
 
 LOGGER = get_logger(__name__)
@@ -45,6 +46,8 @@ class WorkflowService(BaseService):
         self.def_repo = WorkflowDefinitionRepository(session)
         self.stage_repo = StagesRepository(session)
         self.extraction_repo = SectionExtractionRepository(session)
+        self.step_entity_output_repo = StepEntityOutputRepository(session)
+        self.step_section_output_repo = StepSectionOutputRepository(session)
         self.storage_service = StorageService()
 
     async def run(self, *args, **kwargs) -> Any:
@@ -666,19 +669,29 @@ class WorkflowService(BaseService):
         wf = await self.wf_repo.get_by_id(workflow_id)
         if not wf or wf.user_id != user_id:
             return None
-            
-        extractions = await self.extraction_repo.get_by_document_and_workflow(document_id, workflow_id)
+
+        extracted_entities = await self.step_entity_output_repo.get_by_document_and_workflow(document_id, workflow_id)
+        extracted_section_fields = await self.step_section_output_repo.get_by_document_and_workflow(document_id, workflow_id)
         
         return {
             "workflow_id": workflow_id,
             "document_id": document_id,
-            "extractions": [
-                {
-                    "section_type": e.section_type,
-                    "fields": e.extracted_fields,
-                    "confidence": e.confidence
-                } for e in extractions
-            ]
+            "extracted_data": {
+                "sections": [
+                    {
+                        "section_type": e.section_type,
+                        "fields": e.display_payload,
+                        "confidence": e.confidence
+                    } for e in extracted_section_fields
+                ],
+                "entities": [
+                    {
+                        "entity_type": e.entity_type,
+                        "fields": e.display_payload,
+                        "confidence": e.confidence
+                    } for e in extracted_entities
+                ]
+            }
         }
 
     async def submit_product_workflow(
