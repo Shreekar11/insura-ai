@@ -19,6 +19,7 @@ from app.services.storage_service import StorageService
 from app.core.exceptions import ValidationError, AppError
 from app.schemas.generated.workflows import WorkflowResponse, WorkflowExecutionResponse
 from app.repositories.section_extraction_repository import SectionExtractionRepository
+from app.core.temporal_client import get_temporal_client
 
 LOGGER = get_logger(__name__)
 

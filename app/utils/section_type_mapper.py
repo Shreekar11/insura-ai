@@ -1,11 +1,11 @@
 """Canonical section type mapper service.
 
 This service provides a single source of truth for mapping between PageType
-and SectionType enums, ensuring consistent taxonomy across the pipeline.
+and SemanticSection enums, ensuring consistent taxonomy across the pipeline.
 """
 
 from typing import Optional
-from app.models.page_analysis_models import PageType
+from app.models.page_analysis_models import PageType, SemanticSection
 from app.services.processed.services.chunking.hybrid_models import SectionType
 from app.utils.logging import get_logger
 
@@ -13,13 +13,30 @@ LOGGER = get_logger(__name__)
 
 
 class SectionTypeMapper:
-    """Maps PageType values to canonical SectionType values.
+    """Maps PageType values to canonical SectionType values and SemanticSections.
     
     This mapper ensures consistent section taxonomy across the pipeline by
     providing a single source of truth for section type conversions.
     """
     
-    # Canonical mapping from PageType to SectionType
+    # Mapping from PageType to high-level SemanticSection (NEW)
+    PAGE_TO_SEMANTIC_MAP: dict[PageType, SemanticSection] = {
+        PageType.DECLARATIONS: SemanticSection.DECLARATIONS,
+        PageType.COVERAGES: SemanticSection.COVERAGES,
+        PageType.CONDITIONS: SemanticSection.CONDITIONS,
+        PageType.EXCLUSIONS: SemanticSection.EXCLUSIONS,
+        PageType.ENDORSEMENT: SemanticSection.ENDORSEMENT,
+        PageType.SOV: SemanticSection.SOV,
+        PageType.LOSS_RUN: SemanticSection.LOSS_RUN,
+        PageType.DEFINITIONS: SemanticSection.DEFINITIONS,
+        PageType.BOILERPLATE: SemanticSection.BOILERPLATE,
+        PageType.CERTIFICATE_OF_INSURANCE: SemanticSection.CERTIFICATE_OF_INSURANCE,
+        PageType.LIABILITY_COVERAGES: SemanticSection.LIABILITY_COVERAGE,
+        PageType.VEHICLE_DETAILS: SemanticSection.DECLARATIONS,
+        PageType.INSURED_DECLARED_VALUE: SemanticSection.DECLARATIONS,
+        PageType.UNKNOWN: SemanticSection.UNKNOWN,
+    }
+    # Canonical mapping from PageType to SectionType (Legacy/Chunking)
     PAGE_TO_SECTION_MAP: dict[PageType, SectionType] = {
         PageType.DECLARATIONS: SectionType.DECLARATIONS,
         PageType.COVERAGES: SectionType.COVERAGES,
@@ -39,6 +56,7 @@ class SectionTypeMapper:
         PageType.DEDUCTIBLES: SectionType.DEDUCTIBLES,
         PageType.PREMIUM: SectionType.PREMIUM,
         PageType.COVERAGES_CONTEXT: SectionType.COVERAGES_CONTEXT,
+        PageType.CERTIFICATE_OF_INSURANCE: SectionType.UNKNOWN,
         PageType.UNKNOWN: SectionType.UNKNOWN,
     }
     
@@ -99,6 +117,10 @@ class SectionTypeMapper:
         "unknown": SectionType.UNKNOWN,
     }
     
+    @classmethod
+    def page_to_semantic(cls, page_type: PageType) -> SemanticSection:
+        """Map PageType to SemanticSection."""
+        return cls.PAGE_TO_SEMANTIC_MAP.get(page_type, SemanticSection.UNKNOWN)
     @classmethod
     def page_type_to_section_type(cls, page_type: PageType) -> SectionType:
         """Convert PageType to canonical SectionType.
@@ -169,16 +191,16 @@ class SectionTypeMapper:
     def normalize_section_boundary(
         cls,
         page_type: PageType
-    ) -> SectionType:
-        """Normalize a PageType from section boundary to SectionType.
+    ) -> SemanticSection:
+        """Normalize a PageType from section boundary to SemanticSection.
         
         Args:
             page_type: PageType from section boundary
             
         Returns:
-            Canonical SectionType
+            Canonical SemanticSection
         """
-        return cls.page_type_to_section_type(page_type)
+        return cls.page_to_semantic(page_type)
 
     @classmethod
     def normalize_to_core_section(cls, section_type: SectionType) -> SectionType:

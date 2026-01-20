@@ -10,13 +10,16 @@ replacing the need for Tier 1 LLM classification. It derives:
 from typing import List, Dict, Optional, Tuple
 from uuid import UUID
 from collections import Counter
+import re
 
 from app.models.page_analysis_models import (
     PageClassification,
     PageType,
+    SemanticSection,
     DocumentType,
     DocumentProfile,
     SectionBoundary,
+    SemanticRole,
 )
 from app.utils.section_type_mapper import SectionTypeMapper
 from app.utils.logging import get_logger
@@ -40,7 +43,6 @@ class DocumentProfileBuilder:
     3. Creates a page-to-section mapping for chunking and extraction
     """
     
-    # Mapping from dominant page types to document types
     PAGE_TO_DOCUMENT_TYPE: Dict[PageType, DocumentType] = {
         PageType.DECLARATIONS: DocumentType.POLICY,
         PageType.COVERAGES: DocumentType.POLICY,
@@ -55,13 +57,19 @@ class DocumentProfileBuilder:
         PageType.TABLE_OF_CONTENTS: DocumentType.POLICY,
         PageType.ACORD_APPLICATION: DocumentType.ACORD_APPLICATION,
         PageType.PROPOSAL: DocumentType.PROPOSAL,
+        PageType.CERTIFICATE_OF_INSURANCE: DocumentType.CERTIFICATE,
         PageType.BOILERPLATE: DocumentType.UNKNOWN,
         PageType.DUPLICATE: DocumentType.UNKNOWN,
         PageType.UNKNOWN: DocumentType.UNKNOWN,
     }
     
-    # Document type inference rules based on page type presence
     DOCUMENT_TYPE_RULES: List[Tuple[List[PageType], DocumentType, float]] = [
+        # If has declarations AND coverages AND endorsements -> policy bundle (very high confidence)
+        ([PageType.DECLARATIONS, PageType.COVERAGES, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.95),
+        # If has declarations AND endorsements -> policy bundle (high confidence)
+        ([PageType.DECLARATIONS, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.90),
+        # If has certificate AND endorsements -> policy bundle (high confidence)
+        ([PageType.CERTIFICATE_OF_INSURANCE, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.90),
         # If has declarations AND coverages -> policy (high confidence)
         ([PageType.DECLARATIONS, PageType.COVERAGES], DocumentType.POLICY, 0.95),
         # If has declarations only -> policy (medium confidence)
@@ -78,16 +86,22 @@ class DocumentProfileBuilder:
         ([PageType.ACORD_APPLICATION], DocumentType.ACORD_APPLICATION, 0.95),
         # If majority Proposal -> Proposal document
         ([PageType.PROPOSAL], DocumentType.PROPOSAL, 0.90),
+        # If majority Certificate -> Certificate document
+        ([PageType.CERTIFICATE_OF_INSURANCE], DocumentType.CERTIFICATE, 0.95),
+        # If has canonical policy sections (Base Policy Rule)
+        ([PageType.COVERAGES, PageType.EXCLUSIONS, PageType.CONDITIONS], DocumentType.POLICY, 0.90),
+        # If has coverage context (ISO Symbol Tables)
+        ([PageType.COVERAGES_CONTEXT], DocumentType.POLICY, 0.85),
     ]
     
     # Minimum pages for a section to be considered valid
     MIN_SECTION_PAGES = 1
     
-    # Page types that should not form their own sections (merge with adjacent)
     MERGE_WITH_ADJACENT: List[PageType] = [
         PageType.UNKNOWN,
         PageType.BOILERPLATE,
         PageType.DUPLICATE,
+        PageType.TABLE_OF_CONTENTS,
     ]
     
     def __init__(self):
@@ -135,39 +149,51 @@ class DocumentProfileBuilder:
         # Sort classifications by page number
         sorted_classifications = sorted(classifications, key=lambda c: c.page_number)
         
-        # Step 1: Calculate page type distribution
+        # Pass 1: Calculation & Document Type Inference
         page_type_distribution = self._calculate_distribution(sorted_classifications)
-        
-        # Step 2: Determine document type
         document_type, doc_confidence = self._infer_document_type(
             sorted_classifications, 
             page_type_distribution,
             workflow_name=workflow_name
         )
         
-        # Step 3: Detect section boundaries
-        section_boundaries = self._detect_section_boundaries(sorted_classifications)
+        # Pass 2: Detect section boundaries (Semantic & Context Aware)
+        section_boundaries = self._detect_section_boundaries(
+            sorted_classifications, 
+            doc_type=document_type
+        )
         
-        # Step 4: Build page-to-section map
-        page_section_map = self._build_page_section_map(sorted_classifications)
+        # Pass 3: Build page-to-section map (Semantic with inheritance)
+        page_section_map = self._build_page_section_map(
+            sorted_classifications,
+            doc_type=document_type
+        )
         
-        # Step 5: Calculate normalized section distribution and product concepts
+        # Pass 4: Calculate metrics & product concepts
         section_type_distribution, product_concepts = self._calculate_section_metrics(
             sorted_classifications
         )
         
-        # Step 6: Determine document subtype
+        # Determine document subtype
         document_subtype = self._infer_document_subtype(
             document_type, 
             page_type_distribution
         )
         
-        # Step 7: Build metadata
+        # Build metadata
         metadata = self._build_metadata(
             sorted_classifications, 
             section_boundaries,
             product_concepts
         )
+
+        if document_type == DocumentType.POLICY and metadata.get("has_endorsements"):
+            document_type = DocumentType.POLICY_BUNDLE
+        
+        # Determine semantic capabilities
+        capabilities = []
+        if document_type == DocumentType.POLICY_BUNDLE or metadata.get("has_endorsements"):
+            capabilities.append("endorsement_semantic_projection")
         
         profile = DocumentProfile(
             document_id=document_id,
@@ -180,6 +206,7 @@ class DocumentProfileBuilder:
             section_type_distribution=section_type_distribution,
             product_concepts=product_concepts,
             metadata=metadata,
+            semantic_capabilities=capabilities
         )
         
         LOGGER.info(
@@ -188,7 +215,6 @@ class DocumentProfileBuilder:
                 "document_type": document_type.value,
                 "confidence": doc_confidence,
                 "section_count": len(section_boundaries),
-                "total_pages": len(classifications),
             }
         )
         
@@ -213,14 +239,7 @@ class DocumentProfileBuilder:
         self,
         classifications: List[PageClassification]
     ) -> Tuple[Dict[str, int], List[str]]:
-        """Calculate normalized section distribution and product concepts.
-        
-        Args:
-            classifications: List of page classifications
-            
-        Returns:
-            Tuple of (section_type_distribution, product_concepts)
-        """
+        """Calculate normalized section distribution and product concepts."""
         all_section_types = []
         for c in classifications:
             if c.sections:
@@ -233,20 +252,15 @@ class DocumentProfileBuilder:
                     SectionTypeMapper.page_type_to_section_type(c.page_type)
                 )
         
-        # Filter out unknown/boilerplate for distribution
         significant_types = [
             st for st in all_section_types 
             if st.value not in ["unknown", "boilerplate", "duplicate"]
         ]
         
-        # Section distribution (normalized SectionType names)
         counter = Counter(st.value for st in significant_types)
-        section_type_distribution = dict(counter)
-        
-        # Product concepts (core categories)
         product_concepts = SectionTypeMapper.get_product_concepts(significant_types)
         
-        return section_type_distribution, product_concepts
+        return dict(counter), product_concepts
     
     def _infer_document_type(
         self,
@@ -275,9 +289,8 @@ class DocumentProfileBuilder:
                 continue
         
         # Apply inference rules in order
-                if all(pt in page_types_present for pt in required_types):
-                    ...
-                return doc_type, round(confidence, 3)
+        inferred_type = DocumentType.UNKNOWN
+        final_confidence = 0.0
         
         # Determine document type (internal helper for override)
         inferred_type = DocumentType.UNKNOWN
@@ -335,148 +348,197 @@ class DocumentProfileBuilder:
     def _detect_section_boundaries(
         self,
         classifications: List[PageClassification],
+        doc_type: DocumentType = DocumentType.UNKNOWN
     ) -> List[SectionBoundary]:
-        """Detect section boundaries from consecutive page type runs.
+        """Detect section boundaries with improved semantic awareness."""
+        if not classifications: return []
         
-        Groups consecutive pages of the same type into sections.
-        Merges trivial page types (unknown, boilerplate) with adjacent sections.
-        
-        Args:
-            classifications: List of page classifications (sorted by page number)
-            
-        Returns:
-            List of SectionBoundary objects
-        """
-        if not classifications:
-            return []
-        
-        # Step 1: Create initial runs of consecutive same-type pages
-        runs: List[Dict] = []
-        current_run = {
+        # Step 1: Detect raw runs of same-type pages
+        runs = []
+        current = {
             "page_type": classifications[0].page_type,
             "start_page": classifications[0].page_number,
             "end_page": classifications[0].page_number,
             "confidences": [classifications[0].confidence],
             "reasoning": classifications[0].reasoning,
+            "semantic_role": classifications[0].semantic_role,
+            "coverage_effects": classifications[0].coverage_effects or [],
+            "exclusion_effects": classifications[0].exclusion_effects or [],
         }
         
-        for classification in classifications[1:]:
-            if classification.page_type == current_run["page_type"]:
-                # Extend current run
-                current_run["end_page"] = classification.page_number
-                current_run["confidences"].append(classification.confidence)
+        for c in classifications[1:]:
+            if c.page_type == current["page_type"]:
+                current["end_page"] = c.page_number
+                current["confidences"].append(c.confidence)
+                # Inherit semantic info if current run lacks it but this page has it
+                if not current.get("semantic_role") or current.get("semantic_role") == SemanticRole.UNKNOWN:
+                    if c.semantic_role and c.semantic_role != SemanticRole.UNKNOWN:
+                        current["semantic_role"] = c.semantic_role
+                        current["coverage_effects"] = c.coverage_effects or []
+                        current["exclusion_effects"] = c.exclusion_effects or []
             else:
-                # Save current run and start new one
-                runs.append(current_run)
-                current_run = {
-                    "page_type": classification.page_type,
-                    "start_page": classification.page_number,
-                    "end_page": classification.page_number,
-                    "confidences": [classification.confidence],
-                    "reasoning": classification.reasoning,
+                runs.append(current)
+                current = {
+                    "page_type": c.page_type,
+                    "start_page": c.page_number,
+                    "end_page": c.page_number,
+                    "confidences": [c.confidence],
+                    "reasoning": c.reasoning,
+                    "semantic_role": c.semantic_role,
+                    "coverage_effects": c.coverage_effects,
+                    "exclusion_effects": c.exclusion_effects,
                 }
+        runs.append(current)
         
-        # Don't forget the last run
-        runs.append(current_run)
+        # Step 2: Extract explicit span boundaries (Semantic First)
+        span_boundaries = self._extract_span_boundaries(classifications, doc_type=doc_type)
         
-        # Step 2: Extract explicit section spans from multi-section pages
-        span_boundaries = self._extract_span_boundaries(classifications)
-        
-        # Step 3: Merge trivial runs with adjacent sections
+        # Step 3: Merge trivial runs
         merged_runs = self._merge_trivial_runs(runs)
         
-        # Step 4: Convert runs to SectionBoundary objects and merge with spans
+        # Step 4: Convert runs to boundaries
         boundaries = []
-        for run in merged_runs:
-            # Skip sections that are purely trivial types
-            if run["page_type"] in self.MERGE_WITH_ADJACENT:
+        for r in merged_runs:
+            if r["page_type"] in self.MERGE_WITH_ADJACENT: continue
+            
+            # Skip if already covered by explicit spans
+            if any(sb.start_page == r["start_page"] and sb.end_page == r["end_page"] for sb in span_boundaries):
                 continue
+                
+            avg_conf = sum(r["confidences"]) / len(r["confidences"])
+            semantic = SectionTypeMapper.page_to_semantic(r["page_type"])
             
-            # Check if this page run is already covered by explicit spans
-            is_covered = False
-            for span_b in span_boundaries:
-                if span_b.start_page >= run["start_page"] and span_b.end_page <= run["end_page"]:
-                    if span_b.section_type == run["page_type"]:
-                        is_covered = True
-                        break
-            
-            if is_covered:
-                continue
-
-            page_count = run["end_page"] - run["start_page"] + 1
-            avg_confidence = sum(run["confidences"]) / len(run["confidences"])
-            
-            # Determine if this is a granular type that should be mapped to core
-            granular_type = run["page_type"]
-            core_type = SectionTypeMapper.page_type_to_section_type(granular_type)
-            norm_core_type = SectionTypeMapper.normalize_to_core_section(core_type)
-            
-            # If normalization changed the type, then the original granular type is the sub_section_type
-            sub_section_type = None
-            if core_type != norm_core_type:
-                sub_section_type = core_type.value
-            
-            # Convert back to PageType for SectionBoundary which enforces PageType classification
-            page_type = SectionTypeMapper.section_type_to_page_type(norm_core_type)
-            
-            boundary = SectionBoundary(
-                section_type=page_type,
-                start_page=run["start_page"],
-                end_page=run["end_page"],
-                confidence=round(avg_confidence, 3),
-                page_count=page_count,
-                anchor_text=run.get("reasoning"),
-                sub_section_type=sub_section_type,
-            )
-            boundaries.append(boundary)
-        
-        # Combine and sort all boundaries
-        all_boundaries = sorted(
-            boundaries + span_boundaries, 
-            key=lambda x: (x.start_page, x.start_line or 0)
-        )
-        
-        LOGGER.debug(
-            f"Detected {len(all_boundaries)} total section boundaries (including {len(span_boundaries)} spans)",
-            extra={
-                "sections": [
-                    {"type": b.section_type.value, "pages": f"{b.start_page}-{b.end_page}"}
-                    for b in all_boundaries
-                ]
+            non_extractable = {
+                SemanticSection.UNKNOWN, 
+                SemanticSection.BOILERPLATE, 
+                SemanticSection.CERTIFICATE,
+                SemanticSection.CERTIFICATE_OF_INSURANCE,
+                SemanticSection.TABLE_OF_CONTENTS
             }
-        )
+            
+            is_extractable = True
+            if semantic in non_extractable:
+                is_extractable = False
+            
+            # Context-aware extraction gating
+            if semantic == SemanticSection.DECLARATIONS:
+                if doc_type in {DocumentType.POLICY_BUNDLE, DocumentType.ENDORSEMENT}:
+                    if r["start_page"] > 2:
+                        is_extractable = False
+            
+            boundaries.append(SectionBoundary(
+                section_type=r["page_type"],
+                semantic_section=semantic,
+                start_page=r["start_page"],
+                end_page=r["end_page"],
+                confidence=round(avg_conf, 3),
+                page_count=r["end_page"] - r["start_page"] + 1,
+                anchor_text=r.get("reasoning"),
+                extractable=is_extractable,
+                semantic_role=r.get("semantic_role") if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN,
+                coverage_effects=r.get("coverage_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else [],
+                exclusion_effects=r.get("exclusion_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else []
+            ))
+            
+        all_boundaries = sorted(boundaries + span_boundaries, key=lambda x: (x.start_page, x.start_line or 0))
         
+        # Step 5: Apply structural inheritance for base policies
+        if doc_type == DocumentType.POLICY:
+            self._apply_structural_inheritance(all_boundaries)
+            
         return all_boundaries
 
-    def _extract_span_boundaries(self, classifications: List[PageClassification]) -> List[SectionBoundary]:
-        """Extract explicit section spans from pages."""
+    def _apply_structural_inheritance(self, boundaries: List[SectionBoundary]):
+        """Apply structural context inheritance for base policies.
+        
+        For example, sections following 'SECTION II - LIABILITY' should be tagged
+        with liability context until 'SECTION III - PHYSICAL DAMAGE' is encountered.
+        """
+        current_context = None
+        
+        # Context triggers for ISO forms (ordered specifically to avoid partial matches)
+        triggers = [
+            (r"SECTION\s+V\b", "definitions"),
+            (r"SECTION\s+IV\b", "conditions"),
+            (r"SECTION\s+III\b", "physical_damage"),
+            (r"SECTION\s+II\b", "liability"),
+            (r"SECTION\s+I\b", "covered_autos"),
+        ]
+        
+        for b in boundaries:
+            anchor = (b.anchor_text or "").upper()
+            
+            # Check for context switch
+            for pattern, context in triggers:
+                if re.search(pattern, anchor, re.IGNORECASE):
+                    current_context = context
+                    break
+            
+            # Apply context to metadata
+            if current_context:
+                b.metadata["policy_section_context"] = current_context
+                
+                # If it's a generic coverage/exclusion, refine the semantic section
+                if b.semantic_section == SemanticSection.COVERAGES:
+                    if current_context == "liability":
+                        b.semantic_section = SemanticSection.LIABILITY_COVERAGE
+                    elif current_context == "physical_damage":
+                        b.semantic_section = SemanticSection.PHYSICAL_DAMAGE_COVERAGE
+                elif b.semantic_section == SemanticSection.EXCLUSIONS:
+                    if current_context == "liability":
+                        b.semantic_section = SemanticSection.LIABILITY_EXCLUSIONS
+                    elif current_context == "physical_damage":
+                        b.semantic_section = SemanticSection.PHYSICAL_DAMAGE_EXCLUSIONS
+
+    def _extract_span_boundaries(
+        self, 
+        classifications: List[PageClassification],
+        doc_type: DocumentType = DocumentType.UNKNOWN
+    ) -> List[SectionBoundary]:
+        """Extract explicit semantic section spans from pages."""
         span_boundaries = []
         for c in classifications:
             if c.sections:
                 for s in c.sections:
-                    # Logic for span boundaries:
-                    # s.section_type is the granular PageType
-                    granular_type = s.section_type
-                    core_type = SectionTypeMapper.page_type_to_section_type(granular_type)
-                    norm_core_type = SectionTypeMapper.normalize_to_core_section(core_type)
+                    semantic = SectionTypeMapper.page_to_semantic(s.section_type)
                     
-                    sub_section_type = None
-                    if core_type != norm_core_type:
-                        sub_section_type = core_type.value
-                        
-                    # Convert back to PageType for SectionBoundary which enforces PageType classification
-                    page_type = SectionTypeMapper.section_type_to_page_type(norm_core_type)
+                    # Normalize for boundary
+                    core_st = SectionTypeMapper.page_type_to_section_type(s.section_type)
+                    norm_pt = SectionTypeMapper.section_type_to_page_type(
+                        SectionTypeMapper.normalize_to_core_section(core_st)
+                    )
 
+                    non_extractable = {
+                        SemanticSection.UNKNOWN, 
+                        SemanticSection.BOILERPLATE, 
+                        SemanticSection.CERTIFICATE,
+                        SemanticSection.CERTIFICATE_OF_INSURANCE,
+                        SemanticSection.TABLE_OF_CONTENTS
+                    }
+
+                    is_extractable = True
+                    if semantic in non_extractable:
+                        is_extractable = False
+                    
+                    if semantic == SemanticSection.DECLARATIONS:
+                        if doc_type in {DocumentType.POLICY_BUNDLE, DocumentType.ENDORSEMENT}:
+                            if c.page_number > 2:
+                                is_extractable = False
+                    
                     span_boundaries.append(SectionBoundary(
-                        section_type=page_type,
+                        section_type=norm_pt,
+                        semantic_section=semantic,
                         start_page=c.page_number,
                         end_page=c.page_number,
                         start_line=s.span.start_line if s.span else None,
                         end_line=s.span.end_line if s.span else None,
                         confidence=s.confidence,
                         page_count=1,
-                        anchor_text=s.reasoning,
-                        sub_section_type=sub_section_type,
+                        anchor_text=s.reasoning or c.reasoning,
+                        extractable=is_extractable,
+                        semantic_role=s.semantic_role if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN,
+                        coverage_effects=s.coverage_effects if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else [],
+                        exclusion_effects=s.exclusion_effects if (doc_type != DocumentType.POLICY or s.section_type == PageType.ENDORSEMENT) else []
                     ))
         return span_boundaries
     
@@ -503,6 +565,12 @@ class DocumentProfileBuilder:
                     prev_run = merged[-1]
                     prev_run["end_page"] = run["end_page"]
                     prev_run["confidences"].extend(run["confidences"])
+                    # Inherit semantic metadata if previous run lacks it but current has it
+                    if not prev_run.get("semantic_role") or prev_run.get("semantic_role") == SemanticRole.UNKNOWN:
+                         if run.get("semantic_role") and run.get("semantic_role") != SemanticRole.UNKNOWN:
+                             prev_run["semantic_role"] = run["semantic_role"]
+                             prev_run["coverage_effects"] = run.get("coverage_effects", [])
+                             prev_run["exclusion_effects"] = run.get("exclusion_effects", [])
                 else:
                     # No previous run, keep as-is (will be skipped later)
                     merged.append(run)
@@ -514,33 +582,68 @@ class DocumentProfileBuilder:
     def _build_page_section_map(
         self,
         classifications: List[PageClassification],
+        doc_type: DocumentType = DocumentType.UNKNOWN
     ) -> Dict[int, str]:
-        """Build mapping of page numbers to canonical section types.
+        """Build mapping of page numbers to semantic section types.
         
-        For multi-section pages, we join section names with a comma.
+        Enforces one semantic section per page, prioritizing insurance concepts.
+        Implements semantic inheritance (forward fill) for unknown pages.
         """
         page_section_map = {}
+        last_meaningful_semantic = SemanticSection.UNKNOWN
         
-        for classification in classifications:
-            # If multiple sections detected, combine them
-            if classification.sections:
-                section_types = []
-                for s in classification.sections:
-                    st = SectionTypeMapper.page_type_to_section_type(s.section_type)
-                    if st.value not in section_types:
-                        section_types.append(st.value)
-                page_section_map[classification.page_number] = ",".join(section_types)
+        for c in classifications:
+            selected_semantic = SemanticSection.UNKNOWN
+            if c.sections:
+                priority = [
+                    SemanticSection.ENDORSEMENT,
+                    SemanticSection.COVERAGES,
+                    SemanticSection.EXCLUSIONS,
+                    SemanticSection.DECLARATIONS,
+                    SemanticSection.CONDITIONS,
+                    SemanticSection.CERTIFICATE_OF_INSURANCE,
+                    SemanticSection.CERTIFICATE,
+                ]
+                
+                found_semantics = [SectionTypeMapper.page_to_semantic(s.section_type) for s in c.sections]
+                
+                for p_type in priority:
+                    if p_type in found_semantics:
+                        selected_semantic = p_type
+                        break
+                
+                # Fallback if no priority match
+                if selected_semantic == SemanticSection.UNKNOWN and found_semantics:
+                    meaningful = [s for s in found_semantics if s != SemanticSection.UNKNOWN]
+                    if meaningful:
+                        selected_semantic = meaningful[0]
             else:
-                # Convert PageType to canonical SectionType using mapper
-                section_type = SectionTypeMapper.page_type_to_section_type(classification.page_type)
-                page_section_map[classification.page_number] = section_type.value
+                selected_semantic = SectionTypeMapper.page_to_semantic(c.page_type)
+
+            # Pass 3: Semantic Inheritance
+            if selected_semantic == SemanticSection.UNKNOWN or selected_semantic == SemanticSection.BOILERPLATE:
+                # Inherit from last semantic if current is unknown/boilerplate
+                if c.page_type in self.MERGE_WITH_ADJACENT or c.page_type == PageType.UNKNOWN:
+                    # Inheritance only makes sense if we were in an active section
+                    if last_meaningful_semantic not in {SemanticSection.UNKNOWN, SemanticSection.BOILERPLATE}:
+                        selected_semantic = last_meaningful_semantic
+
+            page_section_map[c.page_number] = selected_semantic.value
             
-            if not classification.sections and classification.page_type.value != page_section_map[classification.page_number]:
-                LOGGER.debug(
-                    f"Normalized page {classification.page_number} section type: "
-                    f"'{classification.page_type.value}' -> '{page_section_map[classification.page_number]}'"
-                )
-        
+            # Update last meaningful semantic for inheritance
+            inheritance_sources = {
+                SemanticSection.ENDORSEMENT,
+                SemanticSection.COVERAGES,
+                SemanticSection.EXCLUSIONS,
+                SemanticSection.CONDITIONS,
+                SemanticSection.LIABILITY_COVERAGE,
+                SemanticSection.PHYSICAL_DAMAGE_COVERAGE
+            }
+            if selected_semantic in inheritance_sources:
+                last_meaningful_semantic = selected_semantic
+            elif selected_semantic not in {SemanticSection.UNKNOWN, SemanticSection.BOILERPLATE}:
+                last_meaningful_semantic = SemanticSection.UNKNOWN
+                
         return page_section_map
     
     def _infer_document_subtype(
@@ -548,28 +651,16 @@ class DocumentProfileBuilder:
         document_type: DocumentType,
         distribution: Dict[str, int],
     ) -> Optional[str]:
-        """Infer document subtype from page distribution.
-        
-        Args:
-            document_type: Inferred document type
-            distribution: Page type distribution
-            
-        Returns:
-            Optional subtype string
-        """
-        if document_type != DocumentType.POLICY:
+        """Infer document subtype from page distribution."""
+        if document_type not in [DocumentType.POLICY, DocumentType.POLICY_BUNDLE]:
             return None
         
-        # Infer policy subtype based on section presence
-        has_sov = distribution.get(PageType.SOV.value, 0) > 0
-        has_loss_run = distribution.get(PageType.LOSS_RUN.value, 0) > 0
-        
-        # Check for coverage types in reasoning (would need more sophisticated analysis)
-        # For now, use simple heuristics
-        if has_sov:
+        if distribution.get(PageType.SOV.value, 0) > 0:
             return "commercial_property"
-        elif has_loss_run:
+        elif distribution.get(PageType.LOSS_RUN.value, 0) > 0:
             return "claims_made"
+        elif distribution.get(PageType.VEHICLE_DETAILS.value, 0) > 0:
+            return "commercial_auto"
         
         return "general"
     
@@ -579,53 +670,17 @@ class DocumentProfileBuilder:
         boundaries: List[SectionBoundary],
         product_concepts: List[str] = None
     ) -> Dict:
-        """Build metadata dictionary for the profile.
-        
-        Args:
-            classifications: List of page classifications
-            boundaries: List of section boundaries
-            product_concepts: List of core product concepts found
-            
-        Returns:
-            Metadata dictionary
-        """
-        # Count pages by processing status
+        """Build metadata dictionary with semantic awareness."""
         pages_to_process = sum(1 for c in classifications if c.should_process)
-        pages_skipped = sum(1 for c in classifications if not c.should_process)
-        duplicates = sum(1 for c in classifications if c.page_type == PageType.DUPLICATE)
         
-        # Calculate average confidence
-        avg_confidence = (
-            sum(c.confidence for c in classifications) / len(classifications)
-            if classifications else 0.0
-        )
-        
-        # Use product concepts for accurate flags if available
-        if product_concepts:
-            has_declarations = "declarations" in product_concepts
-            has_coverages = "coverages" in product_concepts
-            has_endorsements = "endorsements" in product_concepts
-        else:
-            # Fallback to strict enum matching
-            has_declarations = any(
-                b.section_type == PageType.DECLARATIONS for b in boundaries
-            )
-            has_coverages = any(
-                b.section_type == PageType.COVERAGES for b in boundaries
-            )
-            has_endorsements = any(
-                b.section_type == PageType.ENDORSEMENT for b in boundaries
-            )
+        has_declarations = "declarations" in (product_concepts or [])
+        has_endorsements = any(b.semantic_section == SemanticSection.ENDORSEMENT for b in boundaries)
         
         return {
             "total_pages": len(classifications),
             "pages_to_process": pages_to_process,
-            "pages_skipped": pages_skipped,
-            "duplicates_detected": duplicates,
             "section_count": len(boundaries),
-            "average_confidence": round(avg_confidence, 3),
             "has_declarations": has_declarations,
-            "has_coverages": has_coverages,
             "has_endorsements": has_endorsements,
             "product_concepts": product_concepts or [],
         }

@@ -99,6 +99,9 @@ class HybridChunkMetadata:
     table_count: int = 0
     context_header: Optional[str] = None
     source: str = "docling"
+    semantic_role: Optional[str] = None
+    coverage_effects: List[str] = field(default_factory=list)
+    exclusion_effects: List[str] = field(default_factory=list)
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to dictionary for serialization."""
@@ -119,6 +122,9 @@ class HybridChunkMetadata:
             "table_count": self.table_count,
             "context_header": self.context_header,
             "source": self.source,
+            "semantic_role": self.semantic_role,
+            "coverage_effects": self.coverage_effects,
+            "exclusion_effects": self.exclusion_effects,
         }
 
 

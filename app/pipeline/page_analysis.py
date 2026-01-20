@@ -103,8 +103,19 @@ class PageAnalysisPipeline:
             
         return page_signals_list, doc_type, confidence
 
-    async def classify_pages(self, document_id: UUID, page_signals: List[PageSignals]) -> List[PageClassification]:
+    async def classify_pages(
+        self, 
+        document_id: UUID, 
+        page_signals: List[PageSignals],
+        doc_type: DocumentType = DocumentType.UNKNOWN
+    ) -> List[PageClassification]:
         """Classify pages and detect duplicates."""
+        # Pre-scan for base policy mode if doc_type is unknown
+        if doc_type == DocumentType.UNKNOWN and page_signals:
+            all_top_texts = [" ".join(s.top_lines) for s in page_signals[:20]]
+            if self.classifier._is_base_policy(all_top_texts):
+                doc_type = DocumentType.POLICY
+                LOGGER.info(f"Detected Base Policy mode for document {document_id}")
         self.detector.reset()
         
         classifications = []
@@ -121,7 +132,7 @@ class PageAnalysisPipeline:
                     reasoning=f"Duplicate of page {dup_of}"
                 )
             else:
-                classification = self.classifier.classify(signals)
+                classification = self.classifier.classify(signals, doc_type=doc_type)
             
             # Save to database
             await self.repository.save_page_classification(document_id, classification)

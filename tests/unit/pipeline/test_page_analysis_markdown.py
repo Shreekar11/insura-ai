@@ -27,11 +27,11 @@ class TestPageAnalysisPipelineMarkdown:
     
     @pytest.fixture
     def sample_markdown_pages(self):
-        """Create sample markdown pages."""
+        """Create sample markdown pages tuples (content, page_num, metadata)."""
         return [
-            ("# DECLARATIONS PAGE\nPolicy Number: ABC-123", 1),
-            ("# COVERAGES\nCoverage A - Building", 2),
-            ("ISO PROPERTIES, INC.\nCOPYRIGHT", 3)
+            ("# DECLARATIONS PAGE\nPolicy Number: ABC-123", 1, {}),
+            ("# COVERAGES\nCoverage A - Building", 2, {}),
+            ("ISO PROPERTIES, INC.\nCOPYRIGHT", 3, {})
         ]
         
     @pytest.fixture

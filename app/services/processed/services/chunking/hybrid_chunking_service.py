@@ -518,6 +518,11 @@ class HybridChunkingService:
         current_tokens = 0
         current_page_range = set()
         
+        # Semantic state
+        current_semantic_role: Optional[str] = None
+        current_coverage_effects: List[str] = []
+        current_exclusion_effects: List[str] = []
+        
         # State tracking for current chunk
         current_has_tables = False
         current_table_count = 0
@@ -554,20 +559,28 @@ class HybridChunkingService:
                 # Detect section transition
                 detected_section = self._detect_section_type(para)
                 
-                # Check for explicit boundary transition
-                page_boundaries = boundaries_by_page.get(page_num, [])
-                boundary_section = SectionType.UNKNOWN
-                for b in page_boundaries:
-                    # If boundary specifies a line number, and we've reached it
-                    if b.start_line is not None:
-                        if current_line_estimation >= b.start_line:
-                            boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
-                    # If it doesn't specify a line but is a multi-section mapping for this page
-                    # we rely on detected_section or first paragraph for now
-                
                 transition_occurred = False
                 new_section = current_section
                 new_subsection = current_subsection
+                new_semantic_role = current_semantic_role
+                new_coverage_effects = current_coverage_effects
+                new_exclusion_effects = current_exclusion_effects
+
+                # Check for explicit boundary transition
+                page_boundaries = boundaries_by_page.get(page_num, [])
+                boundary_section = SectionType.UNKNOWN
+                current_boundary = None
+                
+                for b in page_boundaries:
+                    # Case 1: Page-level boundary (apply to first paragraph)
+                    if b.start_line is None and para_idx == 0:
+                        boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
+                        current_boundary = b
+                    # Case 2: Specific line boundary
+                    elif b.start_line is not None:
+                        if current_line_estimation >= b.start_line:
+                            boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
+                            current_boundary = b
 
                 
                 # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
@@ -588,17 +601,16 @@ class HybridChunkingService:
                 if boundary_section != SectionType.UNKNOWN:
                     # Check for subsection transition or section transition
                     
-                    # Find the specific boundary object to get sub_section_type
-                    # We iterate to find the matching boundary for the current line
-                    current_boundary = None
-                    for b in page_boundaries:
-                        if b.start_line is not None and current_line_estimation >= b.start_line:
-                            # It's a candidate, check if it matches the detected boundary_section
-                             if SectionTypeMapper.page_type_to_section_type(b.section_type) == boundary_section:
-                                 current_boundary = b
-                                 
                     # If detected boundary section is different OR subsection is different
                     new_subsection = current_boundary.sub_section_type if current_boundary else None
+                    
+                    # Update semantic info from boundary if it exists
+                    if current_boundary:
+                        role = current_boundary.semantic_role
+                        new_semantic_role = role.value if role and hasattr(role, 'value') else role
+                        new_coverage_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.coverage_effects or [])]
+                        new_exclusion_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.exclusion_effects or [])]
+
                     if boundary_section != current_section or new_subsection != current_subsection:
                         LOGGER.info(
                             f"Section transition detected via boundary: {current_section}({current_subsection}) -> {boundary_section}({new_subsection})",
@@ -606,11 +618,11 @@ class HybridChunkingService:
                         )
                         transition_occurred = True
                         new_section = boundary_section
+                        if current_boundary:
+                            new_semantic_role = current_boundary.semantic_role.value if current_boundary.semantic_role else None
+                            new_coverage_effects = [e.value for e in current_boundary.coverage_effects] if current_boundary.coverage_effects else []
+                            new_exclusion_effects = [e.value for e in current_boundary.exclusion_effects] if current_boundary.exclusion_effects else []
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
-                    # Only use manifest section at start of page if no other transition detected
-                    # Note: if manifest_section is "comma,separated", SectionTypeMapper should handle it
-                    # although it currently returns UNKNOWN for comma-separated.
-                    # We might need to handle the first element of comma-separated list here.
                     
                     actual_manifest_section = manifest_section
                     if isinstance(manifest_section, str) and "," in manifest_section:
@@ -637,6 +649,9 @@ class HybridChunkingService:
                             tokens=current_tokens,
                             has_tables=current_has_tables,
                             table_count=current_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
                         ))
                         chunk_index += 1
                         current_buffer = []
@@ -649,6 +664,9 @@ class HybridChunkingService:
                     if transition_occurred:
                         current_section = new_section
                         current_subsection = new_subsection
+                        current_semantic_role = new_semantic_role
+                        current_coverage_effects = new_coverage_effects
+                        current_exclusion_effects = new_exclusion_effects
                     
                     # Split the paragraph
                     sub_paras = self.token_counter.split_by_token_limit(
@@ -667,6 +685,9 @@ class HybridChunkingService:
                             tokens=sub_tokens,
                             has_tables=page_has_tables,
                             table_count=page_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
                         ))
                         chunk_index += 1
                     
@@ -698,6 +719,9 @@ class HybridChunkingService:
                         tokens=current_tokens,
                         has_tables=current_has_tables,
                         table_count=current_table_count,
+                        semantic_role=current_semantic_role,
+                        coverage_effects=current_coverage_effects,
+                        exclusion_effects=current_exclusion_effects,
                     )
                     chunks.append(chunk)
                     chunk_index += 1
@@ -726,6 +750,9 @@ class HybridChunkingService:
                 if transition_occurred:
                     current_section = new_section
                     current_subsection = new_subsection
+                    current_semantic_role = new_semantic_role
+                    current_coverage_effects = new_coverage_effects
+                    current_exclusion_effects = new_exclusion_effects
                 
                 current_buffer.append(para)
                 current_tokens += para_tokens
@@ -748,6 +775,9 @@ class HybridChunkingService:
                 tokens=current_tokens,
                 has_tables=current_has_tables,
                 table_count=current_table_count,
+                semantic_role=current_semantic_role,
+                coverage_effects=current_coverage_effects,
+                exclusion_effects=current_exclusion_effects,
             )
             chunks.append(chunk)
             
@@ -764,6 +794,9 @@ class HybridChunkingService:
         tokens: int,
         has_tables: bool,
         table_count: int,
+        semantic_role: Optional[str] = None,
+        coverage_effects: List[str] = None,
+        exclusion_effects: List[str] = None,
     ) -> HybridChunk:
         """Create a HybridChunk from the current buffer and state."""
         content = "\n\n".join(buffer).strip()
@@ -791,6 +824,9 @@ class HybridChunkingService:
             table_count=table_count,
             context_header=self._build_context_header(section_type, primary_page),
             source="semantic_paragraph_chunker",
+            semantic_role=semantic_role,
+            coverage_effects=coverage_effects or [],
+            exclusion_effects=exclusion_effects or [],
         )
         
         # Enrich with contextualized text for better embeddings

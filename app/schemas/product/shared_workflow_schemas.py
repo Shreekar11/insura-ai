@@ -17,6 +17,7 @@ class PageAnalysisOutputSchema(BaseModel):
     pages_to_process: List[int] = Field(..., description="Pages to process")
     pages_skipped: List[int] = Field(..., description="Pages to skip")
     processing_ratio: float = Field(..., ge=0.0, le=1.0, description="Processing ratio")
+    classifications: List[Dict[str, Any]] = Field(..., description="Classification result")
     document_profile: Optional[Dict[str, Any]] = Field(None, description="Document profile")
     page_section_map: Dict[int, str] = Field(default_factory=dict, description="Page to section mapping")
     

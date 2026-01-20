@@ -33,6 +33,32 @@ class PageType(str, Enum):
     COVERAGES_CONTEXT = "coverages_context"
     ACORD_APPLICATION = "acord_application"
     PROPOSAL = "proposal"
+    CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
+    UNKNOWN = "unknown"
+
+
+class SemanticSection(str, Enum):
+    """Semantic insurance document section types.
+    
+    These represent high-level insurance concepts, distinct from visual page types.
+    """
+    CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
+    DECLARATIONS = "declarations"
+    COVERAGES = "coverages"
+    LIABILITY_COVERAGE = "liability.coverage"
+    LIABILITY_EXCLUSIONS = "liability.exclusions"
+    PHYSICAL_DAMAGE_COVERAGE = "physical_damage.coverage"
+    PHYSICAL_DAMAGE_EXCLUSIONS = "physical_damage.exclusions"
+    MULTI_COVERAGE = "multi_coverage"
+    CONDITIONS = "conditions"
+    DEFINITIONS = "definitions"
+    ENDORSEMENT = "endorsement"
+    EXCLUSIONS = "exclusions"
+    CERTIFICATE = "certificate"
+    BOILERPLATE = "boilerplate"
+    SOV = "sov"
+    LOSS_RUN = "loss_run"
+    TABLE_OF_CONTENTS = "toc"
     UNKNOWN = "unknown"
 
 
@@ -40,6 +66,7 @@ class DocumentType(str, Enum):
     """Types of insurance documents."""
     
     POLICY = "policy"
+    POLICY_BUNDLE = "policy_bundle"
     SOV = "sov"
     LOSS_RUN = "loss_run"
     ENDORSEMENT = "endorsement"
@@ -53,6 +80,30 @@ class DocumentType(str, Enum):
     FINANCIAL = "financial"
     AUDIT = "audit"
     UNKNOWN = "unknown"
+
+
+class SemanticRole(str, Enum):
+    """Effect role of an endorsement on the policy."""
+    COVERAGE_MODIFIER = "coverage_modifier"
+    EXCLUSION_MODIFIER = "exclusion_modifier"
+    BOTH = "both"
+    ADMINISTRATIVE_ONLY = "administrative_only"
+    UNKNOWN = "unknown"
+
+
+class CoverageEffect(str, Enum):
+    """Specific semantic effects on coverage."""
+    ADDS_COVERAGE = "adds_coverage"
+    EXPANDS_COVERAGE = "expands_coverage"
+    LIMITS_COVERAGE = "limits_coverage"
+    RESTORES_COVERAGE = "restores_coverage"
+
+
+class ExclusionEffect(str, Enum):
+    """Specific semantic effects on exclusions."""
+    INTRODUCES_EXCLUSION = "introduces_exclusion"
+    NARROWS_EXCLUSION = "narrows_exclusion"
+    REMOVES_EXCLUSION = "removes_exclusion"
 
 
 class PageSignals(BaseModel):
@@ -125,6 +176,15 @@ class SectionSpan(BaseModel):
     confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence for this span")
     span: Optional[TextSpan] = Field(None, description="Coordinates of the section in the text")
     reasoning: Optional[str] = Field(None, description="Reasoning for this span detection")
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the span (for endorsements)"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects for this span"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects for this span"
+    )
 
 
 class PageClassification(BaseModel):
@@ -153,6 +213,15 @@ class PageClassification(BaseModel):
     sections: List[SectionSpan] = Field(
         default_factory=list,
         description="List of detected sections within the page (for multi-section pages)"
+    )
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the page (mainly for endorsements)"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects detected on this page"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects detected on this page"
     )
     
     model_config = ConfigDict(
@@ -281,6 +350,35 @@ class SectionBoundary(BaseModel):
         None,
         description="Original granular section type if mapped to a broader category"
     )
+    semantic_section: Optional[SemanticSection] = Field(
+        None,
+        description="High-level semantic section concept"
+    )
+    modifier_type: Optional[str] = Field(
+        None,
+        description="Modifier type for endorsements (adds, modifies, removes, etc.)"
+    )
+    endorsement_scope: Optional[str] = Field(
+        None,
+        description="Scope of an endorsement modifier (e.g., liability, property)"
+    )
+    extractable: bool = Field(
+        True,
+        description="Whether this section contains extractable insurance data"
+    )
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the section"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects for this section"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects for this section"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context metadata for the section (e.g. parent policy section)"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -343,6 +441,12 @@ class DocumentProfile(BaseModel):
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata from page analysis"
+    )
+    policy_form: Optional[str] = Field(None, description="Inferred policy form (e.g., commercial_auto)")
+    carrier: Optional[str] = Field(None, description="Detected carrier name")
+    semantic_capabilities: List[str] = Field(
+        default_factory=list,
+        description="List of semantic features enabled for this document type"
     )
     
     @property

@@ -87,7 +87,7 @@ async def classify_pages(document_id: str, page_signals: List[Dict]) -> List[Dic
             signals_objs = [PageSignals(**s) for s in page_signals]
             classifications = await pipeline.classify_pages(document_id=UUID(document_id), page_signals=signals_objs)
             await session.commit()
-            return [c.dict() for c in classifications]
+            return [c.model_dump(mode='json') for c in classifications]
     except Exception as e:
         activity.logger.error(f"Page classification failed: {e}", exc_info=True)
         raise
@@ -145,6 +145,9 @@ async def create_page_manifest(
                         'confidence': sb.confidence,
                         'page_count': sb.page_count,
                         'anchor_text': sb.anchor_text,
+                        'semantic_role': sb.semantic_role.value if sb.semantic_role else None,
+                        'coverage_effects': [e.value for e in sb.coverage_effects],
+                        'exclusion_effects': [e.value for e in sb.exclusion_effects],
                     }
                     for sb in manifest.document_profile.section_boundaries
                 ]
@@ -154,7 +157,10 @@ async def create_page_manifest(
             manifest_dict['classifications'] = [
                 {
                     **c,
-                    'page_type': c['page_type'].value if hasattr(c['page_type'], 'value') else c['page_type']
+                    'page_type': c['page_type'].value if hasattr(c['page_type'], 'value') else c['page_type'],
+                    'semantic_role': c['semantic_role'].value if c.get('semantic_role') and hasattr(c['semantic_role'], 'value') else c.get('semantic_role'),
+                    'coverage_effects': [e.value for e in c['coverage_effects']] if c.get('coverage_effects') else [],
+                    'exclusion_effects': [e.value for e in c['exclusion_effects']] if c.get('exclusion_effects') else [],
                 }
                 for c in manifest_dict['classifications']
             ]
@@ -199,6 +205,9 @@ async def get_document_profile_activity(document_id: str) -> Dict:
                     'confidence': sb.confidence,
                     'page_count': sb.page_count,
                     'anchor_text': sb.anchor_text,
+                    'semantic_role': sb.semantic_role.value if sb.semantic_role else None,
+                    'coverage_effects': [e.value for e in sb.coverage_effects],
+                    'exclusion_effects': [e.value for e in sb.exclusion_effects],
                 }
                 for sb in document_profile.section_boundaries
             ]
