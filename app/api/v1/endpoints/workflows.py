@@ -12,7 +12,8 @@ from app.core.auth import get_current_user
 from app.schemas.auth import CurrentUser
 from app.schemas.generated.workflows import (
     WorkflowExecutionResponse, 
-    WorkflowResponse, 
+    WorkflowResponse,
+    WorkflowListResponse,
     WorkflowExecutionRequest,
     WorkflowExtractRequest,
     WorkflowDefinitionResponse,
@@ -82,7 +83,7 @@ async def execute_workflow(
 
 @router.get(
     "/",
-    response_model=List[WorkflowResponse],
+    response_model=WorkflowListResponse,
     summary="List workflows",
     operation_id="list_workflows",
 )
@@ -92,7 +93,7 @@ async def list_workflows(
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-) -> List[WorkflowResponse]:
+) -> WorkflowListResponse:
     """List workflow executions for the current user."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     return await workflow_service.list_workflows(user.id, limit=limit, offset=offset)

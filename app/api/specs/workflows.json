@@ -93,15 +93,7 @@
                                 "schema": {
                                     "type": "object",
                                     "properties": {
-                                        "total": {
-                                            "type": "integer"
-                                        },
-                                        "workflows": {
-                                            "type": "array",
-                                            "items": {
-                                                "$ref": "#/components/schemas/WorkflowResponse"
-                                            }
-                                        }
+                                        "$ref": "#/components/schemas/WorkflowListResponse"
                                     }
                                 }
                             }
@@ -333,6 +325,47 @@
                     },
                     "message": {
                         "type": "string"
+                    }
+                }
+            },
+            "WorkflowListResponse":{
+                "type": "object",
+                "properties":{
+                    "total": {
+                        "type": "number"
+                    },
+                    "workflows":{
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "definition_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "key": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string"
+                                },
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "updated_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                }
+                            }
+                        }
                     }
                 }
             },
