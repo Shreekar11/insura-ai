@@ -100,7 +100,6 @@
                     "id",
                     "email",
                     "full_name",
-                    "role",
                     "created_at"
                 ],
                 "properties": {

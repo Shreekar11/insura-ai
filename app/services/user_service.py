@@ -69,7 +69,6 @@ class UserService:
             id=user.supabase_user_id,
             email=user.email,
             full_name=user.full_name,
-            role=user.role,
             created_at=user.created_at,
             last_login=None,  # TODO: Add last login tracking if needed
         )
@@ -91,7 +90,6 @@ class UserService:
             id=user.supabase_user_id,
             email=user.email,
             full_name=user.full_name,
-            role=user.role,
             created_at=user.created_at,
             last_login=None,  # TODO: Add last login tracking if needed
         )
@@ -160,14 +158,12 @@ class UserService:
         supabase_user_id = current_user.id
         email = current_user.email
         full_name = current_user.full_name
-        role = current_user.role
 
         # Get or create user
         user = await self.repository.get_or_create_from_supabase(
             supabase_user_id=supabase_user_id,
             email=email,
             full_name=full_name,
-            role=role
         )
 
         return user
@@ -200,7 +196,6 @@ class UserService:
             id=user.supabase_user_id,
             email=user.email,
             full_name=user.full_name or "",
-            role=user.role,
             created_at=user.created_at,
         )
 
@@ -218,6 +213,5 @@ class UserService:
             id=user.supabase_user_id,
             email=user.email,
             full_name=user.full_name or "",
-            role=user.role,
             created_at=user.created_at,
         )

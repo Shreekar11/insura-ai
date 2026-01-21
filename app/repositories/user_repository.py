@@ -136,7 +136,6 @@ class UserRepository:
         supabase_user_id: str,
         email: str,
         full_name: Optional[str] = None,
-        role: str = "user"
     ) -> User:
         """Get existing user or create new one from Supabase data.
 
@@ -147,7 +146,6 @@ class UserRepository:
             supabase_user_id: Supabase user ID
             email: User email
             full_name: User full name (optional)
-            role: User role (defaults to "user")
 
         Returns:
             User instance (existing or newly created)
@@ -173,7 +171,6 @@ class UserRepository:
             supabase_user_id=supabase_user_id,
             email=email,
             full_name=full_name,
-            role=role
         )
 
         user = await self.create(user_data)

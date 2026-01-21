@@ -35,7 +35,7 @@ class JWTAuthenticationMiddleware(BaseHTTPMiddleware):
     
     async def dispatch(self, request: Request, call_next):
         # Skip authentication for excluded paths
-        if request.url.path in EXCLUDED_PATHS or request.url.path.startswith("/api/v1/health"):
+        if request.url.path in EXCLUDED_PATHS or request.url.path.startswith("/health"):
             return await call_next(request)
             
         auth_header = request.headers.get("Authorization")

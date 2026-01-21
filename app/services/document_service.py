@@ -13,7 +13,7 @@ from app.repositories.entity_mention_repository import EntityMentionRepository
 from app.repositories.section_chunk_repository import SectionChunkRepository
 from app.services.base_service import BaseService
 from app.services.storage_service import StorageService
-from app.schemas.generated.documents import DocumentResponse, EntityResponse, SectionResponse, MultiDocumentResponse
+from app.schemas.generated.documents import DocumentResponse, EntityResponse, SectionResponse, DocumentResponse
 from app.utils.logging import get_logger
 from app.core.exceptions import AppError
 
@@ -43,7 +43,7 @@ class DocumentService(BaseService):
         self, 
         files: List[UploadFile], 
         user_id: UUID
-    ) -> MultiDocumentResponse:
+    ) -> DocumentResponse:
         """Upload and create documents.
         
         Args:
@@ -51,7 +51,7 @@ class DocumentService(BaseService):
             user_id: User ID owning the documents
             
         Returns:
-            MultiDocumentResponse with success/failure details
+            DocumentResponse with success/failure details
         """
         uploaded_documents: List[DocumentResponse] = []
         failed_uploads: List[dict] = []
@@ -103,7 +103,7 @@ class DocumentService(BaseService):
                 })
                 continue
         
-        return MultiDocumentResponse(
+        return DocumentResponse(
             documents=uploaded_documents,
             total_uploaded=len(uploaded_documents),
             failed_uploads=failed_uploads

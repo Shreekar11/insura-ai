@@ -37,25 +37,3 @@ async def health_check() -> HealthCheckResponse:
         service=settings.app_name,
     )
 
-
-@router.get("/detailed", tags=["Health"])
-async def detailed_health():
-    """Detailed health check including dependencies."""
-    # Database check
-    db_health = await db_client.health_check()
-    
-    # Temporal check
-    temporal_healthy = False
-    try:
-        temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
-        await Client.connect(temporal_host)
-        temporal_healthy = True
-    except Exception as e:
-        LOGGER.warning(f"Temporal health check failed: {e}")
-
-    return {
-        "status": "healthy" if db_health["status"] == "healthy" and temporal_healthy else "degraded",
-        "database": db_health,
-        "temporal": {"status": "healthy" if temporal_healthy else "unhealthy"},
-        "version": settings.app_version,
-    }
