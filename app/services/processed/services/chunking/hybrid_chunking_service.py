@@ -116,6 +116,7 @@ class HybridChunkingService:
     
     Attributes:
         max_tokens: Maximum tokens per chunk
+        min_tokens_per_chunk: Minimum tokens before flushing
         overlap_tokens: Token overlap between chunks
         tokenizer: Tokenizer name for HybridChunker
         token_counter: Token counting utility
@@ -124,11 +125,14 @@ class HybridChunkingService:
     
     # Default super-chunk limits for LLM processing
     DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK = 6000
+    DEFAULT_MIN_TOKENS_PER_CHUNK = 300
+    FALLBACK_MIN_TOKENS = 200
     
     def __init__(
         self,
         max_tokens: int = 1500,
         overlap_tokens: int = 50,
+        min_tokens_per_chunk: int = DEFAULT_MIN_TOKENS_PER_CHUNK,
         tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2",
         merge_peers: bool = True,
         max_tokens_per_super_chunk: int = DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK,
@@ -138,12 +142,15 @@ class HybridChunkingService:
         Args:
             max_tokens: Maximum tokens per chunk
             overlap_tokens: Token overlap between chunks
+            min_tokens_per_chunk: Minimum tokens before flushing a chunk (default 300)
             tokenizer: HuggingFace tokenizer name for HybridChunker
             merge_peers: Whether to merge small sibling chunks
             max_tokens_per_super_chunk: Maximum tokens per super-chunk for LLM calls
         """
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
+        # Enforce minimum of FALLBACK_MIN_TOKENS (200) even if lower value provided
+        self.min_tokens_per_chunk = max(min_tokens_per_chunk, self.FALLBACK_MIN_TOKENS)
         self.tokenizer = tokenizer
         self.merge_peers = merge_peers
         self.max_tokens_per_super_chunk = max_tokens_per_super_chunk
@@ -158,6 +165,7 @@ class HybridChunkingService:
             "Initialized HybridChunkingService",
             extra={
                 "max_tokens": max_tokens,
+                "min_tokens_per_chunk": self.min_tokens_per_chunk,
                 "overlap_tokens": overlap_tokens,
                 "max_tokens_per_super_chunk": max_tokens_per_super_chunk,
                 "tokenizer": tokenizer,
@@ -623,9 +631,6 @@ class HybridChunkingService:
                         )
                         transition_occurred = True
                         new_section = boundary_section
-                        # Use effective type if specifically set in boundary
-                        if boundary_effective_type:
-                            new_section = boundary_effective_type
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
                     
                     actual_manifest_section = manifest_section
@@ -641,12 +646,21 @@ class HybridChunkingService:
                         transition_occurred = True
                         new_section = actual_manifest_section
                 
+                # ACORD Certificate Guard: Hard-block semantic interpretation on certificates
+                if new_section == SectionType.CERTIFICATE_OF_INSURANCE:
+                    new_semantic_role = None
+                    new_coverage_effects = []
+                    new_exclusion_effects = []
+
                 # Handle oversized paragraph - split it internally
                 if para_tokens > self.max_tokens:
                     if current_buffer:
                         chunks.append(self._flush_chunk(
                             buffer=current_buffer,
                             section_type=current_section,
+                            effective_section_type=current_section, # Default
+                            original_section_type=current_section,
+                            subsection_type=current_subsection,
                             page_range=current_page_range,
                             document_id=document_id,
                             chunk_index=chunk_index,
@@ -682,6 +696,8 @@ class HybridChunkingService:
                         chunks.append(self._flush_chunk(
                             buffer=[sub_para],
                             section_type=current_section,
+                            effective_section_type=current_section, # Default
+                            original_section_type=current_section,
                             subsection_type=current_subsection,
                             page_range={page_num},
                             document_id=document_id,
@@ -705,10 +721,15 @@ class HybridChunkingService:
                     continue
 
                 # Determine if we should flush the current chunk
-                # Flush if: Section transition OR Token limit reached
+                # Flush if:
+                # 1. Section transition (always flush on section change)
+                # 2. Token limit reached AND minimum tokens met (prevents undersized chunks)
+                token_limit_reached = current_tokens + para_tokens > self.max_tokens
+                min_tokens_met = current_tokens >= self.min_tokens_per_chunk
+                
                 should_flush = current_buffer and (
                     transition_occurred or 
-                    (current_tokens + para_tokens > self.max_tokens)
+                    (token_limit_reached and min_tokens_met)
                 )
                 
                 if should_flush:
@@ -722,7 +743,8 @@ class HybridChunkingService:
                         # Create and store the chunk
                         chunk = self._flush_chunk(
                             buffer=current_buffer,
-                            section_type=eff_type,
+                            section_type=current_section,
+                            effective_section_type=eff_type,
                             original_section_type=current_section,
                             subsection_type=current_subsection,
                             page_range=current_page_range,
@@ -784,7 +806,8 @@ class HybridChunkingService:
             for eff_type in effective_types:
                 chunk = self._flush_chunk(
                     buffer=current_buffer,
-                    section_type=eff_type,
+                    section_type=current_section,
+                    effective_section_type=eff_type,
                     original_section_type=current_section,
                     subsection_type=current_subsection,
                     page_range=current_page_range,
@@ -799,8 +822,17 @@ class HybridChunkingService:
                 )
                 chunks.append(chunk)
                 chunk_index += 1
+        
+        # Post-process: merge consecutive small chunks of same section type
+        # This handles cases where section boundaries created undersized chunks
+        merged_chunks = self._merge_small_chunks(chunks)
+        
+        LOGGER.info(
+            f"Chunk post-processing: {len(chunks)} -> {len(merged_chunks)} chunks after merging",
+            extra={"original": len(chunks), "merged": len(merged_chunks)}
+        )
             
-        return chunks
+        return merged_chunks
 
     def _get_effective_section_types(
         self, 
@@ -847,6 +879,7 @@ class HybridChunkingService:
         self,
         buffer: List[str],
         section_type: SectionType,
+        effective_section_type: Optional[SectionType],
         original_section_type: Optional[SectionType],
         subsection_type: Optional[str],
         page_range: set,
@@ -870,6 +903,12 @@ class HybridChunkingService:
         else:
             chunk_role = ChunkRole.TEXT
             
+        # Get document role from config
+        from app.services.processed.services.chunking.hybrid_models import SECTION_CONFIG
+        config = SECTION_CONFIG.get(section_type, {})
+        is_non_contractual = config.get("is_non_contractual", False)
+        document_role = "non_contractual" if is_non_contractual else "contractual"
+
         metadata = HybridChunkMetadata(
             document_id=document_id,
             page_number=primary_page,
@@ -888,9 +927,15 @@ class HybridChunkingService:
             semantic_role=semantic_role,
             coverage_effects=coverage_effects or [],
             exclusion_effects=exclusion_effects or [],
+            original_section_type=original_section_type,
+            effective_section_type=effective_section_type,
+            document_role=document_role,
         )
         
         # Enrich metadata with original section if it was projected
+        if effective_section_type and effective_section_type != section_type:
+            if not metadata.subsection_type:
+                metadata.subsection_type = f"projected_from_{section_type.value}"
         if original_section_type and original_section_type != section_type:
             metadata.subsection_type = f"projected_from_{original_section_type.value}"
 
@@ -938,6 +983,108 @@ class HybridChunkingService:
             overlap_tokens += sent_tokens
         
         return overlap_text.strip() + "\n\n" if overlap_text else ""
+    
+    def _merge_small_chunks(
+        self,
+        chunks: List[HybridChunk],
+    ) -> List[HybridChunk]:
+        """Merge consecutive small chunks with same section type and semantic intent.
+        
+        This method merges undersized chunks (<min_tokens_per_chunk) with their
+        neighbors when they share the same effective section type AND semantic role.
+        Merging is allowed across page boundaries per user requirement.
+        
+        Args:
+            chunks: List of hybrid chunks to potentially merge
+            
+        Returns:
+            List of merged chunks (fewer, larger chunks)
+        """
+        if not chunks or len(chunks) < 2:
+            return chunks
+        
+        merged = []
+        current = chunks[0]
+        
+        for next_chunk in chunks[1:]:
+            # Check if chunks can be merged:
+            # 1. Same effective section type AND same structural section type
+            # 2. Same semantic role (or both None)
+            # 3. Current chunk is below min_tokens threshold
+            same_section = (
+                current.metadata.section_type == next_chunk.metadata.section_type and
+                current.metadata.effective_section_type == next_chunk.metadata.effective_section_type
+            )
+            same_semantic = (
+                current.metadata.semantic_role == next_chunk.metadata.semantic_role
+            )
+            current_undersized = current.metadata.token_count < self.min_tokens_per_chunk
+            combined_fits = (
+                current.metadata.token_count + next_chunk.metadata.token_count 
+                <= self.max_tokens
+            )
+            
+            if same_section and same_semantic and current_undersized and combined_fits:
+                # Merge next_chunk into current
+                merged_text = current.text + "\n\n" + next_chunk.text
+                merged_tokens = current.metadata.token_count + next_chunk.metadata.token_count
+                
+                # Combine page ranges
+                merged_page_range = list(set(
+                    (current.metadata.page_range or [current.metadata.page_number]) +
+                    (next_chunk.metadata.page_range or [next_chunk.metadata.page_number])
+                ))
+                merged_page_range.sort()
+                
+                # Create merged metadata
+                merged_metadata = HybridChunkMetadata(
+                    document_id=current.metadata.document_id,
+                    page_number=merged_page_range[0],
+                    page_range=merged_page_range,
+                    section_type=current.metadata.section_type,
+                    section_name=current.metadata.section_name,
+                    subsection_type=current.metadata.subsection_type,
+                    chunk_index=current.metadata.chunk_index,
+                    token_count=merged_tokens,
+                    stable_chunk_id=current.metadata.stable_chunk_id,
+                    chunk_role=current.metadata.chunk_role,
+                    has_tables=current.metadata.has_tables or next_chunk.metadata.has_tables,
+                    table_count=max(current.metadata.table_count or 0, next_chunk.metadata.table_count or 0),
+                    context_header=current.metadata.context_header,
+                    source="merged_semantic_paragraph_chunker",
+                    semantic_role=current.metadata.semantic_role,
+                    coverage_effects=list(set(
+                        (current.metadata.coverage_effects or []) + 
+                        (next_chunk.metadata.coverage_effects or [])
+                    )),
+                    exclusion_effects=list(set(
+                        (current.metadata.exclusion_effects or []) + 
+                        (next_chunk.metadata.exclusion_effects or [])
+                    )),
+                    original_section_type=current.metadata.original_section_type,
+                    effective_section_type=current.metadata.effective_section_type,
+                    document_role=current.metadata.document_role,
+                )
+                
+                current = HybridChunk(
+                    text=merged_text,
+                    contextualized_text=f"{merged_metadata.context_header}\n\n{merged_text}" if merged_metadata.context_header else merged_text,
+                    metadata=merged_metadata,
+                )
+                
+                LOGGER.debug(
+                    f"Merged chunk: {merged_tokens} tokens, pages {merged_page_range}",
+                    extra={"section": current.metadata.section_type.value}
+                )
+            else:
+                # Cannot merge, finalize current and start new
+                merged.append(current)
+                current = next_chunk
+        
+        # Don't forget the last chunk
+        merged.append(current)
+        
+        return merged
     
     def _build_super_chunks(
         self,
@@ -1001,10 +1148,17 @@ class HybridChunkingService:
         """
         total_tokens = sum(c.metadata.token_count for c in chunks)
         
-        # Build section map
+        # Build section map using structural section type
         section_map = {}
         for chunk in chunks:
-            section = chunk.metadata.section_type.value if chunk.metadata.section_type else "unknown"
+            # Use original/structural section for stats
+            section = (
+                chunk.metadata.original_section_type.value 
+                if chunk.metadata.original_section_type 
+                else chunk.metadata.section_type.value 
+                if chunk.metadata.section_type 
+                else "unknown"
+            )
             section_map[section] = section_map.get(section, 0) + 1
         
         # Calculate statistics

@@ -10,11 +10,11 @@ Tests the super-chunk building functionality including:
 import pytest
 from uuid import uuid4
 
-from app.services.chunking.section_super_chunk_builder import (
+from app.services.processed.services.chunking.section_super_chunk_builder import (
     SectionSuperChunkBuilder,
     SuperChunkBatch,
 )
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_models import (
     SectionType,
     ChunkRole,
     HybridChunk,
@@ -275,7 +275,7 @@ class TestMergeSmallSuperChunks:
     def test_merge_small_chunks(self, builder):
         """Test that small super-chunks are merged."""
         # Create super-chunks with actual chunks so merge can work
-        from app.services.chunking.hybrid_models import HybridChunk, HybridChunkMetadata
+        from app.services.processed.services.chunking.hybrid_models import HybridChunk, HybridChunkMetadata
         
         chunk1 = HybridChunk(
             text="Condition content 1",

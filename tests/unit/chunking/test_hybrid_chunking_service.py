@@ -10,8 +10,8 @@ Tests the hybrid chunking implementation including:
 import pytest
 from uuid import uuid4
 
-from app.services.chunking.hybrid_chunking_service import HybridChunkingService
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_chunking_service import HybridChunkingService
+from app.services.processed.services.chunking.hybrid_models import (
     SectionType,
     ChunkRole,
     HybridChunk,

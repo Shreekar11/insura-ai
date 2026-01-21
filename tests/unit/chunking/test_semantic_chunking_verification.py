@@ -48,8 +48,11 @@ class TestSemanticChunkingVerification:
         assert len(result.chunks) == 2, "Should have created 2 chunks (one for coverages, one for exclusions)"
         
         section_types = [c.metadata.section_type for c in result.chunks]
-        assert SectionType.COVERAGES in section_types
-        assert SectionType.EXCLUSIONS in section_types
+        assert all(st == SectionType.ENDORSEMENTS for st in section_types)
+        
+        eff_types = [c.metadata.effective_section_type for c in result.chunks]
+        assert SectionType.COVERAGES in eff_types
+        assert SectionType.EXCLUSIONS in eff_types
         
         for chunk in result.chunks:
             assert chunk.metadata.semantic_role == SemanticRole.BOTH
@@ -79,7 +82,8 @@ class TestSemanticChunkingVerification:
         result = service.chunk_pages([page], section_boundaries=boundaries)
         
         assert len(result.chunks) == 1
-        assert result.chunks[0].metadata.section_type == SectionType.COVERAGES
+        assert result.chunks[0].metadata.section_type == SectionType.ENDORSEMENTS
+        assert result.chunks[0].metadata.effective_section_type == SectionType.COVERAGES
         assert result.chunks[0].metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER
 
     def test_exclusion_modifier_projection(self, service):
@@ -105,7 +109,8 @@ class TestSemanticChunkingVerification:
         result = service.chunk_pages([page], section_boundaries=boundaries)
         
         assert len(result.chunks) == 1
-        assert result.chunks[0].metadata.section_type == SectionType.EXCLUSIONS
+        assert result.chunks[0].metadata.section_type == SectionType.ENDORSEMENTS
+        assert result.chunks[0].metadata.effective_section_type == SectionType.EXCLUSIONS
         assert result.chunks[0].metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER
 
     def test_boundary_priority_over_page_map(self, service):

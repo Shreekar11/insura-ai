@@ -67,6 +67,7 @@ class LLMSettings(BaseSettings):
 
     # Chunking
     chunk_max_tokens: int = Field(default=1500, validation_alias="CHUNK_MAX_TOKENS")
+    chunk_min_tokens: int = Field(default=300, validation_alias="CHUNK_MIN_TOKENS")
     chunk_overlap_tokens: int = Field(default=50, validation_alias="CHUNK_OVERLAP_TOKENS")
     enable_section_chunking: bool = Field(default=True, validation_alias="ENABLE_SECTION_CHUNKING")
     
@@ -242,6 +243,10 @@ class Settings(BaseSettings):
     @property
     def enable_section_chunking(self) -> bool: 
         return self.llm.enable_section_chunking
+    
+    @property
+    def chunk_min_tokens(self) -> int:
+        return self.llm.chunk_min_tokens
     
     @property
     def batch_size(self) -> int: 

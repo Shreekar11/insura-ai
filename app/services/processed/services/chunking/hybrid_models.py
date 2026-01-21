@@ -29,6 +29,7 @@ class SectionType(str, Enum):
     DEDUCTIBLES = "deductibles"
     PREMIUM = "premium"
     COVERAGES_CONTEXT = "coverages_context"
+    CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
     UNKNOWN = "unknown"
 
     # LOB-specific sections (ADD THESE)
@@ -102,6 +103,9 @@ class HybridChunkMetadata:
     semantic_role: Optional[str] = None
     coverage_effects: List[str] = field(default_factory=list)
     exclusion_effects: List[str] = field(default_factory=list)
+    original_section_type: Optional[SectionType] = None
+    effective_section_type: Optional[SectionType] = None
+    document_role: str = "contractual"
     
     def to_dict(self) -> Dict[str, Any]:
         """Convert metadata to dictionary for serialization."""
@@ -125,6 +129,9 @@ class HybridChunkMetadata:
             "semantic_role": self.semantic_role,
             "coverage_effects": self.coverage_effects,
             "exclusion_effects": self.exclusion_effects,
+            "original_section_type": self.original_section_type.value if self.original_section_type else None,
+            "effective_section_type": self.effective_section_type.value if self.effective_section_type else None,
+            "document_role": self.document_role,
         }
 
 
@@ -285,6 +292,7 @@ SECTION_CONFIG = {
         "priority": 1,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.COVERAGES: {
         "max_chunks": 8,
@@ -292,6 +300,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.CONDITIONS: {
         "max_chunks": 5,
@@ -299,6 +308,7 @@ SECTION_CONFIG = {
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.EXCLUSIONS: {
         "max_chunks": 5,
@@ -306,6 +316,7 @@ SECTION_CONFIG = {
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.ENDORSEMENTS: {
         "max_chunks": 10,  # 1 per endorsement
@@ -313,6 +324,7 @@ SECTION_CONFIG = {
         "priority": 4,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.SOV: {
         "max_chunks": 5,
@@ -320,6 +332,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": False,
         "table_only": True,
+        "is_non_contractual": False,
     },
     SectionType.LOSS_RUN: {
         "max_chunks": 5,
@@ -327,6 +340,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": False,
         "table_only": True,
+        "is_non_contractual": False,
     },
     SectionType.INSURING_AGREEMENT: {
         "max_chunks": 3,
@@ -334,6 +348,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.PREMIUM_SUMMARY: {
         "max_chunks": 3,
@@ -341,6 +356,7 @@ SECTION_CONFIG = {
         "priority": 3,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.FINANCIAL_STATEMENT: {
         "max_chunks": 5,
@@ -348,6 +364,7 @@ SECTION_CONFIG = {
         "priority": 4,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.VEHICLE_DETAILS: {
         "max_chunks": 5,
@@ -355,6 +372,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.INSURED_DECLARED_VALUE: {
         "max_chunks": 3,
@@ -362,6 +380,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.LIABILITY_COVERAGES: {
         "max_chunks": 5,
@@ -369,6 +388,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.DEDUCTIBLES: {
         "max_chunks": 3,
@@ -376,6 +396,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.PREMIUM: {
         "max_chunks": 3,
@@ -383,6 +404,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.COVERAGES_CONTEXT: {
         "max_chunks": 5,
@@ -390,6 +412,7 @@ SECTION_CONFIG = {
         "priority": 2,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
     },
     SectionType.UNKNOWN: {
         "max_chunks": 5,
@@ -397,6 +420,15 @@ SECTION_CONFIG = {
         "priority": 10,
         "requires_llm": True,
         "table_only": False,
+        "is_non_contractual": False,
+    },
+    SectionType.CERTIFICATE_OF_INSURANCE: {
+        "max_chunks": 1,
+        "max_tokens": 2000,
+        "priority": 10,
+        "requires_llm": False,  # No LLM extraction
+        "table_only": False,
+        "is_non_contractual": True,
     },
 }
 

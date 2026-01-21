@@ -144,6 +144,7 @@ async def perform_hybrid_chunking(
             chunking_service = HybridChunkingService(
                 max_tokens=settings.chunk_max_tokens,
                 overlap_tokens=settings.chunk_overlap_tokens,
+                min_tokens_per_chunk=settings.chunk_min_tokens,
                 max_tokens_per_super_chunk=settings.max_tokens_per_super_chunk,
             )
             

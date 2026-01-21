@@ -160,7 +160,12 @@ class SectionSuperChunkBuilder:
         groups: Dict[SectionType, List[HybridChunk]] = {}
         
         for chunk in chunks:
-            section_type = chunk.metadata.section_type or SectionType.UNKNOWN
+            # Use effective type for LLM routing, fall back to structural
+            section_type = (
+                chunk.metadata.effective_section_type or 
+                chunk.metadata.section_type or 
+                SectionType.UNKNOWN
+            )
             if section_type not in groups:
                 groups[section_type] = []
             groups[section_type].append(chunk)
