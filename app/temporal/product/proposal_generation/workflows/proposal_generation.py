@@ -2,7 +2,7 @@
 
 Orchestrates the complete proposal generation pipeline:
 1. Pre-flight validation (require exactly 2 documents)
-2. Document processing through shared stage workflows
+2. Document processing through shared stages via mixin
 3. Proposal-specific comparison and narrative generation via child workflow
 """
 
@@ -10,15 +10,7 @@ from temporalio import workflow
 from datetime import timedelta
 from typing import Dict, List, Any
 
-# Import shared stage workflows
-from app.temporal.shared.workflows.stages.processed import ProcessedStageWorkflow
-from app.temporal.shared.workflows.stages.extracted import ExtractedStageWorkflow
-from app.temporal.shared.workflows.stages.enriched import EnrichedStageWorkflow
-from app.temporal.shared.workflows.stages.summarized import SummarizedStageWorkflow
-
-# Import proposal-specific child workflow
-from app.temporal.product.proposal_generation.workflows.proposal_generation_core import ProposalGenerationCoreWorkflow
-
+from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
 from app.utils.logging import get_logger
 from app.temporal.product.proposal_generation.configs.proposal_generation import (
@@ -35,12 +27,8 @@ LOGGER = get_logger(__name__)
     task_queue="documents-queue",
 )
 @workflow.defn
-class ProposalGenerationWorkflow:
-    """Temporal workflow for Proposal Generation.
-    
-    This is the main entry point for generating insurance proposals.
-    It requires exactly 2 documents: an expiring policy and a renewal quote.
-    """
+class ProposalGenerationWorkflow(DocumentProcessingMixin):
+    """Temporal workflow for Proposal Generation."""
 
     def __init__(self):
         self._status = "initialized"
@@ -58,16 +46,7 @@ class ProposalGenerationWorkflow:
 
     @workflow.run
     async def run(self, payload: Dict) -> dict:
-        """Execute the proposal generation workflow.
-        
-        Args:
-            payload: {
-                "workflow_id": str,
-                "workflow_definition_id": str,
-                "documents": [{"document_id": str, "url": str}, ...],
-                "metadata": Dict (optional)
-            }
-        """
+        """Execute the proposal generation workflow."""
         workflow_id = payload.get("workflow_id")
         workflow_definition_id = payload.get("workflow_definition_id")
         documents = payload.get("documents", [])
@@ -98,69 +77,35 @@ class ProposalGenerationWorkflow:
 
         document_readiness = readiness_result.get("document_readiness", [])
 
-        # Process each document through shared stage workflows
+        # Process each document via mixin
         for idx, doc_readiness in enumerate(document_readiness):
             doc_id = doc_readiness["document_id"]
-            base_progress = 0.10 + (idx * 0.30)  # 10% for each doc processing block
+            base_progress = 0.10 + (idx * 0.30)  # progress tracking
             
-            # Stage 1: Processed
-            if not doc_readiness.get("processed"):
+            # Check if any processing is needed
+            if not all([doc_readiness.get("processed"), doc_readiness.get("extracted"), 
+                       doc_readiness.get("enriched"), doc_readiness.get("indexed")]):
+                
                 self._current_step = f"processing_document_{doc_id}"
-                self._progress = base_progress + 0.05
-                processed_result = await workflow.execute_child_workflow(
-                    ProcessedStageWorkflow.run,
-                    args=[
-                        workflow_id, 
-                        doc_id, 
-                        REQUIRED_SECTIONS
-                    ],
-                    id=f"proposal-processed-{doc_id}",
-                )
-                document_profile = processed_result.get("document_profile")
-            else:
-                document_profile = await workflow.execute_activity(
-                    "get_document_profile_activity",
-                    args=[doc_id],
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-
-            # Stage 2: Extracted
-            if not doc_readiness.get("extracted"):
-                self._current_step = f"extracting_document_{doc_id}"
                 self._progress = base_progress + 0.10
-                await workflow.execute_child_workflow(
-                    ExtractedStageWorkflow.run,
-                    args=[workflow_id, doc_id, document_profile, REQUIRED_SECTIONS, REQUIRED_ENTITIES],
-                    id=f"proposal-extracted-{doc_id}",
+                
+                config = DocumentProcessingConfig(
+                    workflow_id=workflow_id,
+                    target_sections=REQUIRED_SECTIONS,
+                    target_entities=REQUIRED_ENTITIES,
+                    skip_processed=doc_readiness.get("processed", False),
+                    skip_extraction=doc_readiness.get("extracted", False),
+                    skip_enrichment=doc_readiness.get("enriched", False),
+                    skip_indexing=doc_readiness.get("indexed", False)
                 )
+                
+                await self.process_document(doc_id, config)
 
-            # Stage 3: Enriched
-            if not doc_readiness.get("enriched"):
-                self._current_step = f"enriching_document_{doc_id}"
-                self._progress = base_progress + 0.15
-                await workflow.execute_child_workflow(
-                    EnrichedStageWorkflow.run,
-                    args=[workflow_id, doc_id],
-                    id=f"proposal-enriched-{doc_id}",
-                )
-
-            # Stage 4: Summarized
-            if not doc_readiness.get("indexed"):
-                self._current_step = f"indexing_document_{doc_id}"
-                self._progress = base_progress + 0.20
-                await workflow.execute_child_workflow(
-                    SummarizedStageWorkflow.run,
-                    args=[workflow_id, doc_id, REQUIRED_SECTIONS],
-                    id=f"proposal-indexed-{doc_id}",
-                )
-
-        # Phase B: Core Proposal Generation (child workflow)
+        # Phase B: Core Proposal Generation
         self._current_step = "proposal_generation_core"
         self._progress = 0.70
-        core_result = await workflow.execute_child_workflow(
-            ProposalGenerationCoreWorkflow.run,
-            args=[workflow_id, document_ids, workflow_definition_id],
-            id=f"proposal-core-{workflow_id}",
+        core_result = await self._execute_core_proposal_generation(
+            workflow_id, document_ids, workflow_definition_id
         )
 
         self._status = "completed"
@@ -175,4 +120,64 @@ class ProposalGenerationWorkflow:
             "expiring_document_id": core_result.get("expiring_document_id"),
             "renewal_document_id": core_result.get("renewal_document_id"),
             "total_changes": core_result.get("total_changes", 0),
+        }
+
+    async def _execute_core_proposal_generation(
+        self,
+        workflow_id: str,
+        document_ids: List[str],
+        workflow_definition_id: str,
+    ) -> Dict[str, Any]:
+        """Run the core proposal generation logic locally."""
+        workflow.logger.info(f"Starting core proposal generation logic for workflow {workflow_id}")
+
+        # Step 1: Detect document roles (expiring vs. renewal)
+        roles = await workflow.execute_activity(
+            "detect_document_roles_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+        
+        expiring_doc_id = roles["expiring"]
+        renewal_doc_id = roles["renewal"]
+        
+        # Step 2: Compare documents for proposal
+        changes = await workflow.execute_activity(
+            "compare_documents_for_proposal_activity",
+            args=[workflow_id, expiring_doc_id, renewal_doc_id],
+            start_to_close_timeout=timedelta(minutes=2),
+        )
+        
+        # Step 3: Assemble proposal with LLM narratives
+        proposal_data = await workflow.execute_activity(
+            "assemble_proposal_activity",
+            args=[{
+                "workflow_id": workflow_id,
+                "document_ids": document_ids,
+                "changes": changes,
+            }],
+            start_to_close_timeout=timedelta(minutes=5),
+        )
+        
+        # Step 4: Generate PDF
+        pdf_path = await workflow.execute_activity(
+            "generate_pdf_activity",
+            args=[proposal_data],
+            start_to_close_timeout=timedelta(minutes=3),
+        )
+        
+        # Step 5: Persist proposal to database
+        persist_result = await workflow.execute_activity(
+            "persist_proposal_activity",
+            args=[proposal_data, pdf_path],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+        
+        return {
+            "status": "COMPLETED",
+            "proposal_id": persist_result.get("id"),
+            "pdf_path": pdf_path,
+            "expiring_document_id": expiring_doc_id,
+            "renewal_document_id": renewal_doc_id,
+            "total_changes": len(changes) if changes else 0,
         }

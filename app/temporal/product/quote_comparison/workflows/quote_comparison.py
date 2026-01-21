@@ -4,15 +4,7 @@ from temporalio import workflow
 from datetime import timedelta
 from typing import Dict, Optional, List
 
-# Import shared stage workflows
-from app.temporal.shared.workflows.stages.processed import ProcessedStageWorkflow
-from app.temporal.shared.workflows.stages.extracted import ExtractedStageWorkflow
-from app.temporal.shared.workflows.stages.enriched import EnrichedStageWorkflow
-from app.temporal.shared.workflows.stages.summarized import SummarizedStageWorkflow
-
-# Import product-specific child workflow
-from app.temporal.product.quote_comparison.workflows.quote_comparison_core import QuoteComparisonCoreWorkflow
-
+from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
 from app.utils.logging import get_logger
 from app.temporal.product.quote_comparison.configs.quote_comparison import (
@@ -29,16 +21,8 @@ LOGGER = get_logger(__name__)
     task_queue="documents-queue",
 )
 @workflow.defn
-class QuoteComparisonWorkflow:
-    """Temporal workflow for Quote Comparison.
-    
-    Orchestrates the complete quote comparison pipeline:
-    1. Phase A preflight validation
-    2. Document readiness check
-    3. Per-document processing stages (shared workflows)
-    4. Core comparison (child workflow)
-    5. Result persistence
-    """
+class QuoteComparisonWorkflow(DocumentProcessingMixin):
+    """Temporal workflow for Quote Comparison."""
 
     def __init__(self):
         self._status = "initialized"
@@ -69,7 +53,7 @@ class QuoteComparisonWorkflow:
         # Phase A: Input/Intent Pre-Flight Validation
         self._current_step = "phase_a_preflight"
         self._progress = 0.05
-        phase_a_result = await workflow.execute_activity(
+        await workflow.execute_activity(
             "quote_phase_a_preflight_activity",
             args=[workflow_id, document_ids],
             start_to_close_timeout=timedelta(seconds=30),
@@ -86,70 +70,34 @@ class QuoteComparisonWorkflow:
 
         document_readiness = readiness_result.get("document_readiness", [])
 
-        # Process each document through shared stage workflows
-        for doc_readiness in document_readiness:
+        # Process documents via mixin
+        for i, doc_readiness in enumerate(document_readiness):
             doc_id = doc_readiness["document_id"]
             
-            # Stage 1: Processed (OCR, page analysis, chunking)
-            if not doc_readiness["processed"]:
+            # Check if any processing is needed
+            if not all([doc_readiness["processed"], doc_readiness["extracted"], 
+                       doc_readiness["enriched"], doc_readiness["indexed"]]):
+                
                 self._current_step = f"processing_document_{doc_id}"
-                self._progress = 0.15
-                processed_result = await workflow.execute_child_workflow(
-                    ProcessedStageWorkflow.run,
-                    args=[
-                        workflow_id, 
-                        doc_id, 
-                        REQUIRED_SECTIONS,
-                        workflow_name
-                    ],
-                    id=f"quote-comparison-processed-{doc_id}",
+                self._progress = 0.15 + (i * 0.05) if len(document_readiness) > 0 else 0.15
+                
+                config = DocumentProcessingConfig(
+                    workflow_id=workflow_id,
+                    workflow_name=workflow_name,
+                    target_sections=REQUIRED_SECTIONS,
+                    target_entities=REQUIRED_ENTITIES,
+                    skip_processed=doc_readiness["processed"],
+                    skip_extraction=doc_readiness["extracted"],
+                    skip_enrichment=doc_readiness["enriched"],
+                    skip_indexing=doc_readiness["indexed"]
                 )
-                document_profile = processed_result.get("document_profile")
-            else:
-                document_profile = await workflow.execute_activity(
-                    "get_document_profile_activity",
-                    args=[doc_id, workflow_name],
-                    start_to_close_timeout=timedelta(seconds=30),
-                )
-
-            # Stage 2: Extracted (entity extraction)
-            if not doc_readiness["extracted"]:
-                self._current_step = f"extracting_document_{doc_id}"
-                self._progress = 0.25
-                await workflow.execute_child_workflow(
-                    ExtractedStageWorkflow.run,
-                    args=[workflow_id, doc_id, document_profile, REQUIRED_SECTIONS, REQUIRED_ENTITIES],
-                    id=f"quote-comparison-extracted-{doc_id}",
-                )
-
-            # Stage 3: Enriched (entity resolution)
-            if not doc_readiness["enriched"]:
-                self._current_step = f"enriching_document_{doc_id}"
-                self._progress = 0.35
-                await workflow.execute_child_workflow(
-                    EnrichedStageWorkflow.run,
-                    args=[workflow_id, doc_id],
-                    id=f"quote-comparison-enriched-{doc_id}",
-                )
-
-            # Stage 4: Summarized (indexing)
-            if not doc_readiness["indexed"]:
-                self._current_step = f"indexing_document_{doc_id}"
-                self._progress = 0.45
-                await workflow.execute_child_workflow(
-                    SummarizedStageWorkflow.run,
-                    args=[workflow_id, doc_id, REQUIRED_SECTIONS],
-                    id=f"quote-comparison-indexed-{doc_id}",
-                )
+                
+                await self.process_document(doc_id, config)
 
         # Core Quote Comparison
         self._current_step = "core_comparison"
         self._progress = 0.60
-        core_result = await workflow.execute_child_workflow(
-            QuoteComparisonCoreWorkflow.run,
-            args=[workflow_id, document_ids],
-            id=f"quote-comparison-core-{workflow_id}",
-        )
+        core_result = await self._execute_core_comparison(workflow_id, document_ids)
 
         phase_b_result = core_result.get("phase_b_result")
         comparison_result = core_result.get("comparison_result")
@@ -179,4 +127,43 @@ class QuoteComparisonWorkflow:
             "comparison_summary": persist_result.get("comparison_summary"),
             "total_changes": persist_result.get("total_changes"),
             "comparison_scope": phase_b_result.get("comparison_scope", "full"),
+        }
+
+    async def _execute_core_comparison(self, workflow_id: str, document_ids: List[str]) -> Dict[str, Any]:
+        """Execute core quote comparison logic (Phase B, Normalization, Quality Evaluation, and Comparison)."""
+        workflow.logger.info(f"Starting core quote comparison logic for workflow {workflow_id}")
+
+        # 1. Phase B: Capability Pre-Flight Validation
+        phase_b_result = await workflow.execute_activity(
+            "quote_phase_b_preflight_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # 2. Coverage Normalization
+        normalization_result = await workflow.execute_activity(
+            "coverage_normalization_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=120),
+        )
+
+        # 3. Quality Evaluation
+        quality_result = await workflow.execute_activity(
+            "quality_evaluation_activity",
+            args=[workflow_id, normalization_result.get("normalized_coverages", {})],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # 4. Generate Side-by-Side Comparison Matrix
+        comparison_result = await workflow.execute_activity(
+            "generate_comparison_matrix_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=180),
+        )
+
+        return {
+            "phase_b_result": phase_b_result,
+            "normalization_result": normalization_result,
+            "quality_result": quality_result,
+            "comparison_result": comparison_result.get("comparison_result"),
         }
