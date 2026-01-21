@@ -11,5 +11,4 @@ class UserProfile(BaseModel):
     id: str = Field(..., description='Supabase User ID')
     email: EmailStr
     full_name: str
-    role: str
     created_at: AwareDatetime

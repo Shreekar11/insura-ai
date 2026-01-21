@@ -17,7 +17,6 @@ class UserBase(BaseModel):
     supabase_user_id: str = Field(..., description="Supabase user ID")
     email: EmailStr = Field(..., description="User email address")
     full_name: Optional[str] = Field(None, description="User's full name")
-    role: str = Field(default="user", description="User role")
 
 
 class UserCreate(UserBase):
@@ -31,7 +30,6 @@ class UserUpdate(BaseModel):
 
     email: Optional[EmailStr] = Field(None, description="User email address")
     full_name: Optional[str] = Field(None, description="User's full name")
-    role: Optional[str] = Field(None, description="User role")
 
 
 class UserResponse(UserBase):

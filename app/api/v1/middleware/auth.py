@@ -23,7 +23,7 @@ EXCLUDED_PATHS = {
     "/docs",
     "/docs/",
     "/openapi.json",
-    "/openapi.json/"
+    "/openapi.json/",
     "/",
 }
 

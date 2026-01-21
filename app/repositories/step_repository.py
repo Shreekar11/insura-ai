@@ -33,7 +33,7 @@ class StepSectionOutputRepository(BaseRepository[StepSectionOutput]):
         result = await self.session.execute(query)
         return result.scalars().all()
     
-    async def get_by_document_and_section(self, document_id: UUID, section_type: str) -> Sequence[StepSectionOutput]:
+    async def get_by_document_and_section(self, document_id: UUID, section_type: str) -> Optional[StepSectionOutput]:
         """Get a section output for a specific document and section name.
         
         Args:

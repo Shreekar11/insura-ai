@@ -116,9 +116,6 @@
                         "type": "string",
                         "nullable": true
                     },
-                    "role": {
-                        "type": "string"
-                    },
                     "created_at": {
                         "type": "string",
                         "format": "date-time"

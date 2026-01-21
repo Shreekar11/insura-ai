@@ -80,7 +80,6 @@ class UserRepository:
             supabase_user_id=user_data.supabase_user_id,
             email=user_data.email,
             full_name=user_data.full_name,
-            role=user_data.role,
         )
 
         self.db_session.add(user)
