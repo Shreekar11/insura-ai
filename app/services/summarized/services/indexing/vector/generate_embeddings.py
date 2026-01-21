@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from sentence_transformers import SentenceTransformer
 
 from app.services.base_service import BaseService
-from app.services.summarized.contracts import EmbeddingResult
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository
