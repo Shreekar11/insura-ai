@@ -1,0 +1,137 @@
+workflow:
+  name: policy_comparison
+  version: v1
+  description: >
+    Compare two insurance policy documents by aligning declarations
+    and coverages to identify material numeric changes and
+    coverage differences. Supports partial comparison when
+    coverage data is missing in one document.
+  min_documents: 2
+  max_documents: 2
+
+intent:
+  allowed_document_types:
+    - policy
+  policy_roles:
+    - expiring
+    - renewal
+
+# -------------------------------
+# Phase A: Input / Intent Preflight
+# -------------------------------
+preflight:
+  phase_a:
+    checks:
+      - document_count
+      - document_ownership
+      - allowed_document_types
+      - workflow_enabled
+
+  # Phase B runs AFTER conditional processing
+  phase_b:
+    capability_rules:
+      declarations:
+        min_documents: 1
+      coverages:
+        min_documents: 1   # allows partial comparison
+    compatibility:
+      validate_insured_match: true
+      validate_lob_match: true
+      validate_term_overlap: true
+
+# --------------------------------
+# Conditional Document Processing
+# --------------------------------
+document_processing:
+  strategy: intent_driven
+  ensure:
+    table_extraction: false
+    classification: true
+    page_analysis: true
+
+    section_extraction:
+      sections:
+        - declarations
+        - coverages
+
+    enrichment:
+      entities:
+        - POLICY_NUMBER
+        - INSURED_NAME
+        - EFFECTIVE_DATE
+        - EXPIRATION_DATE
+        - LIMIT
+        - DEDUCTIBLE
+        - PREMIUM_AMOUNT
+
+    indexing:
+      async: true
+      embeddings:
+        sections:
+          - declarations
+          - coverages
+          - exclusions
+          - endorsements
+          - conditions
+
+# -------------------------------
+# Execution DAG
+# -------------------------------
+execution:
+  steps:
+    - name: section_alignment
+      uses: product.policy_comparison.section_alignment
+      inputs:
+        sections:
+          - declarations
+          - coverages
+      outputs:
+        - aligned_sections
+
+    - name: numeric_diff
+      uses: product.policy_comparison.numeric_diff
+      inputs:
+        from_steps: [section_alignment]
+        fields:
+          - limit
+          - deductible
+          - premium
+      outputs:
+        - numeric_changes
+
+    - name: coverage_matrix
+      uses: product.policy_comparison.coverage_matrix
+      inputs:
+        from_steps: [section_alignment, numeric_diff]
+      outputs:
+        - coverage_comparison_table
+
+# -------------------------------
+# Output Contract
+# -------------------------------
+output:
+  schema: PolicyComparisonResult
+  include_provenance: true
+  include_source_snippets: true
+  required_fields:
+    - coverage_comparison_table
+    - numeric_changes
+  comparison_scope_field: comparison_scope   # full | partial
+
+# -------------------------------
+# HITL Configuration
+# -------------------------------
+hitl:
+  enabled: true
+  trigger_conditions:
+    - severity: high
+    - confidence_below: 0.7
+    - premium_change_pct_above: 25
+    - coverage_gaps: true
+
+# -------------------------------
+# Exports
+# -------------------------------
+exports:
+  supported_formats:
+    - pdf

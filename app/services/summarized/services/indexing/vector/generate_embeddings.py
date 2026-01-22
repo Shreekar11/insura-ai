@@ -8,7 +8,6 @@ from abc import ABC, abstractmethod
 from sentence_transformers import SentenceTransformer
 
 from app.services.base_service import BaseService
-from app.services.summarized.contracts import EmbeddingResult
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository
@@ -16,6 +15,25 @@ from app.services.summarized.services.indexing.vector.vector_template_service im
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+from dataclasses import dataclass
+from typing import List, Dict, Any
+
+
+@dataclass
+class SummaryResult:
+    """Result from document summarization."""
+    summary_text: str
+    key_points: List[str]
+    metadata: Dict[str, Any]
+
+
+@dataclass
+class EmbeddingResult:
+    """Result from vector embedding generation."""
+    vector_dimension: int
+    chunks_embedded: int
+    storage_details: Dict[str, Any]
 
 
 # Section Processor Strategy Pattern
@@ -119,12 +137,18 @@ class GenerateEmbeddingsService(BaseService):
             self._model = SentenceTransformer(self.model_name)
         return self._model
 
-    async def run(self, document_id: UUID, workflow_id: UUID) -> EmbeddingResult:
+    async def run(
+        self, 
+        document_id: UUID, 
+        workflow_id: UUID,
+        target_sections: Optional[List[str]] = None
+    ) -> EmbeddingResult:
         """Generate and store embeddings for all sections of a document.
         
         Args:
             document_id: UUID of the document to process
             workflow_id: UUID of the workflow
+            target_sections: Optional list of section types to index
             
         Returns:
             EmbeddingResult with processing statistics
@@ -135,12 +159,16 @@ class GenerateEmbeddingsService(BaseService):
         # 1. Fetch all section extractions for this document
         sections = await self._fetch_sections(document_id, workflow_id)
 
+        if target_sections:
+            LOGGER.info(f"Filtering embeddings for target sections: {target_sections}")
+            sections = [s for s in sections if s.section_type in target_sections]
+
         if not sections:
-            LOGGER.info(f"No sections found for document {document_id}")
+            LOGGER.info(f"No sections found for indexing (document: {document_id})")
             return EmbeddingResult(
                 vector_dimension=384, 
                 chunks_embedded=0, 
-                storage_details={"status": "no_sections"}
+                storage_details={"status": "no_sections_to_index"}
             )
 
         # 2. Process each section and generate embeddings
@@ -154,9 +182,9 @@ class GenerateEmbeddingsService(BaseService):
             storage_details={"status": "success", "model": self.model_name}
         )
 
-    async def _fetch_sections(self, document_id: UUID) -> List:
-        """Fetch section extractions for the document."""
-        return await self.section_repo.get_by_document(document_id)
+    async def _fetch_sections(self, document_id: UUID, workflow_id: UUID) -> List:
+        """Fetch section extractions for the document and workflow."""
+        return await self.section_repo.get_by_document_and_workflow(document_id, workflow_id)
 
     async def _process_all_sections(
         self, 

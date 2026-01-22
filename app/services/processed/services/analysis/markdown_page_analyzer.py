@@ -47,6 +47,14 @@ class MarkdownPageAnalyzer:
             DocumentType.ENDORSEMENT: [
                 "ENDORSEMENT", "AMENDMENT", "RIDER", "ATTACHMENT"
             ],
+            DocumentType.ACORD_APPLICATION: [
+                "ACORD", "APPLICANT INFORMATION", "PRODUCER INFORMATION", 
+                "REQUESTED COVERAGE", "PRIOR CARRIER", "LOSS HISTORY"
+            ],
+            DocumentType.PROPOSAL: [
+                "PROPOSAL", "WE RECOMMEND", "OUR RECOMMENDATION", 
+                "SUMMARY OF COVERAGE OPTIONS", "PRESENTED FOR YOUR REVIEW"
+            ],
         }
 
     def analyze_markdown_batch(
@@ -82,47 +90,85 @@ class MarkdownPageAnalyzer:
         
         return best_type, confidence
 
-    def analyze_markdown(self, markdown_content: str, page_number: int) -> PageSignals:
+    def analyze_markdown(
+        self, 
+        markdown_content: str, 
+        page_number: int,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> PageSignals:
         """Analyze markdown content for a specific page.
         
         Args:
             markdown_content: Markdown text for the page
             page_number: Page number being analyzed
+            metadata: Optional structural metadata from Docling
             
         Returns:
             PageSignals object
         """
-        # Extract headings (# , ## , ### )
+        metadata = metadata or {}
+        
+        # Extract headings (# , ## , ### ) - fallback if no metadata
         headings = self._extract_headings(markdown_content)
         
         # Extract top lines (first 10 lines)
         top_lines = self._extract_top_lines(markdown_content)
         
-        # Detect tables (Markdown table syntax |---|)
-        has_tables = self._detect_tables(markdown_content)
+        # Detect tables (Prefer metadata if available)
+        has_tables = metadata.get("has_tables", self._detect_tables(markdown_content))
         
-        # Calculate text density (relative to average page length)
-        text_density = self._calculate_text_density(markdown_content)
+        # Calculate text density (Prefer metadata-aware density)
+        text_density = self._calculate_text_density_enhanced(markdown_content, metadata)
         
         # Generate page hash for duplicate detection
         page_hash = self._generate_page_hash(markdown_content)
         
-        # Estimated max font size (Markdown headers give a hint)
-        max_font_size = self._estimate_max_font_size(markdown_content)
+        # Estimated max font size (Prefer metadata if available)
+        max_font_size = metadata.get("max_font_size", self._estimate_max_font_size(markdown_content))
+
+        # Build signal metadata
+        signal_metadata = {
+            "source": "docling" if metadata else "markdown",
+            "headings_found": len(headings),
+            "anchor_phrases_found": self._find_anchor_phrases(markdown_content)
+        }
+        
+        # Merge relevant Docling metadata into signals for classification logic
+        if metadata:
+            signal_metadata.update({
+                "block_count": metadata.get("block_count"),
+                "text_block_count": metadata.get("text_block_count"),
+                "table_block_count": metadata.get("table_block_count"),
+                "structure_type": metadata.get("structure_type"),
+                "heading_levels": metadata.get("heading_levels", [])
+            })
 
         return PageSignals(
             page_number=page_number,
             top_lines=headings if headings else top_lines,
+            all_lines=markdown_content.split('\n'),
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
             page_hash=page_hash,
-            metadata={
-                "source": "markdown",
-                "headings_found": len(headings),
-                "anchor_phrases_found": self._find_anchor_phrases(markdown_content)
-            }
+            additional_metadata=signal_metadata
         )
+
+    def _calculate_text_density_enhanced(self, text: str, metadata: Dict[str, Any]) -> float:
+        """Enhanced text density calculation using structural metadata."""
+        if not metadata:
+            return self._calculate_text_density(text)
+            
+        # Using block count as a proxy for density if text exists
+        # 20 blocks is roughly 1.0 density
+        block_count = metadata.get("block_count", 0)
+        char_density = min(len(text) / 4000.0, 1.0)
+        
+        block_density = min(block_count / 25.0, 1.0)
+        
+        # Weighted average: 60% char-based, 40% block-based
+        return round((char_density * 0.6) + (block_density * 0.4), 3)
+
 
     def _extract_headings(self, text: str) -> List[str]:
         """Extract Markdown headings."""

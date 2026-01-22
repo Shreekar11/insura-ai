@@ -28,14 +28,14 @@ if TYPE_CHECKING:
 
 
 class User(Base):
-    """User model for Clerk-authenticated users."""
+    """User model for Supabase-authenticated users."""
 
     __tablename__ = "users"
 
     id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
     )
-    clerk_user_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
+    supabase_user_id: Mapped[str] = mapped_column(String, unique=True, nullable=False)
     email: Mapped[str] = mapped_column(String, nullable=False)
     full_name: Mapped[str | None] = mapped_column(String, nullable=True)
     created_at: Mapped[datetime] = mapped_column(
@@ -995,6 +995,13 @@ class Workflow(Base):
     vector_embeddings: Mapped[list["VectorEmbedding"]] = relationship(
         "VectorEmbedding", back_populates="workflow", cascade="all, delete-orphan"
     )
+    workflow_outputs: Mapped[list["WorkflowOutput"]] = relationship(
+        "WorkflowOutput", back_populates="workflow", cascade="all, delete-orphan"
+    )
+    proposals: Mapped[list["Proposal"]] = relationship(
+        "Proposal", back_populates="workflow", cascade="all, delete-orphan"
+    )
+
 
 
 class WorkflowRunEvent(Base):
@@ -1050,6 +1057,10 @@ class WorkflowDefinition(Base):
         "Workflow", 
         back_populates="workflow_definition"
     )
+    workflow_outputs: Mapped[list["WorkflowOutput"]] = relationship(
+        "WorkflowOutput", back_populates="workflow_definition"
+    )
+
 
 
 class WorkflowStageRun(Base):
@@ -1196,6 +1207,97 @@ class VectorEmbedding(Base):
     document: Mapped["Document"] = relationship("Document", back_populates="vector_embeddings")
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="vector_embeddings")
 
+
     __table_args__ = (
         {"comment": "Canonical table for pgvector embeddings"},
     )
+
+
+class WorkflowOutput(Base):
+    """Generic storage for all product workflow outputs.
+    
+    This table stores the final results of product workflows like Policy Comparison,
+    Loss Run Analysis, etc. Each workflow type has its own result schema stored in
+    the JSONB result field.
+    """
+
+    __tablename__ = "workflow_outputs"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    workflow_definition_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflow_definitions.id", ondelete="SET NULL"), nullable=True
+    )
+    workflow_name: Mapped[str] = mapped_column(
+        String, nullable=False, comment="Denormalized workflow name for quick queries"
+    )
+    status: Mapped[str] = mapped_column(
+        String, nullable=False, comment="COMPLETED, COMPLETED_WITH_WARNINGS, FAILED, NEEDS_REVIEW"
+    )
+    confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True, comment="Overall confidence score (0.0-1.0)"
+    )
+    result: Mapped[dict] = mapped_column(
+        JSONB, nullable=False, comment="Workflow-specific output payload"
+    )
+    output_metadata: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True, comment="Additional context (HITL flags, warnings, etc.)"
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="workflow_outputs")
+    workflow_definition: Mapped["WorkflowDefinition | None"] = relationship(
+        "WorkflowDefinition", back_populates="workflow_outputs"
+    )
+
+    __table_args__ = (
+        {"comment": "Generic storage for all product workflow outputs"},
+    )
+
+
+class Proposal(Base):
+    """Generated insurance proposals."""
+
+    __tablename__ = "proposals"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
+    )
+    insured_name: Mapped[str] = mapped_column(String, nullable=False)
+    carrier_name: Mapped[str] = mapped_column(String, nullable=False)
+    policy_type: Mapped[str] = mapped_column(String, nullable=False)
+    executive_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    
+    # The full proposal object (JSON)
+    proposal_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
+    
+    # Path to the generated PDF in storage
+    pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
+    
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="proposals")
+
+    __table_args__ = (
+        {"comment": "Generated insurance proposals with PDF links and executive summaries"},
+    )
+

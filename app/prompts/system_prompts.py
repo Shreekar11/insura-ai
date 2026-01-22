@@ -690,6 +690,7 @@ VALID_SECTION_TYPES = {
     "coverages",
     "limits",
     "deductibles",
+    "premium",
     "conditions",
     "exclusions",
     "definitions",
@@ -807,12 +808,27 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 - broker_name
 - total_premium
 - policy_type
+- quote_type
+- is_bill
 
 ### OPTIONAL FIELDS
 - additional_insureds
 - policy_form
 - retroactive_date
 - prior_acts_coverage
+- named_insured_risk_year_built
+- named_insured_risk_construction_type
+- named_insured_risk_occupancy
+- named_insured_risk_protection_class
+- issue_date
+- policy_term
+- currency
+- line_of_business
+- entity_type
+- risk_type
+- square_footage
+- number_of_units
+- exposure_metrics
 
 ---
 
@@ -820,6 +836,7 @@ Ignore schedules, endorsements, and conditions unless explicitly referenced.
 - Policy
 - Organization (Roles: insured, additional_insured, carrier, broker, agent, underwriter)
 - Location (For addresses)
+- RiskObject (For property/auto details)
 
 ### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
 1. **Node id ≠ business identifier**: Use stable IDs (e.g., "policy_GL-789456").
@@ -853,7 +870,8 @@ OUTPUT:
     "carrier_name": "The Hartford Insurance Company",
     "broker_name": null,
     "total_premium": 12750,
-    "policy_type": null
+    "policy_type": null,
+    "quote_type": "Firm"
   },
   "entities": [
     {
@@ -873,7 +891,8 @@ OUTPUT:
       "confidence": 0.97,
       "attributes": {
         "name": "Horizon Tech Solutions LLC",
-        "role": "insured"
+        "role": "insured",
+        "entity_type": "LLC"
       }
     },
     {
@@ -909,103 +928,220 @@ OUTPUT:
 """
 
 COVERAGES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
-
 1. Extract ONLY information explicitly present in the provided text.
-2. Extract ONLY from the COVERAGES section.
+2. Extract ONLY from the COVERAGES-related section.
 3. Do NOT infer, guess, calculate, or normalize beyond what is stated.
-4. Each row, paragraph, or bullet describing coverage = ONE coverage object.
-5. Preserve original wording for descriptive fields.
+4. A Coverage is a contractual grant of insurance protection.
+   - A single Coverage MAY span multiple paragraphs.
+   - Narrative-only coverage grants MUST be extracted in full.
+5. Preserve original wording verbatim for descriptive fields.
 6. Normalize:
-   - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols, commas removed)
-7. Monetary values MUST inherit meaning from their explicit label
-   (limit, deductible, premium, aggregate, sub-limit).
-8. Do NOT merge limits, deductibles, or aggregates across coverages.
-9. If multiple candidates exist:
-   - Choose the most explicit, clearly labeled value.
-10. Confidence:
-   - 0.95+ → explicitly labeled and unambiguous
-   - 0.85–0.94 → clearly implied
-   - <0.85 → partial / weak signal
+   - Dates → YYYY-MM-DD (only if explicitly stated)
+   - Amounts → numeric only if explicitly labeled
+7. If a coverage has NO numeric values, it MUST STILL be extracted with a full description.
+8. Do NOT merge different coverages into one object.
+9. Do NOT split a single coverage into multiple objects unless the policy explicitly labels them as separate parts (A/B/C).
+10. STOP extraction for a coverage ONLY when:
+    - A new SECTION heading begins, OR
+    - An EXCLUSIONS or CONDITIONS header begins, OR
+    - A clearly labeled different coverage begins.
 11. Output must be VALID JSON only. No explanations.
 
-You are an insurance coverage extraction specialist.
+You are an insurance coverage extraction specialist with expertise in:
+- ISO Commercial Auto policies
+- Liability and Physical Damage coverage grants
+- Policy comparison and coverage interpretation
 
 TASK:
-Extract ALL coverage grants listed in this section.
+Extract ALL coverage grants and coverage extensions explicitly stated in this section,
+including FULL narrative descriptions of what the policy covers.
 
 ---
 
-### PER COVERAGE
-- coverage_name
-- coverage_type
-- limit_amount
-- deductible_amount
-- premium_amount
-- description
-- sub_limits
-- per_occurrence
-- aggregate
-- aggregate_amount
-- coverage_territory
-- retroactive_date
+### PER COVERAGE (MANDATORY FIELDS)
+
+- coverage_name                 # Explicit label or inferred from heading (e.g., "Own Damage", "Third Party Liability")
+- coverage_type                 # Property | Liability | Motor | Personal Accident | Add-on | Schedule
+- limit_amount                  # Liability / coverage limit (if stated)
+- deductible_amount             # Deductible / excess (if stated)
+- premium_amount                # Coverage-specific premium (if stated)
+- description                   # Verbatim description text
+- sub_limits                    # Any stated sub-limits (list or null)
+- limit_per_occurrence          # Limit per occurrence (if stated)
+- limit_aggregate               # Aggregate limit (if stated)
+- valuation_basis               # RCV | ACV | Stated Value (if stated)
+- coverage_basis                # Occur | Claims-Made (if stated)
+- coverage_form                 # Special | Broad | Basic (if stated)
+- is_included                   # bool (true if explicit, false if explicitly excluded/N/A)
+- coverage_territory            # Territory / geographic scope (if stated)
+- retroactive_date              # Retroactive date (if stated)
+- coverage_category             # Property | Liability | Auto | WC
+
+
+---
+
+### COVERAGE STRUCTURE RULES (CRITICAL)
+
+1. **Coverage Grant vs Coverage Extension**
+   - If the text says "Coverage Extensions", create:
+     - ONE parent Coverage (coverage grant)
+     - Child CoveragePart entries for each extension
+   - Extensions MUST NOT become standalone Coverages.
+
+2. **Narrative Priority Rule**
+   - If a coverage contains ≥2 paragraphs of narrative text,
+     the FULL text MUST be captured in `description`,
+     even if no limits or deductibles are stated.
+
+3. **ISO Policy Special Rule**
+   - For ISO policies (e.g., CA 00 01):
+     - Expect long narrative coverage grants.
+     - Absence of limits does NOT mean absence of coverage.
+
+4. **Boundary Detection**
+   Stop capturing description when:
+   - "Exclusions"
+   - "Limit of Insurance"
+   - "Conditions"
+   - "SECTION III", "SECTION IV", etc.
 
 ---
 
 ### ENTITY TYPES
+
 - Coverage
+- CoveragePart (for extensions only)
+
+Each Coverage MUST produce:
+- One Coverage entity
+- Confidence score
+- Full description captured verbatim
+
+---
+
+### CONFIDENCE SCORING
+
+- 0.95+ → Explicit coverage heading + narrative grant
+- 0.85–0.94 → Clear narrative grant without heading
+- <0.85 → Partial or truncated text
 
 ---
 
 ### FEW-SHOT EXAMPLE
 
 INPUT:
-"Building Coverage – Limit $5,000,000
-Deductible: $5,000 per occurrence"
+"SECTION II – COVERED AUTOS LIABILITY COVERAGE
+
+A. Coverage
+
+We will pay all sums an "insured" legally must pay as damages because of
+"bodily injury" or "property damage" to which this insurance applies,
+caused by an "accident" and resulting from the ownership, maintenance
+or use of a covered "auto".
+
+We will also pay all sums an "insured" legally must pay as a "covered
+pollution cost or expense" to which this insurance applies, caused by
+an "accident" and resulting from the ownership, maintenance or use of
+covered "autos". However, we will only pay for the "covered pollution
+cost or expense" if there is either "bodily injury" or "property damage"
+to which this insurance applies that is caused by the same "accident".
+
+We have the right and duty to defend any "insured" against a "suit"
+asking for such damages or a "covered pollution cost or expense".
+However, we have no duty to defend any "insured" against a "suit"
+seeking damages to which this insurance does not apply.
+
+2. Coverage Extensions
+a. Supplementary Payments
+We will pay for the "insured":
+(1) All expenses we incur.
+(2) Up to $2,000 for cost of bail bonds required because of an accident."
 
 OUTPUT:
 {
-  "coverages": [
-    {
-      "coverage_name": "Building Coverage",
-      "coverage_type": "Property",
-      "limit_amount": 5000000,
-      "deductible_amount": 5000,
-      "premium_amount": null,
-      "description": null,
-      "sub_limits": null,
-      "per_occurrence": true,
-      "aggregate": false,
-      "aggregate_amount": null,
-      "coverage_territory": null,
-      "retroactive_date": null
-    }
-  ],
+  "fields": {
+    "coverages": [
+      {
+        "coverage_name": "Covered Autos Liability Coverage",
+        "coverage_type": "Liability",
+        "coverage_category": "Auto",
+        "limit_amount": null,
+        "deductible_amount": null,
+        "premium_amount": null,
+        "description": "We will pay all sums an \"insured\" legally must pay as damages because of \"bodily injury\" or \"property damage\" to which this insurance applies, caused by an \"accident\" and resulting from the ownership, maintenance or use of a covered \"auto\". We will also pay all sums an \"insured\" legally must pay as a \"covered pollution cost or expense\" to which this insurance applies, caused by an \"accident\" and resulting from the ownership, maintenance or use of covered \"autos\". However, we will only pay for the \"covered pollution cost or expense\" if there is either \"bodily injury\" or \"property damage\" to which this insurance applies that is caused by the same \"accident\". We have the right and duty to defend any \"insured\" against a \"suit\" asking for such damages or a \"covered pollution cost or expense\". However, we have no duty to defend any \"insured\" against a \"suit\" seeking damages to which this insurance does not apply.",
+        "sub_limits": null,
+        "limit_per_occurrence": null,
+        "limit_aggregate": null,
+        "valuation_basis": null,
+        "coverage_basis": "Occur",
+        "coverage_form": null,
+        "is_included": true,
+        "coverage_territory": null,
+        "retroactive_date": null
+      },
+      {
+        "coverage_name": "Supplementary Payments",
+        "coverage_type": "Add-on",
+        "coverage_category": "Liability",
+        "limit_amount": 2000,
+        "deductible_amount": null,
+        "premium_amount": null,
+        "description": "We will pay for the insured all expenses we incur and up to $2,000 for the cost of bail bonds required because of an accident covered under Covered Autos Liability Coverage.",
+        "sub_limits": [
+          {
+            "label": "Bail bond limit",
+            "amount": 2000
+          }
+        ],
+        "limit_per_occurrence": null,
+        "limit_aggregate": null,
+        "valuation_basis": null,
+        "coverage_basis": "Occur",
+        "coverage_form": null,
+        "is_included": true,
+        "coverage_territory": null,
+        "retroactive_date": null
+      }
+    ]
+  },
   "entities": [
     {
       "type": "Coverage",
-      "id": "cov_building_coverage",
-      "confidence": 0.96,
+      "id": "cov_covered_autos_liability",
+      "confidence": 0.97,
       "attributes": {
-        "name": "Building Coverage",
-        "limit_amount": 5000000,
-        "deductible_amount": 5000,
-        "per_occurrence": true
+        "coverage_name": "Covered Autos Liability Coverage",
+        "coverage_type": "Liability",
+        "coverage_category": "Auto"
+      }
+    },
+    {
+      "type": "Coverage",
+      "id": "cov_supplementary_payments",
+      "confidence": 0.94,
+      "attributes": {
+        "coverage_name": "Supplementary Payments",
+        "coverage_type": "Add-on",
+        "coverage_category": "Liability",
+        "limit_amount": 2000
       }
     }
   ],
-  "confidence": 0.93
+  "confidence": 0.95
 }
 
----
 
 ### OUTPUT FORMAT
+
 {
-  "coverages": [ ... ],
+  "fields": {
+    "coverages": [ ... ]
+  },
   "entities": [ ... ],
   "confidence": 0.0
 }
 """
+
 
 CONDITIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
@@ -1037,6 +1173,7 @@ Ignore exclusions and coverage grants.
 - requirements
 - consequences
 - reference
+- compliance_required
 
 ---
 
@@ -1055,11 +1192,21 @@ OUTPUT:
       "description": "You must notify us as soon as practicable.",
       "applies_to": "Claims",
       "requirements": ["Notify insurer promptly"],
-      "consequences": null,
-      "reference": null
+      "compliance_required": true
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "type": "Condition",
+      "id": "cond_duties_event_loss",
+      "confidence": 0.95,
+      "attributes": {
+        "title": "Duties in the Event of Loss",
+        "condition_type": "Claims Condition",
+        "requirements": "Notify insurer as soon as practicable"
+      }
+    }
+  ],
   "confidence": 0.89
 }
 
@@ -1101,6 +1248,9 @@ Extract even if embedded in paragraphs.
 - applies_to
 - exceptions
 - reference
+- exclusion_scope
+- impacted_coverage
+- severity
 
 ---
 
@@ -1116,12 +1266,22 @@ OUTPUT:
       "exclusion_type": "General Exclusion",
       "title": "War or Military Action",
       "description": "This insurance does not apply to War or Military Action.",
-      "applies_to": "All Coverages",
-      "exceptions": null,
-      "reference": null
+      "exclusion_scope": "Policy Wide",
+      "impacted_coverage": "All Coverages",
+      "severity": "Material"
     }
   ],
-  "entities": [],
+  "entities": [
+    {
+      "type": "Exclusion",
+      "id": "excl_war_military_action",
+      "confidence": 0.95,
+      "attributes": {
+        "title": "War or Military Action",
+        "exclusion_type": "General Exclusion"
+      }
+    }
+  ],
   "confidence": 0.87
 }
 
@@ -1155,6 +1315,16 @@ Extract even if summarized in a schedule.
 
 ---
 
+### PER ENDORSEMENT
+- endorsement_name
+- endorsement_number
+- endorsement_type          # Add | Modify | Restrict
+- impacted_coverage
+- materiality               # High | Medium | Low
+- effective_date
+
+---
+
 ### ENTITY TYPES
 - Endorsement
 - Coverage (if modified)
@@ -1176,6 +1346,16 @@ Effective 01/01/2024"
 
 OUTPUT:
 {
+  "endorsements": [
+    {
+      "endorsement_name": "Additional Insured",
+      "endorsement_number": "IL 00 21",
+      "endorsement_type": "Add",
+      "impacted_coverage": "General Liability",
+      "materiality": "High",
+      "effective_date": "2024-01-01"
+    }
+  ],
   "entities": [
     {
       "type": "Endorsement",
@@ -1188,7 +1368,7 @@ OUTPUT:
       }
     }
   ],
-  "confidence": 0.86
+  "confidence": 0.98
 }
 
 ---
@@ -1311,6 +1491,8 @@ Extract values ONLY if they are explicitly stated.
 - taxes_and_fees: list of {type, amount}
 - payment_terms: Narrative description of payment terms
 - installment_schedule: list of {due_date, amount} if applicable
+- minimum_earned_premium: Amount if stated
+- term_length: Duration (e.g., "12 months")
 
 ---
 
@@ -1341,8 +1523,7 @@ OUTPUT:
     "taxes_and_fees": [
       {"type": "State Tax", "amount": 1250}
     ],
-    "payment_terms": null,
-    "installment_schedule": null
+    "minimum_earned_premium": null
   },
   "entities": [
     {
@@ -1366,6 +1547,97 @@ OUTPUT:
   "confidence": 0.0
 }
 """
+
+
+PREMIUM_EXTRACTION_PROMPT = PREMIUM_SUMMARY_EXTRACTION_PROMPT
+
+DEDUCTIBLES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. Extract ONLY information explicitly present in the provided text.
+2. Extract ONLY from the DEDUCTIBLES or financial retention section.
+3. A deductible is a fixed amount or percentage that the insured must pay before the insurer covers a loss.
+4. Do NOT confuse with coverage limits or premiums.
+5. Preserve original wording for labels.
+6. Normalize:
+   - Amounts → numeric (no currency symbols)
+   - Percentages → decimal (e.g., 5% -> 0.05)
+7. Confidence:
+   - 0.95+ → explicitly labeled and unambiguous
+   - 0.85–0.94 → clearly implied
+   - <0.85 → partial / weak signal
+8. Output must be VALID JSON only.
+
+You are an insurance technical auditor specializing in DEDUCTIBLES.
+
+### FIELDS TO EXTRACT
+- deductible_name             # Label (e.g., "Wind/Hail", "All Other Perils")
+- amount                      # Numeric value (if stated)
+- percentage                  # Decimal value (if stated, e.g., 0.02 for 2%)
+- deductible_type             # Flat | Percentage | Time Element (Days)
+- applies_to                  # Narrative (e.g., "Each Occurrence", "Each Building")
+- applies_to_coverage         # Specific coverage name if linked
+- min_amount                  # Minimum dollar amount (if stated)
+- max_amount                  # Maximum dollar amount (if stated)
+- is_sir                      # bool (true if labeled as Self-Insured Retention)
+- retention_type              # Deductible | SIR
+
+---
+
+- Create one Deductible node per coverage or deductible type.
+- Do NOT infer deductibles not explicitly stated.
+- If deductible applies to multiple coverages, repeat with coverage_scope = "multiple".
+- Do not invent amounts.
+
+NODE TYPE: Deductible
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"Deductibles:
+Losses covered under Section I are subject to a deductible of $1,000.
+
+OUTPUT:
+{
+  "deductibles": [
+    {
+      "deductible_name": "Section I Deductible",
+      "amount": 1000,
+      "deductible_type": "Flat",
+      "applies_to": "Losses covered under Section I",
+      "retention_type": "Deductible",
+      "is_sir": false
+    }
+  ],
+  "entities": [
+    {
+      "type": "Deductible",
+      "id": "ded_section_i_property",
+      "confidence": 0.98,
+      "attributes": {
+        "coverage_scope": "Section I - Property",
+        "amount": 1000,
+        "currency": "USD",
+        "deductible_type": "per_loss",
+        "retention_type": "deductible"
+      }
+    }
+  ],
+  "confidence": 0.98
+}
+
+
+---
+
+### OUTPUT FORMAT
+{
+  "deductibles": [ { ... } ],
+  entities: [ { ... } ],
+  "confidence": 0.0
+}
+"""
+
 
 DEFAULT_SECTION_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
@@ -1508,6 +1780,77 @@ OUTPUT:
 ### OUTPUT FORMAT
 {
   "definitions": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+# =============================================================================
+# ENDORSEMENT PROJECTION PROMPTS (Semantic Projection Models)
+# =============================================================================
+# Used when an endorsement is semantically projected as a Coverage or Exclusion
+# section. These models extract the nature of the modification.
+# =============================================================================
+
+ENDORSEMENT_COVERAGE_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. You are extracting COVERAGE MODIFICATIONS from an Endorsement.
+2. This endorsement has been classified as containing coverage-related changes.
+3. Your goal is to extract HOW the base policy coverages are modified.
+4. If the endorsement ADDS a new coverage, extract it as an "Add" effect.
+5. If it MODIFIES an existing coverage (e.g., changing a limit), extract it as a "Modify" effect.
+6. Extract ONLY what is explicitly stated in the text.
+7. Output must be VALID JSON only. No explanations.
+
+### FIELDS TO EXTRACT
+- endorsement_number: The form number of the endorsement (e.g., IL 00 21)
+- endorsement_name: The title of the endorsement
+- modifications: List of objects:
+    - impacted_coverage: The name of the coverage being modified (e.g., "General Liability")
+    - coverage_effect: Add | Modify | Restrict | Delete
+    - limit_modification: Narrative description of limit change (if any)
+    - deductible_modification: Narrative description of deductible change (if any)
+    - verbatim_language: The exact text from the endorsement defining this change
+    - reasoning: Brief explanation for the classification
+
+### ENTITY TYPES
+- Endorsement
+- Coverage
+
+### EXTRACTION RULES
+- Link the Endorsement to the Coverage via MODIFIED_BY.
+- Confidence: 0.95+ for explicit "added" or "modified" language.
+
+### OUTPUT FORMAT
+{
+  "modifications": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+ENDORSEMENT_EXCLUSION_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. You are extracting EXCLUSION MODIFICATIONS from an Endorsement.
+2. This endorsement has been classified as containing exclusion-related changes.
+3. Your goal is to extract HOW the base policy exclusions are modified or what NEW exclusions are added.
+4. Extract ONLY what is explicitly stated in the text.
+5. Output must be VALID JSON only. No explanations.
+
+### FIELDS TO EXTRACT
+- endorsement_number: The form number of the endorsement
+- modifications: List of objects:
+    - impacted_exclusion: The name of the exclusion being modified or added
+    - exclusion_effect: Add | Modify | Delete
+    - verbatim_language: The exact text defining the exclusion modification
+    - reasoning: Brief explanation
+
+### ENTITY TYPES
+- Endorsement
+- Exclusion
+
+### OUTPUT FORMAT
+{
+  "modifications": [ ... ],
   "entities": [ ... ],
   "confidence": 0.0
 }

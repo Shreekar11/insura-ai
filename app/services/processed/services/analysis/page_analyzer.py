@@ -45,10 +45,22 @@ class PageAnalyzer:
         """Analyze full document and extract signals for all pages (using PDF)."""
         return await self.pdf_analyzer.analyze_document(document_url)
 
-    def analyze_markdown(self, markdown_content: str, page_number: int) -> PageSignals:
+    def analyze_markdown(
+        self, 
+        markdown_content: str, 
+        page_number: int,
+        metadata: Optional[Dict[str, Any]] = None
+    ) -> PageSignals:
         """Analyze markdown content for a specific page."""
-        return self.markdown_analyzer.analyze_markdown(markdown_content, page_number)
+        return self.markdown_analyzer.analyze_markdown(
+            markdown_content, 
+            page_number,
+            metadata=metadata
+        )
 
-    def analyze_markdown_batch(self, pages: List[tuple[str, int]]) -> List[PageSignals]:
+    def analyze_markdown_batch(
+        self, 
+        pages: List[tuple[str, int, Optional[Dict[str, Any]]]]
+    ) -> List[PageSignals]:
         """Analyze multiple markdown pages."""
-        return [self.analyze_markdown(content, num) for content, num in pages]
+        return [self.analyze_markdown(content, num, meta) for content, num, meta in pages]

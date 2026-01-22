@@ -33,9 +33,13 @@ from app.services.extracted.services.extraction.section.extractors import (
     ExclusionsExtractor,
     EndorsementsExtractor,
     InsuringAgreementExtractor,
-    PremiumSummaryExtractor,
+    PremiumExtractor,
+    DeductiblesExtractor,
     DefaultSectionExtractor,
+    EndorsementCoverageProjectionExtractor,
+    EndorsementExclusionProjectionExtractor,
 )
+from app.models.page_analysis_models import SemanticRole
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 from app.repositories.section_extraction_repository import SectionExtractionRepository
@@ -115,6 +119,10 @@ class DocumentExtractionResult:
         }
 
 
+# Batching thresholds for section extraction
+# If a section exceeds these, it will be processed in batches
+BATCH_TOKEN_THRESHOLD = 3000
+BATCH_CHUNK_THRESHOLD = 5
 
 
 class SectionExtractionOrchestrator:
@@ -197,7 +205,9 @@ class SectionExtractionOrchestrator:
             SectionType.EXCLUSIONS: ExclusionsExtractor,
             SectionType.ENDORSEMENTS: EndorsementsExtractor,
             SectionType.INSURING_AGREEMENT: InsuringAgreementExtractor,
-            SectionType.PREMIUM_SUMMARY: PremiumSummaryExtractor,
+            SectionType.PREMIUM_SUMMARY: PremiumExtractor,
+            SectionType.PREMIUM: PremiumExtractor,
+            SectionType.DEDUCTIBLES: DeductiblesExtractor,
         }
         
         # Register each extractor with its section type and aliases
@@ -222,6 +232,16 @@ class SectionExtractionOrchestrator:
             extractor_class=DefaultSectionExtractor
         )
         
+        # Register projection extractors
+        self.factory.register_extractor(
+            section_types=["endorsement_coverage_projection"],
+            extractor_class=EndorsementCoverageProjectionExtractor
+        )
+        self.factory.register_extractor(
+            section_types=["endorsement_exclusion_projection"],
+            extractor_class=EndorsementExclusionProjectionExtractor
+        )
+        
         LOGGER.debug(
             f"Registered {len(extractor_registry)} section extractors with factory"
         )
@@ -237,6 +257,8 @@ class SectionExtractionOrchestrator:
             SectionType.ENDORSEMENTS: ["endorsement", "endorsement forms"],
             SectionType.INSURING_AGREEMENT: ["insuring agreement", "agreement"],
             SectionType.PREMIUM_SUMMARY: ["premium", "premiums", "premium summary"],
+            SectionType.PREMIUM: ["premium", "premiums", "premium summary"],
+            SectionType.DEDUCTIBLES: ["deductible", "deductibles", "retention", "sir"],
         }
         return alias_map.get(section_type, [])
     
@@ -301,6 +323,11 @@ class SectionExtractionOrchestrator:
         sorted_sections = sorted(llm_sections, key=lambda sc: sc.processing_priority)
         
         for super_chunk in sorted_sections:
+            # TERMINAL GUARD: Never extract from certificates in coverage pipeline
+            if super_chunk.section_type == SectionType.CERTIFICATE_OF_INSURANCE:
+                LOGGER.info(f"Skipping extraction for certificate section on pages {super_chunk.page_range}")
+                continue
+
             try:
                 result = await self._extract_section(super_chunk, document_id, workflow_id)
                 section_results.append(result)
@@ -422,19 +449,81 @@ class SectionExtractionOrchestrator:
         document_id: UUID,
         workflow_id: UUID,
     ) -> SectionExtractionResult:
+        """Extract data from a single section super-chunk.
+        
+        Decides between single-call or batched extraction based on size.
+        
+        Args:
+            super_chunk: Section super-chunk to extract
+            document_id: Document ID
+            workflow_id: Workflow ID
+            
+        Returns:
+            SectionExtractionResult
+        """
+        # Determine if batching is needed
+        if (super_chunk.total_tokens > BATCH_TOKEN_THRESHOLD or 
+            len(super_chunk.chunks) > BATCH_CHUNK_THRESHOLD):
+            LOGGER.info(
+                f"Section {super_chunk.section_type.value} exceeds thresholds "
+                f"({super_chunk.total_tokens} tokens, {len(super_chunk.chunks)} chunks), "
+                f"using batched extraction",
+                extra={
+                    "section_type": super_chunk.section_type.value,
+                    "tokens": super_chunk.total_tokens,
+                    "chunks": len(super_chunk.chunks),
+                }
+            )
+            return await self._extract_section_batched(super_chunk, document_id, workflow_id)
+        
+        return await self._extract_section_single(super_chunk, document_id, workflow_id)
+
+    async def _extract_section_single(
+        self,
+        super_chunk: SectionSuperChunk,
+        document_id: UUID,
+        workflow_id: UUID,
+    ) -> SectionExtractionResult:
         """Extract data from a single section super-chunk using factory pattern.
         
         Args:
             super_chunk: Section super-chunk to extract
             document_id: Document ID
+            workflow_id: Workflow ID
             
         Returns:
             SectionExtractionResult
         """
         start_time = time.time()
         
+        # Determine if we should use a projection extractor based on semantic role
+        # Check first chunk's metadata for semantic role if available
+        extractor_key = super_chunk.section_type.value
+        
+        if super_chunk.chunks:
+            metadata = super_chunk.chunks[0].metadata
+            from app.models.page_analysis_models import SemanticRole
+            
+            # Check for Endorsement Coverage Projection
+            if (metadata.original_section_type == SectionType.ENDORSEMENTS and 
+                metadata.effective_section_type == SectionType.COVERAGES and
+                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
+                extractor_key = "endorsement_coverage_projection"
+                LOGGER.info(
+                    f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}"
+                )
+            
+            # Check for Endorsement Exclusion Projection
+            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and 
+                  metadata.effective_section_type == SectionType.EXCLUSIONS and
+                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
+                extractor_key = "endorsement_exclusion_projection"
+                LOGGER.info(
+                    f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}"
+                )
+        
         # Get section-specific extractor from factory
-        extractor = self.factory.get_extractor(super_chunk.section_type.value)
+        extractor = self.factory.get_extractor(extractor_key)
         
         # Fallback to default extractor if not found
         if not extractor:
@@ -469,15 +558,8 @@ class SectionExtractionOrchestrator:
         )
         
         try:
-            # Use extractor's LLM client to call API
-            response = await extractor.client.generate_content(
-                contents=f"Extract from this {super_chunk.section_type.value} section:\n\n{section_text}",
-                system_instruction=extractor.get_extraction_prompt(),
-                generation_config={"response_mime_type": "application/json"}
-            )
-            
-            # Parse response
-            parsed = parse_json_safely(response)
+            # Use helper to run extraction call
+            parsed = await self._run_extraction_call(extractor, super_chunk)
             
             if parsed is None:
                 LOGGER.warning(f"Failed to parse extraction response for {super_chunk.section_type}")
@@ -585,6 +667,242 @@ class SectionExtractionOrchestrator:
                 }
             )
             raise
+
+    async def _run_extraction_call(
+        self,
+        extractor: Any,
+        super_chunk: SectionSuperChunk,
+    ) -> Dict[str, Any]:
+        """Run a single LLM extraction call.
+        
+        Args:
+            extractor: The section extractor to use
+            super_chunk: Super-chunk or batch sub-chunk
+            
+        Returns:
+            Parsed JSON dictionary
+        """
+        section_text = super_chunk.get_contextualized_text()
+        
+        response = await extractor.client.generate_content(
+            contents=f"Extract from this {super_chunk.section_type.value} section:\n\n{section_text}",
+            system_instruction=extractor.get_extraction_prompt(),
+            generation_config={"response_mime_type": "application/json"}
+        )
+        
+        return parse_json_safely(response)
+
+    async def _extract_section_batched(
+        self,
+        super_chunk: SectionSuperChunk,
+        document_id: UUID,
+        workflow_id: UUID,
+    ) -> SectionExtractionResult:
+        """Extract data from a section in multiple batches.
+        
+        Args:
+            super_chunk: Large section super-chunk to extract
+            document_id: Document ID
+            workflow_id: Workflow ID
+            
+        Returns:
+            SectionExtractionResult (aggregated)
+        """
+        start_time = time.time()
+        
+        # Determine extractor to use (same logic as single extraction)
+        extractor_key = super_chunk.section_type.value
+        if super_chunk.chunks:
+            metadata = super_chunk.chunks[0].metadata
+            if (metadata.original_section_type == SectionType.ENDORSEMENTS and 
+                metadata.effective_section_type == SectionType.COVERAGES and
+                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
+                extractor_key = "endorsement_coverage_projection"
+            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and 
+                  metadata.effective_section_type == SectionType.EXCLUSIONS and
+                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
+                extractor_key = "endorsement_exclusion_projection"
+
+        extractor = self.factory.get_extractor(extractor_key) or self.factory.get_extractor("default")
+        
+        # Split chunks into batches
+        chunk_batches = []
+        current_batch = []
+        current_tokens = 0
+        
+        for chunk in super_chunk.chunks:
+            if current_batch and (current_tokens + chunk.metadata.token_count > BATCH_TOKEN_THRESHOLD or 
+                                len(current_batch) >= BATCH_CHUNK_THRESHOLD):
+                chunk_batches.append(current_batch)
+                current_batch = []
+                current_tokens = 0
+            
+            current_batch.append(chunk)
+            current_tokens += chunk.metadata.token_count
+            
+        if current_batch:
+            chunk_batches.append(current_batch)
+            
+        LOGGER.info(f"Split section {super_chunk.section_type.value} into {len(chunk_batches)} batches")
+        
+        parsed_results = []
+        total_input_tokens = 0
+        
+        for i, batch in enumerate(chunk_batches):
+            batch_super_chunk = SectionSuperChunk(
+                section_type=super_chunk.section_type,
+                section_name=super_chunk.section_name,
+                chunks=batch,
+                document_id=document_id,
+            )
+            
+            try:
+                LOGGER.debug(f"Processing batch {i+1}/{len(chunk_batches)} for {super_chunk.section_type.value}")
+                parsed = await self._run_extraction_call(extractor, batch_super_chunk)
+                if parsed:
+                    parsed_results.append(parsed)
+                total_input_tokens += batch_super_chunk.total_tokens
+            except Exception as e:
+                LOGGER.error(f"Batch {i+1} failed for {super_chunk.section_type.value}: {e}")
+        
+        if not parsed_results:
+            return SectionExtractionResult(section_type=super_chunk.section_type)
+            
+        # Aggregate results
+        aggregated_parsed = self._aggregate_batch_results(parsed_results, super_chunk.section_type)
+        
+        # Extract fields using extractor
+        if hasattr(extractor, 'extract_fields'):
+            extracted_data = extractor.extract_fields(aggregated_parsed)
+        else:
+            extracted_data = self._extract_section_data(aggregated_parsed, super_chunk.section_type)
+            
+        entities = aggregated_parsed.get("entities", [])
+        confidence = float(aggregated_parsed.get("confidence", 0.0))
+        
+        processing_time = int((time.time() - start_time) * 1000)
+        
+        # Persist (similar to single extraction logic)
+        extraction_id = None
+        if document_id and workflow_id:
+            # Aggregate stable chunk IDs from all chunks
+            all_stable_ids = [c.metadata.stable_chunk_id for c in super_chunk.chunks if c.metadata.stable_chunk_id]
+            
+            source_chunks = {
+                "chunk_ids": [],
+                "stable_chunk_ids": all_stable_ids,
+                "page_range": super_chunk.page_range,
+            }
+            
+            page_range_dict = None
+            if super_chunk.page_range:
+                page_range_dict = {"start": min(super_chunk.page_range), "end": max(super_chunk.page_range)}
+            
+            confidence_dict = {"overall": confidence, "section_type": super_chunk.section_type.value} if confidence > 0 else None
+            
+            extracted_fields_with_entities = {**extracted_data, "entities": entities}
+            
+            try:
+                extraction = await self.section_extraction_repo.create_section_extraction(
+                    document_id=document_id,
+                    workflow_id=workflow_id,
+                    section_type=super_chunk.section_type.value,
+                    extracted_fields=extracted_fields_with_entities,
+                    page_range=page_range_dict,
+                    confidence=confidence_dict,
+                    source_chunks=source_chunks if all_stable_ids else None,
+                    model_version=self.model,
+                    prompt_version="v1_batched",
+                )
+                extraction_id = extraction.id
+            except Exception as e:
+                LOGGER.warning(f"Failed to persist batched section extraction: {e}")
+
+        return SectionExtractionResult(
+            section_type=super_chunk.section_type,
+            extracted_data=extracted_data,
+            entities=entities,
+            confidence=confidence,
+            token_count=total_input_tokens,
+            processing_time_ms=processing_time,
+            extraction_id=extraction_id,
+        )
+
+    def _aggregate_batch_results(
+        self,
+        parsed_results: List[Dict[str, Any]],
+        section_type: SectionType,
+    ) -> Dict[str, Any]:
+        """Aggregate results from multiple extraction batches.
+        
+        Args:
+            parsed_results: List of parsed JSON records from LLM calls
+            section_type: The section type
+            
+        Returns:
+            Single aggregated dictionary
+        """
+        if not parsed_results:
+            return {}
+            
+        if len(parsed_results) == 1:
+            return parsed_results[0]
+            
+        aggregated = {
+            "entities": [],
+            "confidence": 0.0,
+        }
+        
+        # List items to aggregate for specific section types
+        list_keys = {
+            SectionType.COVERAGES: "coverages",
+            SectionType.CONDITIONS: "conditions",
+            SectionType.EXCLUSIONS: "exclusions",
+            SectionType.ENDORSEMENTS: "endorsements",
+            SectionType.DEDUCTIBLES: "deductibles",
+            SectionType.DEFINITIONS: "definitions",
+        }
+        
+        target_list_key = list_keys.get(section_type)
+        if target_list_key:
+            aggregated[target_list_key] = []
+            
+        confidences = []
+        
+        for res in parsed_results:
+            # Aggregate entities
+            if "entities" in res and isinstance(res["entities"], list):
+                aggregated["entities"].extend(res["entities"])
+            
+            # Aggregate specific lists
+            if target_list_key and target_list_key in res and isinstance(res[target_list_key], list):
+                aggregated[target_list_key].extend(res[target_list_key])
+            elif not target_list_key:
+                # For non-list sections, we might have nested fields or keys
+                # e.g. Declarations. We merge top-level keys if they don't exist.
+                # If target_list_key is None, we try to merge 'fields' or other keys
+                for k, v in res.items():
+                    if k not in ["entities", "confidence"]:
+                        if k not in aggregated:
+                            aggregated[k] = v
+                        elif isinstance(aggregated[k], list) and isinstance(v, list):
+                            aggregated[k].extend(v)
+                        elif isinstance(aggregated[k], dict) and isinstance(v, dict):
+                            aggregated[k].update(v)
+            
+            # Collect confidence
+            if "confidence" in res:
+                try:
+                    confidences.append(float(res["confidence"]))
+                except (ValueError, TypeError):
+                    pass
+        
+        # Average confidence
+        if confidences:
+            aggregated["confidence"] = sum(confidences) / len(confidences)
+            
+        return aggregated
+
     
     def _extract_section_data(
         self,
@@ -613,8 +931,10 @@ class SectionExtractionOrchestrator:
             return {"endorsements": parsed.get("endorsements", [])}
         elif section_type == SectionType.INSURING_AGREEMENT:
             return parsed.get("insuring_agreement", parsed)
-        elif section_type == SectionType.PREMIUM_SUMMARY:
+        elif section_type == SectionType.PREMIUM_SUMMARY or section_type == SectionType.PREMIUM:
             return parsed.get("premium", parsed)
+        elif section_type == SectionType.DEDUCTIBLES:
+            return {"deductibles": parsed.get("deductibles", [])}
         else:
             return parsed.get("extracted_data", parsed)
     

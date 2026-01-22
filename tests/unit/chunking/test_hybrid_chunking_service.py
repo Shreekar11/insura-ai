@@ -10,8 +10,8 @@ Tests the hybrid chunking implementation including:
 import pytest
 from uuid import uuid4
 
-from app.services.chunking.hybrid_chunking_service import HybridChunkingService
-from app.services.chunking.hybrid_models import (
+from app.services.processed.services.chunking.hybrid_chunking_service import HybridChunkingService
+from app.services.processed.services.chunking.hybrid_models import (
     SectionType,
     ChunkRole,
     HybridChunk,
@@ -171,6 +171,34 @@ class TestHybridChunkingService:
         
         assert len(sov_chunks) > 0
     
+    @pytest.mark.parametrize("section_type,expected_role", [
+        (SectionType.COVERAGE_GRANT, "coverage_grant"),
+        (SectionType.COVERAGE_EXTENSION, "coverage_extension"),
+        (SectionType.LIMITS, "limits"),
+        (SectionType.INSURED_DEFINITION, "insured_definition"),
+        (SectionType.DEFINITIONS, "definitions"),
+    ])
+    def test_semantic_role_derivation(self, service, section_type, expected_role):
+        """Test that semantic_role is automatically derived from granular section types."""
+        
+        page = PageData(
+            page_number=1,
+            text="Some content",
+            metadata={}
+        )
+        
+        # Test detection in _create_hybrid_chunks loop logic
+        # We need to simulate a case where no explicit boundary exists
+        chunks = service._create_hybrid_chunks(
+            pages=[page],
+            page_sections={1: section_type},
+            section_boundaries=[],
+            document_id=uuid4()
+        )
+        
+        assert len(chunks) > 0
+        assert chunks[0].metadata.semantic_role == expected_role
+    
     def test_section_map_populated(self, service, sample_pages):
         """Test that section map is populated."""
         result = service.chunk_pages(sample_pages)
@@ -235,6 +263,12 @@ class TestSectionDetection:
         ("GENERAL CONDITIONS\nNotice requirements", SectionType.CONDITIONS),
         ("EXCLUSIONS\nWe do not cover", SectionType.EXCLUSIONS),
         ("ENDORSEMENTS\nEndorsement No. 1", SectionType.ENDORSEMENTS),
+        ("SECTION II - COVERED AUTOS LIABILITY COVERAGE", SectionType.COVERAGE_GRANT),
+        ("SECTION III - PHYSICAL DAMAGE COVERAGE", SectionType.COVERAGE_GRANT),
+        ("LIMIT OF INSURANCE", SectionType.LIMITS),
+        ("SUPPLEMENTARY PAYMENTS", SectionType.COVERAGE_EXTENSION),
+        ("TRANSPORTATION EXPENSES", SectionType.COVERAGE_EXTENSION),
+        ("DEFINITIONS\nmeans bodily injury", SectionType.DEFINITIONS),
         ("SCHEDULE OF VALUES\nLocation 1", SectionType.SOV),
         ("SOV\nBuilding values", SectionType.SOV),
         ("LOSS RUN\nClaim history", SectionType.LOSS_RUN),

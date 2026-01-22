@@ -11,6 +11,7 @@ import re
 from typing import List, Optional, Dict, Any
 from uuid import UUID
 
+from app.models.page_analysis_models import SectionBoundary
 from app.services.processed.services.chunking.hybrid_models import (
     HybridChunk,
     HybridChunkMetadata,
@@ -42,6 +43,24 @@ SECTION_ANCHORS = {
         r'^\s*PROPERTY\s+COVERAGE\s*$',
         r'^\s*LIABILITY\s+COVERAGE\s*$',
     ],
+    SectionType.COVERAGE_GRANT: [
+        r'^\s*SECTION\s+II\s*[-–]\s*COVERED\s+AUTOS\s+LIABILITY\s+COVERAGE\s*$',
+        r'^\s*PHYSICAL\s+DAMAGE\s+COVERAGE\s*$',
+        r'^\s*SECTION\s+III\s*[-–]\s*PHYSICAL\s+DAMAGE\s+COVERAGE\s*$',
+        r'^\s*WE\s+WILL\s+PAY\s*$',
+        r'^\s*WE\s+WILL\s+ALSO\s+PAY\s*$',
+    ],
+    SectionType.COVERAGE_EXTENSION: [
+        r'^\s*SUPPLEMENTARY\s+PAYMENTS\s*$',
+        r'^\s*OUT-OF-STATE\s+COVERAGE\s+EXTENSIONS\s*$',
+        r'^\s*TRANSPORTATION\s+EXPENSES\s*$',
+        r'^\s*LOSS\s+OF\s+USE\s+EXPENSES\s*$',
+        r'^\s*COVERAGE\s+EXTENSIONS\s*$',
+    ],
+    SectionType.LIMITS: [
+        r'^\s*LIMIT\s+OF\s+INSURANCE\s*$',
+        r'^\s*LIMITS\s+AND\s+DEDUCTIBLES\s*$',
+    ],
     SectionType.CONDITIONS: [
         r'^\s*CONDITIONS?\s*$',
         r'^\s*GENERAL\s+CONDITIONS?\s*$',
@@ -58,6 +77,13 @@ SECTION_ANCHORS = {
         r'^\s*ENDORSEMENT\s+NO\.?\s*\d*',
         r'^\s*POLICY\s+ENDORSEMENTS?\s*$',
         r'^\s*FORMS?\s+AND\s+ENDORSEMENTS?\s*$',
+    ],
+    SectionType.DEFINITIONS: [
+        r'^\s*DEFINITIONS?\s*$',
+        r'^\s*SECTION\s+[IVX]+[\.\:]\s*DEFINITIONS?\s*$',
+    ],
+    SectionType.INSURED_DEFINITION: [
+        r'^\s*WHO\s+IS\s+AN\s+INSURED\s*$',
     ],
     SectionType.SOV: [
         r'^\s*SCHEDULE\s+OF\s+VALUES?\s*$',
@@ -84,6 +110,24 @@ SECTION_ANCHORS = {
         r'^\s*FINANCIAL\s+STATEMENT\s*$',
         r'^\s*FINANCIAL\s+INFORMATION\s*$',
     ],
+    SectionType.VEHICLE_DETAILS: [
+        r'^\s*VEHICLE\s+DETAILS?\s*$',
+        r'^\s*VEHICLE\s+SCHEDULE\s*$',
+        r'^\s*COVERED\s+Auto(?:s|mobile|mobiles)?\s*$',
+        r'^\s*SCHEDULE\s+OF\s+COVERED\s+Auto(?:s|mobile|mobiles)?\s*$',
+    ],
+    SectionType.INSURED_DECLARED_VALUE: [
+        r'^\s*INSURED(?:\'\s*S)?\s+DECLARED\s+VALUE\s*$',
+        r'^\s*IDV\s*$',
+    ],
+    SectionType.LIABILITY_COVERAGES: [
+        r'^\s*LIABILITY\s+COVERAGES?\s*$',
+        r'^\s*LIABILITY\s+LIMITS?\s*$',
+    ],
+    SectionType.DRIVER_INFORMATION: [
+        r'^\s*DRIVER(?:S|\s+INFORMATION)?\s*$',
+        r'^\s*SCHEDULE\s+OF\s+DRIVERS?\s*$',
+    ],
 }
 
 
@@ -98,6 +142,7 @@ class HybridChunkingService:
     
     Attributes:
         max_tokens: Maximum tokens per chunk
+        min_tokens_per_chunk: Minimum tokens before flushing
         overlap_tokens: Token overlap between chunks
         tokenizer: Tokenizer name for HybridChunker
         token_counter: Token counting utility
@@ -106,11 +151,14 @@ class HybridChunkingService:
     
     # Default super-chunk limits for LLM processing
     DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK = 6000
+    DEFAULT_MIN_TOKENS_PER_CHUNK = 300
+    FALLBACK_MIN_TOKENS = 200
     
     def __init__(
         self,
         max_tokens: int = 1500,
         overlap_tokens: int = 50,
+        min_tokens_per_chunk: int = DEFAULT_MIN_TOKENS_PER_CHUNK,
         tokenizer: str = "sentence-transformers/all-MiniLM-L6-v2",
         merge_peers: bool = True,
         max_tokens_per_super_chunk: int = DEFAULT_MAX_TOKENS_PER_SUPER_CHUNK,
@@ -120,12 +168,15 @@ class HybridChunkingService:
         Args:
             max_tokens: Maximum tokens per chunk
             overlap_tokens: Token overlap between chunks
+            min_tokens_per_chunk: Minimum tokens before flushing a chunk (default 300)
             tokenizer: HuggingFace tokenizer name for HybridChunker
             merge_peers: Whether to merge small sibling chunks
             max_tokens_per_super_chunk: Maximum tokens per super-chunk for LLM calls
         """
         self.max_tokens = max_tokens
         self.overlap_tokens = overlap_tokens
+        # Enforce minimum of FALLBACK_MIN_TOKENS (200) even if lower value provided
+        self.min_tokens_per_chunk = max(min_tokens_per_chunk, self.FALLBACK_MIN_TOKENS)
         self.tokenizer = tokenizer
         self.merge_peers = merge_peers
         self.max_tokens_per_super_chunk = max_tokens_per_super_chunk
@@ -140,6 +191,7 @@ class HybridChunkingService:
             "Initialized HybridChunkingService",
             extra={
                 "max_tokens": max_tokens,
+                "min_tokens_per_chunk": self.min_tokens_per_chunk,
                 "overlap_tokens": overlap_tokens,
                 "max_tokens_per_super_chunk": max_tokens_per_super_chunk,
                 "tokenizer": tokenizer,
@@ -174,6 +226,7 @@ class HybridChunkingService:
         pages: List[PageData],
         document_id: Optional[UUID] = None,
         page_section_map: Optional[Dict[int, str]] = None,
+        section_boundaries: Optional[List[SectionBoundary]] = None,
     ) -> ChunkingResult:
         """Chunk document pages using hybrid strategy.
         
@@ -209,6 +262,7 @@ class HybridChunkingService:
                 "document_id": str(document_id) if document_id else None,
                 "page_count": len(pages),
                 "has_page_section_map": page_section_map is not None,
+                "has_section_boundaries": section_boundaries is not None,
                 "has_metadata_sections": has_metadata_sections,
             }
         )
@@ -228,7 +282,12 @@ class HybridChunkingService:
             page_sections = self._detect_page_sections(pages)
         
         # Step 2: Create hybrid chunks
-        chunks = self._create_hybrid_chunks(pages, page_sections, document_id)
+        chunks = self._create_hybrid_chunks(
+            pages, 
+            page_sections, 
+            document_id,
+            section_boundaries=section_boundaries
+        )
         
         # Step 3: Build section super-chunks
         super_chunks = self._build_super_chunks(chunks, document_id)
@@ -274,6 +333,12 @@ class HybridChunkingService:
         for page_num, section_str in page_section_map.items():
             # Handle both string keys (from JSON) and int keys
             page_key = int(page_num) if isinstance(page_num, str) else page_num
+            # Handle comma-separated section types (take the first one as primary)
+            if isinstance(section_str, str) and "," in section_str:
+                primary_section_str = section_str.split(",")[0]
+                LOGGER.debug(f"Handling multi-section page {page_num}: '{section_str}' -> using primary '{primary_section_str}'")
+                section_str = primary_section_str
+
             # Use canonical mapper to normalize section type
             section_type = SectionTypeMapper.string_to_section_type(section_str)
             result[page_key] = section_type
@@ -460,6 +525,7 @@ class HybridChunkingService:
         pages: List[PageData],
         page_sections: Dict[int, SectionType],
         document_id: Optional[UUID],
+        section_boundaries: Optional[List[SectionBoundary]] = None,
     ) -> List[HybridChunk]:
         """Create hybrid chunks from pages with semantic section awareness.
         
@@ -470,22 +536,39 @@ class HybridChunkingService:
             pages: List of pages
             page_sections: Initial mapping of page numbers to sections (baselines)
             document_id: Document ID for metadata
+            section_boundaries: Optional intra-page section boundaries
             
         Returns:
             List of HybridChunks
         """
+        from app.utils.section_type_mapper import SectionTypeMapper
+        
         chunks = []
         chunk_index = 0
         
         current_section = SectionType.UNKNOWN
+        current_subsection: Optional[str] = None
         current_buffer = []
         current_tokens = 0
         current_page_range = set()
+        
+        # Semantic state
+        current_semantic_role: Optional[str] = None
+        current_coverage_effects: List[str] = []
+        current_exclusion_effects: List[str] = []
         
         # State tracking for current chunk
         current_has_tables = False
         current_table_count = 0
         
+        # Index boundaries by page for fast lookup
+        boundaries_by_page = {}
+        if section_boundaries:
+            for b in section_boundaries:
+                if b.start_page not in boundaries_by_page:
+                    boundaries_by_page[b.start_page] = []
+                boundaries_by_page[b.start_page].append(b)
+
         for page in pages:
             page_num = page.page_number
             content = page.get_content()
@@ -498,15 +581,48 @@ class HybridChunkingService:
             page_has_tables = page.metadata.get("has_tables", False)
             page_table_count = page.metadata.get("table_count", 0)
             
+            # Line tracking for boundaries (very simplified, assumes 1 para = few lines)
+            # This is a bit of a heuristic since we've split by paragraphs not lines
+            # but usually paragraph transitions align with section transitions.
+            current_line_estimation = 1
+            
             for para_idx, para in enumerate(paragraphs):
                 para_tokens = self.token_counter.count_tokens(para)
+                para_line_count = para.count('\n') + 1
                 
-                # Detect section transition within the paragraph
+                # Detect section transition
                 detected_section = self._detect_section_type(para)
                 
                 transition_occurred = False
                 new_section = current_section
+                new_subsection = current_subsection
+                new_semantic_role = current_semantic_role
+                new_coverage_effects = current_coverage_effects
+                new_exclusion_effects = current_exclusion_effects
+
+                # Check for explicit boundary transition
+                page_boundaries = boundaries_by_page.get(page_num, [])
+                boundary_section = SectionType.UNKNOWN
+                current_boundary = None
                 
+                for b in page_boundaries:
+                    # Case 1: Page-level boundary (apply to first paragraph)
+                    if b.start_line is None and para_idx == 0:
+                        boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
+                        current_boundary = b
+                    # Case 2: Specific line boundary
+                    elif b.start_line is not None:
+                        if current_line_estimation >= b.start_line:
+                            boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
+                            current_boundary = b
+
+                # Capture effective section type from boundary if available
+                boundary_effective_type = None
+                if current_boundary and hasattr(current_boundary, 'effective_section_type') and current_boundary.effective_section_type:
+                    boundary_effective_type = SectionTypeMapper.page_type_to_section_type(current_boundary.effective_section_type)
+
+                
+                # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
                 if detected_section != SectionType.UNKNOWN and detected_section != current_section:
                     LOGGER.info(
                         f"Section transition detected via header: {current_section} -> {detected_section}",
@@ -514,26 +630,82 @@ class HybridChunkingService:
                     )
                     transition_occurred = True
                     new_section = detected_section
+                    
+                    # Normalize detected section to core/subsection
+                    core = SectionTypeMapper.normalize_to_core_section(detected_section)
+                    if core != detected_section:
+                        new_section = core
+                        new_subsection = detected_section.value
+                        LOGGER.info(f"Normalized detected section: {detected_section} -> {core}({new_subsection})")
+                if boundary_section != SectionType.UNKNOWN:
+                    # Check for subsection transition or section transition
+                    
+                    # If detected boundary section is different OR subsection is different
+                    new_subsection = current_boundary.sub_section_type if current_boundary else None
+                    
+                    # Update semantic info from boundary if it exists
+                    if current_boundary:
+                        role = current_boundary.semantic_role
+                        new_semantic_role = role.value if role and hasattr(role, 'value') else role
+                        new_coverage_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.coverage_effects or [])]
+                        new_exclusion_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.exclusion_effects or [])]
+
+                    # HARD STOP: If boundary section matches one of our critical ISO anchors, we MUST flush
+                    ISO_HARD_STOPS = {
+                        SectionType.COVERAGE_GRANT,
+                        SectionType.INSURED_DEFINITION,
+                        SectionType.LIMITS,
+                        SectionType.EXCLUSIONS,
+                        SectionType.CONDITIONS,
+                        SectionType.DEFINITIONS
+                    }
+                    
+                    if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role or boundary_section in ISO_HARD_STOPS:
+                        LOGGER.info(
+                            f"Section transition (HARD STOP) detected via boundary: {current_section} -> {boundary_section}",
+                            extra={"page": page_num, "line": current_line_estimation, "anchor": current_boundary.anchor_text}
+                        )
+                        transition_occurred = True
+                        new_section = boundary_section
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
-                    LOGGER.info(
-                        f"Section transition detected via manifest: {current_section} -> {manifest_section}",
-                        extra={"page": page_num}
-                    )
-                    transition_occurred = True
-                    new_section = manifest_section
+                    
+                    actual_manifest_section = manifest_section
+                    if isinstance(manifest_section, str) and "," in manifest_section:
+                        first_type = manifest_section.split(",")[0]
+                        actual_manifest_section = SectionTypeMapper.string_to_section_type(first_type)
+
+                    if actual_manifest_section != current_section:
+                        LOGGER.info(
+                            f"Section transition detected via manifest: {current_section} -> {actual_manifest_section}",
+                            extra={"page": page_num}
+                        )
+                        transition_occurred = True
+                        new_section = actual_manifest_section
                 
+                # ACORD Certificate Guard: Hard-block semantic interpretation on certificates
+                if new_section == SectionType.CERTIFICATE_OF_INSURANCE:
+                    new_semantic_role = None
+                    new_coverage_effects = []
+                    new_exclusion_effects = []
+
                 # Handle oversized paragraph - split it internally
                 if para_tokens > self.max_tokens:
                     if current_buffer:
                         chunks.append(self._flush_chunk(
                             buffer=current_buffer,
                             section_type=current_section,
+                            effective_section_type=current_section, # Default
+                            original_section_type=current_section,
+                            subsection_type=current_subsection,
                             page_range=current_page_range,
                             document_id=document_id,
                             chunk_index=chunk_index,
                             tokens=current_tokens,
                             has_tables=current_has_tables,
                             table_count=current_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
                         ))
                         chunk_index += 1
                         current_buffer = []
@@ -545,6 +717,10 @@ class HybridChunkingService:
                     # Update section if it was detected in this large paragraph
                     if transition_occurred:
                         current_section = new_section
+                        current_subsection = new_subsection
+                        current_semantic_role = new_semantic_role
+                        current_coverage_effects = new_coverage_effects
+                        current_exclusion_effects = new_exclusion_effects
                     
                     # Split the paragraph
                     sub_paras = self.token_counter.split_by_token_limit(
@@ -556,12 +732,18 @@ class HybridChunkingService:
                         chunks.append(self._flush_chunk(
                             buffer=[sub_para],
                             section_type=current_section,
+                            effective_section_type=current_section, # Default
+                            original_section_type=current_section,
+                            subsection_type=current_subsection,
                             page_range={page_num},
                             document_id=document_id,
                             chunk_index=chunk_index,
                             tokens=sub_tokens,
                             has_tables=page_has_tables,
                             table_count=page_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
                         ))
                         chunk_index += 1
                     
@@ -575,26 +757,55 @@ class HybridChunkingService:
                     continue
 
                 # Determine if we should flush the current chunk
-                # Flush if: Section transition OR Token limit reached
+                # Flush if:
+                # 1. Section transition (always flush on section change)
+                # 2. Token limit reached AND minimum tokens met (prevents undersized chunks)
+                token_limit_reached = current_tokens + para_tokens > self.max_tokens
+                min_tokens_met = current_tokens >= self.min_tokens_per_chunk
+                
                 should_flush = current_buffer and (
                     transition_occurred or 
-                    (current_tokens + para_tokens > self.max_tokens)
+                    (token_limit_reached and min_tokens_met)
                 )
                 
+                # Table Rule: If chunk has high table density and mentions symbols, force coverages_context
+                # Heuristic: 60% of paragraphs start with table-like patterns (pipe, etc.) or page metadata says so
+                if current_buffer and current_section in {SectionType.COVERAGES, SectionType.UNKNOWN}:
+                    para_joined = "\n".join(current_buffer).lower()
+                    if "symbol" in para_joined or "designation" in para_joined:
+                        table_para_count = sum(1 for p in current_buffer if p.strip().startswith('|') or p.strip().count('|') > 2)
+                        if (table_para_count / len(current_buffer) >= 0.6) or (current_has_tables and "symbol" in para_joined):
+                            LOGGER.info(f"Applying symbol-table rule for page {page_num}: forcing coverages_context")
+                            current_section = SectionType.COVERAGES_CONTEXT
+                            current_semantic_role = None # Symbols aren't semantic modifiers
+                
                 if should_flush:
-                    # Create and store the chunk
-                    chunk = self._flush_chunk(
-                        buffer=current_buffer,
-                        section_type=current_section,
-                        page_range=current_page_range,
-                        document_id=document_id,
-                        chunk_index=chunk_index,
-                        tokens=current_tokens,
-                        has_tables=current_has_tables,
-                        table_count=current_table_count,
+                    # Determine effective section types (may return multiple for dual emission)
+                    effective_types = self._get_effective_section_types(
+                        current_section, 
+                        current_semantic_role
                     )
-                    chunks.append(chunk)
-                    chunk_index += 1
+                    
+                    for eff_type in effective_types:
+                        # Create and store the chunk
+                        chunk = self._flush_chunk(
+                            buffer=current_buffer,
+                            section_type=current_section,
+                            effective_section_type=eff_type,
+                            original_section_type=current_section,
+                            subsection_type=current_subsection,
+                            page_range=current_page_range,
+                            document_id=document_id,
+                            chunk_index=chunk_index,
+                            tokens=current_tokens,
+                            has_tables=current_has_tables,
+                            table_count=current_table_count,
+                            semantic_role=current_semantic_role,
+                            coverage_effects=current_coverage_effects,
+                            exclusion_effects=current_exclusion_effects,
+                        )
+                        chunks.append(chunk)
+                        chunk_index += 1
                     
                     # Prepare for next chunk
                     if transition_occurred:
@@ -619,6 +830,24 @@ class HybridChunkingService:
                 # Update current state
                 if transition_occurred:
                     current_section = new_section
+                    current_subsection = new_subsection
+                    current_semantic_role = new_semantic_role
+                    current_coverage_effects = new_coverage_effects
+                    current_exclusion_effects = new_exclusion_effects
+
+                # Derive semantic role from granular section types if not explicitly set by boundary
+                from app.models.page_analysis_models import SemanticRole
+                if current_semantic_role in {None, SemanticRole.UNKNOWN, "unknown"}:
+                    if current_section == SectionType.COVERAGE_GRANT:
+                        current_semantic_role = SemanticRole.COVERAGE_GRANT
+                    elif current_section == SectionType.COVERAGE_EXTENSION:
+                        current_semantic_role = SemanticRole.COVERAGE_EXTENSION
+                    elif current_section == SectionType.LIMITS:
+                        current_semantic_role = SemanticRole.LIMITS
+                    elif current_section == SectionType.INSURED_DEFINITION:
+                        current_semantic_role = SemanticRole.INSURED_DEFINITION
+                    elif current_section == SectionType.DEFINITIONS:
+                        current_semantic_role = SemanticRole.DEFINITIONS
                 
                 current_buffer.append(para)
                 current_tokens += para_tokens
@@ -626,33 +855,103 @@ class HybridChunkingService:
                 if page_has_tables:
                     current_has_tables = True
                     current_table_count = max(current_table_count, page_table_count)
+                
+                current_line_estimation += para_line_count + 1
         
         # Flush final chunk
         if current_buffer:
-            chunk = self._flush_chunk(
-                buffer=current_buffer,
-                section_type=current_section,
-                page_range=current_page_range,
-                document_id=document_id,
-                chunk_index=chunk_index,
-                tokens=current_tokens,
-                has_tables=current_has_tables,
-                table_count=current_table_count,
+            effective_types = self._get_effective_section_types(
+                current_section, 
+                current_semantic_role
             )
-            chunks.append(chunk)
+            for eff_type in effective_types:
+                chunk = self._flush_chunk(
+                    buffer=current_buffer,
+                    section_type=current_section,
+                    effective_section_type=eff_type,
+                    original_section_type=current_section,
+                    subsection_type=current_subsection,
+                    page_range=current_page_range,
+                    document_id=document_id,
+                    chunk_index=chunk_index,
+                    tokens=current_tokens,
+                    has_tables=current_has_tables,
+                    table_count=current_table_count,
+                    semantic_role=current_semantic_role,
+                    coverage_effects=current_coverage_effects,
+                    exclusion_effects=current_exclusion_effects,
+                )
+                chunks.append(chunk)
+                chunk_index += 1
+        
+        # Post-process: merge consecutive small chunks of same section type
+        # This handles cases where section boundaries created undersized chunks
+        merged_chunks = self._merge_small_chunks(chunks)
+        
+        LOGGER.info(
+            f"Chunk post-processing: {len(chunks)} -> {len(merged_chunks)} chunks after merging",
+            extra={"original": len(chunks), "merged": len(merged_chunks)}
+        )
             
-        return chunks
+        return merged_chunks
+
+    def _get_effective_section_types(
+        self, 
+        section_type: SectionType, 
+        semantic_role: Optional[str]
+    ) -> List[SectionType]:
+        """Resolve structural section to one or more effective extraction sections.
+        
+        This implements the "Semantic Projection" logic where endorsements 
+        become virtual coverage/exclusion sections.
+        """
+        # Use string comparison to be safe with enums vs strings
+        role_val = semantic_role.value if hasattr(semantic_role, 'value') else str(semantic_role) if semantic_role else None
+        
+        from app.models.page_analysis_models import SemanticRole
+        
+        # 1. Dual Emission (BOTH) takes highest priority for any section
+        if role_val == SemanticRole.BOTH:
+            return [SectionType.COVERAGES, SectionType.EXCLUSIONS]
+            
+        # 2. Endorsement Semantic Projection
+        if section_type == SectionType.ENDORSEMENTS and role_val:
+            if role_val == SemanticRole.COVERAGE_MODIFIER:
+                return [SectionType.COVERAGES]
+            elif role_val == SemanticRole.EXCLUSION_MODIFIER:
+                return [SectionType.EXCLUSIONS]
+            elif role_val == SemanticRole.ADMINISTRATIVE_ONLY:
+                return [SectionType.ENDORSEMENTS]
+                
+        # 3. Base Policy Sections are authoritative
+        if section_type in {
+            SectionType.COVERAGES, 
+            SectionType.EXCLUSIONS, 
+            SectionType.CONDITIONS, 
+            SectionType.DEFINITIONS,
+            SectionType.DECLARATIONS
+        }:
+            return [SectionType(section_type)]
+
+        # 4. Default: Use structural section
+        return [section_type]
 
     def _flush_chunk(
         self,
         buffer: List[str],
         section_type: SectionType,
+        effective_section_type: Optional[SectionType],
+        original_section_type: Optional[SectionType],
+        subsection_type: Optional[str],
         page_range: set,
         document_id: Optional[UUID],
         chunk_index: int,
         tokens: int,
         has_tables: bool,
         table_count: int,
+        semantic_role: Optional[str] = None,
+        coverage_effects: List[str] = None,
+        exclusion_effects: List[str] = None,
     ) -> HybridChunk:
         """Create a HybridChunk from the current buffer and state."""
         content = "\n\n".join(buffer).strip()
@@ -665,12 +964,19 @@ class HybridChunkingService:
         else:
             chunk_role = ChunkRole.TEXT
             
+        # Get document role from config
+        from app.services.processed.services.chunking.hybrid_models import SECTION_CONFIG
+        config = SECTION_CONFIG.get(section_type, {})
+        is_non_contractual = config.get("is_non_contractual", False)
+        document_role = "non_contractual" if is_non_contractual else "contractual"
+
         metadata = HybridChunkMetadata(
             document_id=document_id,
             page_number=primary_page,
             page_range=sorted_pages,
             section_type=section_type,
             section_name=section_type.value.replace("_", " ").title(),
+            subsection_type=subsection_type,
             chunk_index=chunk_index,
             token_count=tokens,
             stable_chunk_id=self._generate_stable_id(document_id, chunk_index),
@@ -679,15 +985,24 @@ class HybridChunkingService:
             table_count=table_count,
             context_header=self._build_context_header(section_type, primary_page),
             source="semantic_paragraph_chunker",
+            semantic_role=semantic_role,
+            coverage_effects=coverage_effects or [],
+            exclusion_effects=exclusion_effects or [],
+            original_section_type=original_section_type,
+            effective_section_type=effective_section_type,
+            document_role=document_role,
         )
         
-        # Enrich with contextualized text for better embeddings
-        context_header = metadata.context_header or ""
-        contextualized_text = f"{context_header}\n{content}" if context_header else content
-        
+        # Enrich metadata with original section if it was projected
+        if effective_section_type and effective_section_type != section_type:
+            if not metadata.subsection_type:
+                metadata.subsection_type = f"projected_from_{section_type.value}"
+        if original_section_type and original_section_type != section_type:
+            metadata.subsection_type = f"projected_from_{original_section_type.value}"
+
         return HybridChunk(
             text=content,
-            contextualized_text=contextualized_text,
+            contextualized_text=f"{metadata.context_header}\n\n{content}" if metadata.context_header else content,
             metadata=metadata,
         )
     
@@ -729,6 +1044,108 @@ class HybridChunkingService:
             overlap_tokens += sent_tokens
         
         return overlap_text.strip() + "\n\n" if overlap_text else ""
+    
+    def _merge_small_chunks(
+        self,
+        chunks: List[HybridChunk],
+    ) -> List[HybridChunk]:
+        """Merge consecutive small chunks with same section type and semantic intent.
+        
+        This method merges undersized chunks (<min_tokens_per_chunk) with their
+        neighbors when they share the same effective section type AND semantic role.
+        Merging is allowed across page boundaries per user requirement.
+        
+        Args:
+            chunks: List of hybrid chunks to potentially merge
+            
+        Returns:
+            List of merged chunks (fewer, larger chunks)
+        """
+        if not chunks or len(chunks) < 2:
+            return chunks
+        
+        merged = []
+        current = chunks[0]
+        
+        for next_chunk in chunks[1:]:
+            # Check if chunks can be merged:
+            # 1. Same effective section type AND same structural section type
+            # 2. Same semantic role (or both None)
+            # 3. Current chunk is below min_tokens threshold
+            same_section = (
+                current.metadata.section_type == next_chunk.metadata.section_type and
+                current.metadata.effective_section_type == next_chunk.metadata.effective_section_type
+            )
+            same_semantic = (
+                current.metadata.semantic_role == next_chunk.metadata.semantic_role
+            )
+            current_undersized = current.metadata.token_count < self.min_tokens_per_chunk
+            combined_fits = (
+                current.metadata.token_count + next_chunk.metadata.token_count 
+                <= self.max_tokens
+            )
+            
+            if same_section and same_semantic and current_undersized and combined_fits:
+                # Merge next_chunk into current
+                merged_text = current.text + "\n\n" + next_chunk.text
+                merged_tokens = current.metadata.token_count + next_chunk.metadata.token_count
+                
+                # Combine page ranges
+                merged_page_range = list(set(
+                    (current.metadata.page_range or [current.metadata.page_number]) +
+                    (next_chunk.metadata.page_range or [next_chunk.metadata.page_number])
+                ))
+                merged_page_range.sort()
+                
+                # Create merged metadata
+                merged_metadata = HybridChunkMetadata(
+                    document_id=current.metadata.document_id,
+                    page_number=merged_page_range[0],
+                    page_range=merged_page_range,
+                    section_type=current.metadata.section_type,
+                    section_name=current.metadata.section_name,
+                    subsection_type=current.metadata.subsection_type,
+                    chunk_index=current.metadata.chunk_index,
+                    token_count=merged_tokens,
+                    stable_chunk_id=current.metadata.stable_chunk_id,
+                    chunk_role=current.metadata.chunk_role,
+                    has_tables=current.metadata.has_tables or next_chunk.metadata.has_tables,
+                    table_count=max(current.metadata.table_count or 0, next_chunk.metadata.table_count or 0),
+                    context_header=current.metadata.context_header,
+                    source="merged_semantic_paragraph_chunker",
+                    semantic_role=current.metadata.semantic_role,
+                    coverage_effects=list(set(
+                        (current.metadata.coverage_effects or []) + 
+                        (next_chunk.metadata.coverage_effects or [])
+                    )),
+                    exclusion_effects=list(set(
+                        (current.metadata.exclusion_effects or []) + 
+                        (next_chunk.metadata.exclusion_effects or [])
+                    )),
+                    original_section_type=current.metadata.original_section_type,
+                    effective_section_type=current.metadata.effective_section_type,
+                    document_role=current.metadata.document_role,
+                )
+                
+                current = HybridChunk(
+                    text=merged_text,
+                    contextualized_text=f"{merged_metadata.context_header}\n\n{merged_text}" if merged_metadata.context_header else merged_text,
+                    metadata=merged_metadata,
+                )
+                
+                LOGGER.debug(
+                    f"Merged chunk: {merged_tokens} tokens, pages {merged_page_range}",
+                    extra={"section": current.metadata.section_type.value}
+                )
+            else:
+                # Cannot merge, finalize current and start new
+                merged.append(current)
+                current = next_chunk
+        
+        # Don't forget the last chunk
+        merged.append(current)
+        
+        return merged
     
     def _build_super_chunks(
         self,
@@ -792,10 +1209,17 @@ class HybridChunkingService:
         """
         total_tokens = sum(c.metadata.token_count for c in chunks)
         
-        # Build section map
+        # Build section map using structural section type
         section_map = {}
         for chunk in chunks:
-            section = chunk.metadata.section_type.value if chunk.metadata.section_type else "unknown"
+            # Use original/structural section for stats
+            section = (
+                chunk.metadata.original_section_type.value 
+                if chunk.metadata.original_section_type 
+                else chunk.metadata.section_type.value 
+                if chunk.metadata.section_type 
+                else "unknown"
+            )
             section_map[section] = section_map.get(section, 0) + 1
         
         # Calculate statistics

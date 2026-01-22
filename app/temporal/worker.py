@@ -2,73 +2,33 @@
 
 This worker:
 - Connects to local Temporal server (localhost:7233)
-- Registers all workflows and activities
-- Polls the documents-queue task queue
+- Dynamically discovers and registers all workflows and activities
+- Supports multiple task queues via separate workers
 - Handles concurrent execution with configured limits
 """
 
 import asyncio
 import os
+from typing import List
 from temporalio.client import Client
 from temporalio.worker import Worker
+from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
-# Import all child workflows
-from app.temporal.workflows.process_document import ProcessDocumentWorkflow
-from app.temporal.workflows.child.ocr_extraction import OCRExtractionWorkflow
-from app.temporal.workflows.child.table_extraction import TableExtractionWorkflow
-from app.temporal.workflows.child.page_analysis import PageAnalysisWorkflow
-from app.temporal.workflows.child.hybrid_chunking import HybridChunkingWorkflow
-from app.temporal.workflows.child.extraction import ExtractionWorkflow
-from app.temporal.workflows.child.entity_resolution import EntityResolutionWorkflow
-from app.temporal.workflows.child.indexing import IndexingWorkflow
+# Trigger discovery of all components
+from app.temporal.core.discovery import discover_all
+discover_all()
 
-# Import all stages workflows
-from app.temporal.workflows.stages.processed import ProcessedStageWorkflow
-from app.temporal.workflows.stages.extracted import ExtractedStageWorkflow
-from app.temporal.workflows.stages.enriched import EnrichedStageWorkflow
-from app.temporal.workflows.stages.summarized import SummarizedStageWorkflow
-
-# Import all activities
-from app.temporal.activities.ocr_extraction import (
-    extract_ocr,
-)
-from app.temporal.activities.table_extraction import (
-    extract_tables,
-)
-from app.temporal.activities.page_analysis import (
-    extract_page_signals,
-    extract_page_signals_from_markdown,
-    classify_pages,
-    create_page_manifest,
-)
-from app.temporal.activities.hybrid_chunking import (
-    perform_hybrid_chunking,
-)
-from app.temporal.activities.extraction import (
-    extract_section_fields,
-)
-from app.temporal.activities.entity_resolution import (
-    aggregate_document_entities,
-    resolve_canonical_entities,
-    extract_relationships,
-    rollback_entities,
-)
-from app.temporal.activities.indexing import (
-    generate_embeddings_activity,
-    construct_knowledge_graph_activity,
-)
-from app.temporal.activities.stages import (
-    update_stage_status,
-)
-
+from app.temporal.core.workflow_registry import WorkflowRegistry
+from app.temporal.core.activity_registry import ActivityRegistry
+from app.temporal.core.constants import DEFAULT_TASK_QUEUE
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
 
 async def main():
-    """Start the Temporal worker."""
-    # Get Temporal host from environment (defaults to localhost for local development)
+    """Start the Temporal worker(s)."""
+    # Get Temporal host from environment
     temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
     
     logger.info(f"Connecting to Temporal server at {temporal_host}")
@@ -81,64 +41,60 @@ async def main():
     
     logger.info("Successfully connected to Temporal server")
     
-    # Create single worker handling all activities
-    worker = Worker(
-        client,
-        task_queue="documents-queue",
-        workflows=[
-            ProcessDocumentWorkflow,
-            ProcessedStageWorkflow,
-            ExtractedStageWorkflow,
-            EnrichedStageWorkflow,
-            SummarizedStageWorkflow,
-            OCRExtractionWorkflow,
-            TableExtractionWorkflow,
-            PageAnalysisWorkflow,
-            HybridChunkingWorkflow,
-            ExtractionWorkflow,
-            EntityResolutionWorkflow,
-            IndexingWorkflow,
-        ],
-        activities=[
-            extract_ocr,
-            extract_tables,
-            extract_page_signals,
-            extract_page_signals_from_markdown,
-            classify_pages,
-            create_page_manifest,
-            perform_hybrid_chunking,
-            extract_section_fields,
-            aggregate_document_entities,
-            resolve_canonical_entities,
-            extract_relationships,
-            rollback_entities,
-            generate_embeddings_activity,
-            construct_knowledge_graph_activity,
-            update_stage_status,
-        ],
-        max_concurrent_activities=5,
-        max_concurrent_workflow_tasks=10,
-    )
+    # Get all registered workflows and activities
+    all_workflows = WorkflowRegistry.get_all_workflows()
+    all_activities = ActivityRegistry.get_all_activities()
     
+    logger.info(f"Registered {len(all_workflows)} workflows and {len(all_activities)} activities")
+    
+    # Group workflows by task queue
+    queues = {}
+    for wf_name, metadata in all_workflows.items():
+        queue = metadata.task_queue or DEFAULT_TASK_QUEUE
+        if queue not in queues:
+            queues[queue] = []
+        queues[queue].append(metadata.workflow_class)
+        logger.debug(f"Workflow '{wf_name}' assigned to queue '{queue}'")
+
+    # Create workers for each task queue
+    workers = []
+    for queue_name, workflows in queues.items():
+        logger.debug(f"Starting worker for queue: {queue_name} (Workflows: {[w.__name__ for w in workflows]})")
+        
+        # All activities are registered with all workers for now
+        # In a more complex setup, you might filter activities by queue as well
+        worker = Worker(
+            client,
+            task_queue=queue_name,
+            workflows=workflows,
+            activities=list(all_activities.values()),
+            max_concurrent_activities=10,
+            max_concurrent_workflow_tasks=20,
+            workflow_runner=SandboxedWorkflowRunner(
+                restrictions=SandboxRestrictions.default.with_passthrough_all_modules()
+            ),
+        )
+        workers.append(worker.run())
+
     logger.info("=" * 60)
-    logger.info("Temporal Worker Started Successfully")
+    logger.info("Temporal Workers Initialized Successfully")
     logger.info("=" * 60)
     logger.info(f"Connected to: {temporal_host}")
-    logger.info(f"Task Queue: documents-queue")
+    logger.info(f"Queues: {list(queues.keys())}")
     logger.info("=" * 60)
-    logger.info("Worker is now polling for tasks...")
+    logger.info("Workers are now polling for tasks...")
     logger.info("Press Ctrl+C to stop")
     logger.info("=" * 60)
     
-    # Run the worker
-    await worker.run()
+    # Run all workers
+    await asyncio.gather(*workers)
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        logger.info("\nWorker stopped by user")
+        logger.info("\nWorkers stopped by user")
     except Exception as e:
         logger.error(f"Worker failed: {e}", exc_info=True)
         raise

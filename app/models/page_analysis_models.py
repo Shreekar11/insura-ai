@@ -25,6 +25,44 @@ class PageType(str, Enum):
     DUPLICATE = "duplicate"
     DEFINITIONS = "definitions"
     TABLE_OF_CONTENTS = "table_of_contents"
+    VEHICLE_DETAILS = "vehicle_details"
+    INSURED_DECLARED_VALUE = "insured_declared_value"
+    LIABILITY_COVERAGES = "liability_coverages"
+    DEDUCTIBLES = "deductibles"
+    PREMIUM = "premium"
+    COVERAGES_CONTEXT = "coverages_context"
+    COVERAGE_GRANT = "coverage_grant"
+    COVERAGE_EXTENSION = "coverage_extension"
+    LIMITS = "limits"
+    INSURED_DEFINITION = "insured_definition"
+    ACORD_APPLICATION = "acord_application"
+    PROPOSAL = "proposal"
+    CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
+    UNKNOWN = "unknown"
+
+
+class SemanticSection(str, Enum):
+    """Semantic insurance document section types.
+    
+    These represent high-level insurance concepts, distinct from visual page types.
+    """
+    CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
+    DECLARATIONS = "declarations"
+    COVERAGES = "coverages"
+    LIABILITY_COVERAGE = "liability.coverage"
+    LIABILITY_EXCLUSIONS = "liability.exclusions"
+    PHYSICAL_DAMAGE_COVERAGE = "physical_damage.coverage"
+    PHYSICAL_DAMAGE_EXCLUSIONS = "physical_damage.exclusions"
+    MULTI_COVERAGE = "multi_coverage"
+    CONDITIONS = "conditions"
+    DEFINITIONS = "definitions"
+    ENDORSEMENT = "endorsement"
+    EXCLUSIONS = "exclusions"
+    CERTIFICATE = "certificate"
+    BOILERPLATE = "boilerplate"
+    SOV = "sov"
+    LOSS_RUN = "loss_run"
+    TABLE_OF_CONTENTS = "toc"
     UNKNOWN = "unknown"
 
 
@@ -32,11 +70,13 @@ class DocumentType(str, Enum):
     """Types of insurance documents."""
     
     POLICY = "policy"
+    POLICY_BUNDLE = "policy_bundle"
     SOV = "sov"
     LOSS_RUN = "loss_run"
     ENDORSEMENT = "endorsement"
     QUOTE = "quote"
     SUBMISSION = "submission"
+    ACORD_APPLICATION = "acord_application"
     PROPOSAL = "proposal"
     INVOICE = "invoice"
     CERTIFICATE = "certificate"
@@ -44,6 +84,35 @@ class DocumentType(str, Enum):
     FINANCIAL = "financial"
     AUDIT = "audit"
     UNKNOWN = "unknown"
+
+
+class SemanticRole(str, Enum):
+    """Effect role of an endorsement on the policy."""
+    COVERAGE_MODIFIER = "coverage_modifier"
+    EXCLUSION_MODIFIER = "exclusion_modifier"
+    BOTH = "both"
+    ADMINISTRATIVE_ONLY = "administrative_only"
+    COVERAGE_GRANT = "coverage_grant"
+    COVERAGE_EXTENSION = "coverage_extension"
+    LIMITS = "limits"
+    INSURED_DEFINITION = "insured_definition"
+    DEFINITIONS = "definitions"
+    UNKNOWN = "unknown"
+
+
+class CoverageEffect(str, Enum):
+    """Specific semantic effects on coverage."""
+    ADDS_COVERAGE = "adds_coverage"
+    EXPANDS_COVERAGE = "expands_coverage"
+    LIMITS_COVERAGE = "limits_coverage"
+    RESTORES_COVERAGE = "restores_coverage"
+
+
+class ExclusionEffect(str, Enum):
+    """Specific semantic effects on exclusions."""
+    INTRODUCES_EXCLUSION = "introduces_exclusion"
+    NARROWS_EXCLUSION = "narrows_exclusion"
+    REMOVES_EXCLUSION = "removes_exclusion"
 
 
 class PageSignals(BaseModel):
@@ -55,7 +124,11 @@ class PageSignals(BaseModel):
     page_number: int = Field(..., description="1-indexed page number")
     top_lines: List[str] = Field(
         ..., 
-        description="First 5-10 lines of text from the page"
+        description="First few lines of the page or detected headings"
+    )
+    all_lines: List[str] = Field(
+        default_factory=list,
+        description="All lines of text for multi-section span detection"
     )
     text_density: float = Field(
         ..., 
@@ -75,6 +148,10 @@ class PageSignals(BaseModel):
         ..., 
         description="Hash of page content for duplicate detection"
     )
+    additional_metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional structural metadata from Docling or other sources"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -91,6 +168,31 @@ class PageSignals(BaseModel):
                 "page_hash": "a3f5e9..."
             }
         }
+    )
+
+
+class TextSpan(BaseModel):
+    """Represents a span of text within a page using line numbers."""
+    
+    start_line: int = Field(..., ge=1, description="Starting line number (1-indexed)")
+    end_line: int = Field(..., ge=1, description="Ending line number (inclusive)")
+
+
+class SectionSpan(BaseModel):
+    """Represents a classified section block within a page."""
+    
+    section_type: PageType = Field(..., description="Type of section detected in span")
+    confidence: float = Field(..., ge=0.0, le=1.0, description="Confidence for this span")
+    span: Optional[TextSpan] = Field(None, description="Coordinates of the section in the text")
+    reasoning: Optional[str] = Field(None, description="Reasoning for this span detection")
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the span (for endorsements)"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects for this span"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects for this span"
     )
 
 
@@ -116,6 +218,19 @@ class PageClassification(BaseModel):
     reasoning: Optional[str] = Field(
         None, 
         description="Human-readable explanation of classification"
+    )
+    sections: List[SectionSpan] = Field(
+        default_factory=list,
+        description="List of detected sections within the page (for multi-section pages)"
+    )
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the page (mainly for endorsements)"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects detected on this page"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects detected on this page"
     )
     
     model_config = ConfigDict(
@@ -227,6 +342,8 @@ class SectionBoundary(BaseModel):
     section_type: PageType = Field(..., description="Type of section")
     start_page: int = Field(..., ge=1, description="Starting page number (1-indexed)")
     end_page: int = Field(..., ge=1, description="Ending page number (inclusive)")
+    start_line: Optional[int] = Field(None, description="Starting line number within start_page")
+    end_line: Optional[int] = Field(None, description="Ending line number within end_page")
     confidence: float = Field(
         ..., 
         ge=0.0, 
@@ -238,6 +355,43 @@ class SectionBoundary(BaseModel):
         None, 
         description="Text that triggered section detection (from first page)"
     )
+    sub_section_type: Optional[str] = Field(
+        None,
+        description="Original granular section type if mapped to a broader category"
+    )
+    semantic_section: Optional[SemanticSection] = Field(
+        None,
+        description="High-level semantic section concept"
+    )
+    modifier_type: Optional[str] = Field(
+        None,
+        description="Modifier type for endorsements (adds, modifies, removes, etc.)"
+    )
+    endorsement_scope: Optional[str] = Field(
+        None,
+        description="Scope of an endorsement modifier (e.g., liability, property)"
+    )
+    extractable: bool = Field(
+        True,
+        description="Whether this section contains extractable insurance data"
+    )
+    semantic_role: Optional[SemanticRole] = Field(
+        None, description="Semantic role of the section"
+    )
+    coverage_effects: List[CoverageEffect] = Field(
+        default_factory=list, description="Coverage effects for this section"
+    )
+    exclusion_effects: List[ExclusionEffect] = Field(
+        default_factory=list, description="Exclusion effects for this section"
+    )
+    effective_section_type: Optional[PageType] = Field(
+        None,
+        description="Effective section type for extraction (e.g., endorsement projected to coverages)"
+    )
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional context metadata for the section (e.g. parent policy section)"
+    )
     
     model_config = ConfigDict(
         json_schema_extra={
@@ -247,7 +401,8 @@ class SectionBoundary(BaseModel):
                 "end_page": 5,
                 "confidence": 0.95,
                 "page_count": 5,
-                "anchor_text": "DECLARATIONS PAGE"
+                "anchor_text": "DECLARATIONS PAGE",
+                "sub_section_type": None
             }
         }
     )
@@ -284,13 +439,27 @@ class DocumentProfile(BaseModel):
         ..., 
         description="Mapping of page numbers to section types"
     )
+    section_type_distribution: Dict[str, int] = Field(
+        default_factory=dict,
+        description="Count of pages by normalized section type"
+    )
+    product_concepts: List[str] = Field(
+        default_factory=list,
+        description="List of core insurance concepts found (declarations, coverages, etc.)"
+    )
     page_type_distribution: Dict[str, int] = Field(
         ..., 
-        description="Count of pages by type"
+        description="Count of pages by raw page type"
     )
     metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional metadata from page analysis"
+    )
+    policy_form: Optional[str] = Field(None, description="Inferred policy form (e.g., commercial_auto)")
+    carrier: Optional[str] = Field(None, description="Detected carrier name")
+    semantic_capabilities: List[str] = Field(
+        default_factory=list,
+        description="List of semantic features enabled for this document type"
     )
     
     @property
@@ -301,6 +470,8 @@ class DocumentProfile(BaseModel):
     @property
     def has_declarations(self) -> bool:
         """Whether document has a declarations section."""
+        if self.product_concepts:
+            return "declarations" in self.product_concepts
         return any(
             sb.section_type == PageType.DECLARATIONS 
             for sb in self.section_boundaries
@@ -309,8 +480,20 @@ class DocumentProfile(BaseModel):
     @property
     def has_coverages(self) -> bool:
         """Whether document has a coverages section."""
+        if self.product_concepts:
+            return "coverages" in self.product_concepts
         return any(
             sb.section_type == PageType.COVERAGES 
+            for sb in self.section_boundaries
+        )
+    
+    @property
+    def has_endorsements(self) -> bool:
+        """Whether document has an endorsements section."""
+        if self.product_concepts:
+            return "endorsements" in self.product_concepts
+        return any(
+            sb.section_type == PageType.ENDORSEMENT 
             for sb in self.section_boundaries
         )
     

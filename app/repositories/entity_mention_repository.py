@@ -118,7 +118,7 @@ class EntityMentionRepository(BaseRepository[EntityMention]):
         
         return created_mentions
     
-    async def get_by_document(
+    async def get_by_document_id(
         self,
         document_id: UUID,
         entity_type: Optional[str] = None,

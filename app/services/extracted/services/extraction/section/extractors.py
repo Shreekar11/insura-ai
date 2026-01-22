@@ -23,6 +23,11 @@ from app.prompts.system_prompts import (
     INSURING_AGREEMENT_EXTRACTION_PROMPT,
     PREMIUM_SUMMARY_EXTRACTION_PROMPT,
     DEFAULT_SECTION_EXTRACTION_PROMPT,
+    DEDUCTIBLES_EXTRACTION_PROMPT,
+    DEDUCTIBLES_EXTRACTION_PROMPT,
+    PREMIUM_EXTRACTION_PROMPT,
+    ENDORSEMENT_COVERAGE_PROJECTION_PROMPT,
+    ENDORSEMENT_EXCLUSION_PROJECTION_PROMPT,
 )
 
 LOGGER = get_logger(__name__)
@@ -282,6 +287,70 @@ class PremiumSummaryExtractor(BaseExtractor):
         return parsed.get("premium", parsed)
 
 
+class DeductiblesExtractor(BaseExtractor):
+    """Extractor for deductibles section."""
+    
+    def get_extraction_prompt(self) -> str:
+        """Get the extraction prompt for deductibles."""
+        return DEDUCTIBLES_EXTRACTION_PROMPT
+    
+    async def run(
+        self,
+        text: str,
+        document_id: UUID,
+        chunk_id: Optional[UUID] = None
+    ) -> List[Any]:
+        """Extract deductibles data from text."""
+        try:
+            response = await self.client.generate_content(
+                contents=f"Extract from this deductibles section:\n\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
+            )
+            from app.utils.json_parser import parse_json_safely
+            parsed = parse_json_safely(response)
+            return [parsed] if parsed else []
+        except Exception as e:
+            LOGGER.error(f"Deductibles extraction failed: {e}", exc_info=True)
+            return []
+    
+    def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract fields from parsed response."""
+        return {"deductibles": parsed.get("deductibles", [])}
+
+
+class PremiumExtractor(BaseExtractor):
+    """Extractor for premium section."""
+    
+    def get_extraction_prompt(self) -> str:
+        """Get the extraction prompt for premium."""
+        return PREMIUM_EXTRACTION_PROMPT
+    
+    async def run(
+        self,
+        text: str,
+        document_id: UUID,
+        chunk_id: Optional[UUID] = None
+    ) -> List[Any]:
+        """Extract premium data from text."""
+        try:
+            response = await self.client.generate_content(
+                contents=f"Extract from this premium section:\n\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
+            )
+            from app.utils.json_parser import parse_json_safely
+            parsed = parse_json_safely(response)
+            return [parsed] if parsed else []
+        except Exception as e:
+            LOGGER.error(f"Premium extraction failed: {e}", exc_info=True)
+            return []
+    
+    def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract fields from parsed response."""
+        return parsed.get("premium", parsed)
+
+
 class DefaultSectionExtractor(BaseExtractor):
     """Default extractor for unknown section types."""
     
@@ -312,4 +381,68 @@ class DefaultSectionExtractor(BaseExtractor):
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
         """Extract fields from parsed response."""
         return parsed.get("extracted_data", parsed)
+
+
+class EndorsementCoverageProjectionExtractor(BaseExtractor):
+    """Extractor for endorsements projected as coverages."""
+    
+    def get_extraction_prompt(self) -> str:
+        """Get the extraction prompt for endorsement coverage projection."""
+        return ENDORSEMENT_COVERAGE_PROJECTION_PROMPT
+    
+    async def run(
+        self,
+        text: str,
+        document_id: UUID,
+        chunk_id: Optional[UUID] = None
+    ) -> List[Any]:
+        """Extract coverage modifications from endorsement text."""
+        try:
+            response = await self.client.generate_content(
+                contents=f"Extract coverage modifications from this endorsement:\n\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
+            )
+            from app.utils.json_parser import parse_json_safely
+            parsed = parse_json_safely(response)
+            return [parsed] if parsed else []
+        except Exception as e:
+            LOGGER.error(f"Endorsement coverage projection extraction failed: {e}", exc_info=True)
+            return []
+    
+    def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract fields from parsed response."""
+        return {"modifications": parsed.get("modifications", [])}
+
+
+class EndorsementExclusionProjectionExtractor(BaseExtractor):
+    """Extractor for endorsements projected as exclusions."""
+    
+    def get_extraction_prompt(self) -> str:
+        """Get the extraction prompt for endorsement exclusion projection."""
+        return ENDORSEMENT_EXCLUSION_PROJECTION_PROMPT
+    
+    async def run(
+        self,
+        text: str,
+        document_id: UUID,
+        chunk_id: Optional[UUID] = None
+    ) -> List[Any]:
+        """Extract exclusion modifications from endorsement text."""
+        try:
+            response = await self.client.generate_content(
+                contents=f"Extract exclusion modifications from this endorsement:\n\n{text}",
+                system_instruction=self.get_extraction_prompt(),
+                generation_config={"response_mime_type": "application/json"}
+            )
+            from app.utils.json_parser import parse_json_safely
+            parsed = parse_json_safely(response)
+            return [parsed] if parsed else []
+        except Exception as e:
+            LOGGER.error(f"Endorsement exclusion projection extraction failed: {e}", exc_info=True)
+            return []
+    
+    def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract fields from parsed response."""
+        return {"modifications": parsed.get("modifications", [])}
 

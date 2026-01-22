@@ -1,3 +1,6 @@
-"""Temporal workflows and activities for document processing pipeline."""
+"""Temporal application package initialization."""
 
-__version__ = "1.0.0"
+from .shared import *
+
+__all__ = [
+]

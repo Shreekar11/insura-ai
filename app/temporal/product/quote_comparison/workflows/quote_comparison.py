@@ -1,0 +1,169 @@
+"""Quote Comparison Temporal workflow - Parent orchestrator."""
+
+from temporalio import workflow
+from datetime import timedelta
+from typing import Dict, Optional, List
+
+from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
+from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
+from app.utils.logging import get_logger
+from app.temporal.product.quote_comparison.configs.quote_comparison import (
+    PROCESSING_CONFIG,
+    REQUIRED_SECTIONS,
+    REQUIRED_ENTITIES,
+)
+
+LOGGER = get_logger(__name__)
+
+
+@WorkflowRegistry.register(
+    category=WorkflowType.BUSINESS,
+    task_queue="documents-queue",
+)
+@workflow.defn
+class QuoteComparisonWorkflow(DocumentProcessingMixin):
+    """Temporal workflow for Quote Comparison."""
+
+    def __init__(self):
+        self._status = "initialized"
+        self._current_step: str | None = None
+        self._progress = 0.0
+
+    @workflow.query
+    def get_status(self) -> dict:
+        """Query handler for real-time status updates."""
+        return {
+            "status": self._status,
+            "current_step": self._current_step,
+            "progress": self._progress,
+        }
+
+    @workflow.run
+    async def run(self, payload: Dict) -> dict:
+        """Execute the quote comparison workflow."""
+        workflow_id = payload.get("workflow_id")
+        workflow_definition_id = payload.get("workflow_definition_id")
+        workflow_name = payload.get("workflow_name")
+        documents = payload.get("documents")
+        document_ids = [doc.get("document_id") for doc in documents]
+
+        self._status = "running"
+        self._progress = 0.0
+
+        # Phase A: Input/Intent Pre-Flight Validation
+        self._current_step = "phase_a_preflight"
+        self._progress = 0.05
+        await workflow.execute_activity(
+            "quote_phase_a_preflight_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        # Check document readiness
+        self._current_step = "check_document_readiness"
+        self._progress = 0.10
+        readiness_result = await workflow.execute_activity(
+            "quote_check_document_readiness_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        document_readiness = readiness_result.get("document_readiness", [])
+
+        # Process documents via mixin
+        for i, doc_readiness in enumerate(document_readiness):
+            doc_id = doc_readiness["document_id"]
+            
+            # Check if any processing is needed
+            if not all([doc_readiness["processed"], doc_readiness["extracted"], 
+                       doc_readiness["enriched"], doc_readiness["indexed"]]):
+                
+                self._current_step = f"processing_document_{doc_id}"
+                self._progress = 0.15 + (i * 0.05) if len(document_readiness) > 0 else 0.15
+                
+                config = DocumentProcessingConfig(
+                    workflow_id=workflow_id,
+                    workflow_name=workflow_name,
+                    target_sections=REQUIRED_SECTIONS,
+                    target_entities=REQUIRED_ENTITIES,
+                    skip_processed=doc_readiness["processed"],
+                    skip_extraction=doc_readiness["extracted"],
+                    skip_enrichment=doc_readiness["enriched"],
+                    skip_indexing=doc_readiness["indexed"]
+                )
+                
+                await self.process_document(doc_id, config)
+
+        # Core Quote Comparison
+        self._current_step = "core_comparison"
+        self._progress = 0.60
+        core_result = await self._execute_core_comparison(workflow_id, document_ids)
+
+        phase_b_result = core_result.get("phase_b_result")
+        comparison_result = core_result.get("comparison_result")
+
+        # Persist Result
+        self._current_step = "persist_result"
+        self._progress = 0.95
+        persist_result = await workflow.execute_activity(
+            "persist_quote_comparison_result_activity",
+            args=[
+                workflow_id, 
+                workflow_definition_id, 
+                document_ids, 
+                comparison_result,
+                None  # broker_summary - to be added later
+            ],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        self._status = "completed"
+        self._progress = 1.0
+        self._current_step = "completed"
+
+        return {
+            "status": persist_result.get("status"),
+            "workflow_id": str(workflow_id),
+            "comparison_summary": persist_result.get("comparison_summary"),
+            "total_changes": persist_result.get("total_changes"),
+            "comparison_scope": phase_b_result.get("comparison_scope", "full"),
+        }
+
+    async def _execute_core_comparison(self, workflow_id: str, document_ids: List[str]) -> Dict[str, Any]:
+        """Execute core quote comparison logic (Phase B, Normalization, Quality Evaluation, and Comparison)."""
+        workflow.logger.info(f"Starting core quote comparison logic for workflow {workflow_id}")
+
+        # 1. Phase B: Capability Pre-Flight Validation
+        phase_b_result = await workflow.execute_activity(
+            "quote_phase_b_preflight_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # 2. Coverage Normalization
+        normalization_result = await workflow.execute_activity(
+            "coverage_normalization_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=120),
+        )
+
+        # 3. Quality Evaluation
+        quality_result = await workflow.execute_activity(
+            "quality_evaluation_activity",
+            args=[workflow_id, normalization_result.get("normalized_coverages", {})],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # 4. Generate Side-by-Side Comparison Matrix
+        comparison_result = await workflow.execute_activity(
+            "generate_comparison_matrix_activity",
+            args=[workflow_id, document_ids],
+            start_to_close_timeout=timedelta(seconds=180),
+        )
+
+        return {
+            "phase_b_result": phase_b_result,
+            "normalization_result": normalization_result,
+            "quality_result": quality_result,
+            "comparison_result": comparison_result.get("comparison_result"),
+        }

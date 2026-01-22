@@ -3,6 +3,7 @@ from typing import Optional, List, Sequence, Any
 from datetime import datetime, timezone
 
 from sqlalchemy import select, and_
+from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun
@@ -41,6 +42,34 @@ class WorkflowRepository(BaseRepository[Workflow]):
             created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
+
+    async def get_all_with_definitions(
+        self,
+        skip: int = 0,
+        limit: int = 100,
+        filters: dict[str, Any] | None = None
+    ) -> Sequence[Workflow]:
+        """Get all workflows with their definitions loaded.
+        
+        Args:
+            skip: Number of records to skip
+            limit: Max records to return
+            filters: Dictionary of filters
+            
+        Returns:
+            List of Workflow instances with definition loaded
+        """
+        query = select(Workflow).options(selectinload(Workflow.workflow_definition))
+        
+        if filters:
+            for key, value in filters.items():
+                if hasattr(Workflow, key):
+                    query = query.where(getattr(Workflow, key) == value)
+        
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
 
     async def update_temporal_id(
         self,
@@ -255,4 +284,71 @@ class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
+
+    async def get_by_definition_id(self, workflow_definition_id: uuid.UUID) -> Optional[WorkflowDefinition]:
+        """Get a workflow definition by its ID.
+        
+        Args:
+            workflow_definition_id: Workflow definition ID
+            
+        Returns:
+            WorkflowDefinition if found, None otherwise
+        """
+        return await self.get_by_id(workflow_definition_id)
+
+
+class WorkflowDocumentStageRunRepository(BaseRepository[WorkflowDocumentStageRun]):
+    """Repository for managing document-level stage tracking records."""
+
+    def __init__(self, session: AsyncSession):
+        super().__init__(session, WorkflowDocumentStageRun)
+
+    async def get_by_workflow_and_document(
+        self, workflow_id: uuid.UUID, document_id: uuid.UUID
+    ) -> list[WorkflowDocumentStageRun]:
+        """Get all stage runs for a specific document in a specific workflow.
+        
+        Args:
+            workflow_id: Parent workflow ID
+            document_id: ID of the document
+            
+        Returns:
+            List of WorkflowDocumentStageRun instances
+        """
+        query = select(WorkflowDocumentStageRun).where(
+            and_(
+                WorkflowDocumentStageRun.workflow_id == workflow_id,
+                WorkflowDocumentStageRun.document_id == document_id
+            )
+        )
+        result = await self.session.execute(query)
+        return list(result.scalars().all())
+
+    async def update_status(
+        self,
+        stage_run_id: uuid.UUID,
+        status: str,
+        error_message: Optional[str] = None
+    ) -> WorkflowDocumentStageRun:
+        """Update the status of a document stage run.
+        
+        Args:
+            stage_run_id: Record ID
+            status: New status value
+            error_message: Optional error message
+            
+        Returns:
+            Updated WorkflowDocumentStageRun instance
+        """
+        stage_run = await self.get_by_id(stage_run_id)
+        if not stage_run:
+            raise ValueError(f"Stage run {stage_run_id} not found")
+        
+        stage_run.status = status
+        stage_run.error_message = error_message
+        if status == "completed":
+            stage_run.completed_at = datetime.now(timezone.utc)
+        
+        await self.session.flush()
+        return stage_run
 

@@ -64,8 +64,8 @@ from typing import Annotated
 def get_current_user():
     return {"user": "current_user"}
 
-@app.get("/users/me")
-async def read_users_me(current_user: Annotated[dict, Depends(get_current_user)]):
+@app.get("/users/whoami")
+async def read_users_whoami(current_user: Annotated[dict, Depends(get_current_user)]):
     return current_user
 ```
 

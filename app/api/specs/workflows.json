@@ -1,0 +1,515 @@
+{
+    "openapi": "3.0.3",
+    "info": {
+        "title": "Workflow API",
+        "version": "1.0.0",
+        "description": "API for insurance workflow execution and results."
+    },
+    "paths": {
+        "/api/v1/workflows/execute": {
+            "post": {
+                "summary": "Execute workflow",
+                "operationId": "execute_workflow",
+                "requestBody": {
+                    "content": {
+                        "multipart/form-data": {
+                            "schema": {
+                                "type": "object",
+                                "properties": {
+                                    "workflow_name": {
+                                        "type": "string"
+                                    },
+                                    "workflow_definition_id": {
+                                        "type": "string",
+                                        "format": "uuid"
+                                    },
+                                    "metadata_json": {
+                                        "type": "string"
+                                    },
+                                    "file1": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    },
+                                    "file2": {
+                                        "type": "string",
+                                        "format": "binary"
+                                    }
+                                },
+                                "required": [
+                                    "workflow_name",
+                                    "workflow_definition_id",
+                                    "file1"
+                                ]
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Workflow started",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowExecutionResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/workflows": {
+            "get": {
+                "summary": "List workflows",
+                "operationId": "list_workflows",
+                "parameters": [
+                    {
+                        "name": "limit",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 50
+                        }
+                    },
+                    {
+                        "name": "offset",
+                        "in": "query",
+                        "schema": {
+                            "type": "integer",
+                            "default": 0
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "List of workflows",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowListResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/workflows/definitions": {
+            "get": {
+                "summary": "Get workflow definitions",
+                "operationId": "get_workflow_definitions",
+                "responses": {
+                    "200": {
+                        "description": "List of workflow definitions",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "type": "object",
+                                    "properties": {
+                                        "definitions": {
+                                            "type": "array",
+                                            "items": {
+                                                "$ref": "#/components/schemas/WorkflowDefinitionResponse"
+                                            }
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/workflows/{workflow_id}": {
+            "get": {
+                "summary": "Get workflow details",
+                "operationId": "get_workflow",
+                "parameters": [
+                    {
+                        "name": "workflow_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Workflow details",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow not found"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/workflows/{workflow_id}/status": {
+            "get": {
+                "summary": "Get workflow status",
+                "operationId": "get_workflow_status",
+                "parameters": [
+                    {
+                        "name": "workflow_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Workflow status",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowStatusResponse"
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        },
+        "/api/v1/workflows/{workflow_id}/extracted/{document_id}": {
+            "get": {
+                "summary": "Get extracted data",
+                "operationId": "get_extracted_data",
+                "parameters": [
+                    {
+                        "name": "workflow_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    {
+                        "name": "document_id",
+                        "in": "path",
+                        "required": true,
+                        "schema": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    }
+                ],
+                "responses": {
+                    "200": {
+                        "description": "Extracted data",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowExtractedDataResponse"
+                                }
+                            }
+                        }
+                    },
+                    "404": {
+                        "description": "Workflow not found"
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        },
+        "/api/v1/workflows/extract": {
+            "post": {
+                "summary": "Start document extraction",
+                "operationId": "start_extraction",
+                "requestBody": {
+                    "required": true,
+                    "content": {
+                        "application/json": {
+                            "schema": {
+                                "$ref": "#/components/schemas/WorkflowExtractRequest"
+                            }
+                        }
+                    }
+                },
+                "responses": {
+                    "202": {
+                        "description": "Extraction started",
+                        "content": {
+                            "application/json": {
+                                "schema": {
+                                    "$ref": "#/components/schemas/WorkflowExecutionResponse"
+                                }
+                            }
+                        }
+                    }
+                },
+                "security": [
+                    {
+                        "bearerAuth": []
+                    }
+                ]
+            }
+        }
+    },
+    "components": {
+        "securitySchemes": {
+            "bearerAuth": {
+                "type": "http",
+                "scheme": "bearer",
+                "bearerFormat": "JWT"
+            }
+        },
+        "schemas": {
+            "WorkflowExecutionRequest": {
+                "type": "object",
+                "required": [
+                    "workflow_name",
+                    "workflow_definition_id"
+                ],
+                "properties": {
+                    "workflow_name": {
+                        "type": "string"
+                    },
+                    "workflow_definition_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "document_ids": {
+                        "type": "array",
+                        "items": {
+                            "type": "string",
+                            "format": "uuid"
+                        }
+                    },
+                    "metadata": {
+                        "type": "object"
+                    }
+                }
+            },
+            "WorkflowExecutionResponse": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "message": {
+                        "type": "string"
+                    }
+                }
+            },
+            "WorkflowListResponse": {
+                "type": "object",
+                "properties": {
+                    "total": {
+                        "type": "number"
+                    },
+                    "workflows": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "definition_id": {
+                                    "type": "string",
+                                    "format": "uuid"
+                                },
+                                "name": {
+                                    "type": "string"
+                                },
+                                "key": {
+                                    "type": "string"
+                                },
+                                "status": {
+                                    "type": "string"
+                                },
+                                "created_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                },
+                                "updated_at": {
+                                    "type": "string",
+                                    "format": "date-time"
+                                }
+                            }
+                        }
+                    }
+                }
+            },
+            "WorkflowResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "definition_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    },
+                    "updated_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "WorkflowExtractRequest": {
+                "type": "object",
+                "required": [
+                    "pdf_url"
+                ],
+                "properties": {
+                    "pdf_url": {
+                        "type": "string",
+                        "description": "URL of the PDF document to extract"
+                    }
+                }
+            },
+            "WorkflowDefinitionResponse": {
+                "type": "object",
+                "properties": {
+                    "id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "name": {
+                        "type": "string"
+                    },
+                    "key": {
+                        "type": "string"
+                    },
+                    "description": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "input_schema": {
+                        "type": "object",
+                        "nullable": true
+                    },
+                    "created_at": {
+                        "type": "string",
+                        "format": "date-time"
+                    }
+                }
+            },
+            "WorkflowStatusResponse": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string"
+                    },
+                    "status": {
+                        "type": "string"
+                    },
+                    "progress": {
+                        "type": "number",
+                        "nullable": true
+                    },
+                    "current_step": {
+                        "type": "string",
+                        "nullable": true
+                    },
+                    "error": {
+                        "type": "string",
+                        "nullable": true
+                    }
+                }
+            },
+            "WorkflowExtractedDataResponse": {
+                "type": "object",
+                "properties": {
+                    "workflow_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "document_id": {
+                        "type": "string",
+                        "format": "uuid"
+                    },
+                    "extracted_data": {
+                        "type": "object",
+                        "properties": {
+                            "sections": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "section_type": {
+                                            "type": "string"
+                                        },
+                                        "fields": {
+                                            "type": "object"
+                                        },
+                                        "confidence": {
+                                            "type": "number"
+                                        }
+                                    }
+                                }
+                            },
+                            "entities": {
+                                "type": "array",
+                                "items": {
+                                    "type": "object",
+                                    "properties": {
+                                        "entity_type": {
+                                            "type": "string"
+                                        },
+                                        "fields": {
+                                            "type": "object"
+                                        },
+                                        "confidence": {
+                                            "type": "number"
+                                        }
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+}

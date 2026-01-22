@@ -80,19 +80,19 @@ class PageAnalysisPipeline:
     async def extract_signals_from_markdown(
         self, 
         document_id: UUID, 
-        pages: List[Tuple[str, int]]
+        pages: List[Tuple[str, int, Optional[Dict[str, Any]]]]
     ) -> Tuple[List[PageSignals], DocumentType, float]:
         """Extract signals from already extracted markdown pages.
         
         Args:
             document_id: Document UUID
-            pages: List of (markdown_content, page_number) tuples
+            pages: List of (markdown_content, page_number, metadata) tuples
             
         Returns:
             Tuple of (PageSignals list, document_type, confidence)
         """
         # Combine all content for document type detection
-        all_content = " ".join(content for content, _ in pages)
+        all_content = " ".join(content for content, _, _ in pages)
         doc_type, confidence = self.analyzer.markdown_analyzer.detect_document_type(all_content)
 
         page_signals_list = self.analyzer.analyze_markdown_batch(pages)
@@ -103,8 +103,19 @@ class PageAnalysisPipeline:
             
         return page_signals_list, doc_type, confidence
 
-    async def classify_pages(self, document_id: UUID, page_signals: List[PageSignals]) -> List[PageClassification]:
+    async def classify_pages(
+        self, 
+        document_id: UUID, 
+        page_signals: List[PageSignals],
+        doc_type: DocumentType = DocumentType.UNKNOWN
+    ) -> List[PageClassification]:
         """Classify pages and detect duplicates."""
+        # Pre-scan for base policy mode if doc_type is unknown
+        if doc_type == DocumentType.UNKNOWN and page_signals:
+            all_top_texts = [" ".join(s.top_lines) for s in page_signals[:20]]
+            if self.classifier._is_base_policy(all_top_texts):
+                doc_type = DocumentType.POLICY
+                LOGGER.info(f"Detected Base Policy mode for document {document_id}")
         self.detector.reset()
         
         classifications = []
@@ -121,7 +132,7 @@ class PageAnalysisPipeline:
                     reasoning=f"Duplicate of page {dup_of}"
                 )
             else:
-                classification = self.classifier.classify(signals)
+                classification = self.classifier.classify(signals, doc_type=doc_type)
             
             # Save to database
             await self.repository.save_page_classification(document_id, classification)
@@ -132,7 +143,8 @@ class PageAnalysisPipeline:
     async def build_document_profile(
         self, 
         document_id: UUID, 
-        classifications: List[PageClassification]
+        classifications: List[PageClassification],
+        workflow_name: Optional[str] = None
     ) -> DocumentProfile:
         """Build document profile from page classifications.
         
@@ -145,7 +157,9 @@ class PageAnalysisPipeline:
         Returns:
             DocumentProfile with document type, section boundaries, and page map
         """
-        profile = self.profile_builder.build_profile(document_id, classifications)
+        profile = self.profile_builder.build_profile(
+            document_id, classifications, workflow_name=workflow_name
+        )
         
         LOGGER.info(
             f"Built document profile for {document_id}",
@@ -163,6 +177,7 @@ class PageAnalysisPipeline:
         document_id: UUID, 
         classifications: List[PageClassification],
         document_profile: DocumentProfile = None,
+        workflow_name: Optional[str] = None,
     ) -> PageManifest:
         """Create and persist page manifest with document profile.
         
@@ -179,7 +194,9 @@ class PageAnalysisPipeline:
         
         # Build document profile if not provided
         if document_profile is None:
-            document_profile = await self.build_document_profile(document_id, classifications)
+            document_profile = await self.build_document_profile(
+                document_id, classifications, workflow_name=workflow_name
+            )
         
         # Build page section map from profile
         page_section_map = document_profile.page_section_map

@@ -5,7 +5,7 @@ ensuring alignment with semantic anchors and page roles.
 """
 
 import pytest
-from app.services.page_analysis.page_classifier import PageClassifier
+from app.services.processed.services.analysis.page_classifier import PageClassifier
 from app.models.page_analysis_models import PageSignals, PageClassification, PageType
 
 
@@ -24,7 +24,8 @@ class TestPageClassifierPatternMatching:
         text_density: float = 0.5,
         has_tables: bool = False,
         max_font_size: float = 12.0,
-        page_hash: str = "abc123"
+        page_hash: str = "abc123",
+        metadata: dict = None
     ) -> PageSignals:
         """Helper to create PageSignals for testing."""
         return PageSignals(
@@ -33,7 +34,8 @@ class TestPageClassifierPatternMatching:
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
-            page_hash=page_hash
+            page_hash=page_hash,
+            additional_metadata=metadata or {}
         )
     
     # ========== DECLARATIONS SECTION TESTS ==========
@@ -109,37 +111,87 @@ class TestPageClassifierPatternMatching:
         assert result.page_type == PageType.COVERAGES
         assert result.should_process is True
     
-    def test_classify_coverages_with_limits(self, classifier):
-        """Test coverages detection via limits keyword."""
-        signals = self._create_signals(
-            page_number=15,
-            top_lines=[
-                "LIMITS AND DEDUCTIBLES",
-                "Coverage Limit: $5,000,000",
-                "Deductible: $10,000"
-            ]
-        )
-        
-        result = classifier.classify(signals)
-        
         assert result.page_type == PageType.COVERAGES
         assert result.should_process is True
     
-    def test_classify_insuring_agreement(self, classifier):
-        """Test coverages detection via insuring agreement."""
+    def test_classify_coverage_grant(self, classifier):
+        """Test classification of ISO coverage grant anchor."""
         signals = self._create_signals(
-            page_number=8,
+            page_number=10,
             top_lines=[
-                "INSURING AGREEMENT",
-                "We will pay for direct physical loss of or damage to",
-                "Covered Property at the premises described"
+                "SECTION II – COVERED AUTOS LIABILITY COVERAGE",
+                "A. Coverage",
+                "We will pay all sums an insured legally must pay"
             ]
         )
-        
         result = classifier.classify(signals)
-        
-        assert result.page_type == PageType.COVERAGES
+        assert result.page_type == PageType.COVERAGE_GRANT
         assert result.should_process is True
+
+    def test_classify_coverage_extension(self, classifier):
+        """Test classification of coverage extensions."""
+        signals = self._create_signals(
+            page_number=12,
+            top_lines=[
+                "COVERAGE EXTENSIONS",
+                "1. Newly Acquired Autos"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.COVERAGE_EXTENSION
+
+    def test_classify_limits_page(self, classifier):
+        """Test classification of limits section."""
+        signals = self._create_signals(
+            page_number=15,
+            top_lines=[
+                "LIMIT OF INSURANCE",
+                "Regardless of the number of covered autos"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.LIMITS
+
+    def test_classify_insured_definition(self, classifier):
+        """Test classification of Who Is An Insured section."""
+        signals = self._create_signals(
+            page_number=11,
+            top_lines=[
+                "WHO IS AN INSURED",
+                "The following are insureds:"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.INSURED_DEFINITION
+
+    def test_classify_coverage_grant_phrases(self, classifier):
+        """Test classification of coverage grants with specific phrases."""
+        signals = self._create_signals(
+            page_number=2,
+            top_lines=[
+                "SECTION II - COVERED AUTOS LIABILITY COVERAGE",
+                "A. Coverage",
+                "We will pay all sums an insured legally must pay"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.COVERAGE_GRANT
+
+    def test_classify_coverage_extension_anchors(self, classifier):
+        """Test classification of coverage extensions with specific anchors."""
+        anchors = [
+            "Supplementary Payments",
+            "Out-of-state Coverage Extensions",
+            "Transportation Expenses",
+            "Loss Of Use Expenses"
+        ]
+        for anchor in anchors:
+            signals = self._create_signals(
+                page_number=3,
+                top_lines=[anchor]
+            )
+            result = classifier.classify(signals)
+            assert result.page_type == PageType.COVERAGE_EXTENSION, f"Failed on {anchor}"
     
     # ========== CONDITIONS SECTION TESTS ==========
     
@@ -369,7 +421,7 @@ class TestPageClassifierPatternMatching:
             top_lines=[
                 "Some random text here",
                 "That doesn't match any patterns",
-                "Just general content"
+                "Just general info"
             ],
             text_density=0.5
         )
@@ -390,8 +442,9 @@ class TestPageClassifierPatternMatching:
         
         result = classifier.classify(signals)
         
-        assert result.page_type == PageType.UNKNOWN
-        assert result.confidence < 0.5
+        # Sparse unknown pages are now marked as boilerplate with 0.6 confidence
+        assert result.page_type == PageType.BOILERPLATE
+        assert result.confidence == 0.6
 
 
 class TestPageClassifierHeuristics:
@@ -409,7 +462,8 @@ class TestPageClassifierHeuristics:
         text_density: float = 0.5,
         has_tables: bool = False,
         max_font_size: float = 12.0,
-        page_hash: str = "abc123"
+        page_hash: str = "abc123",
+        metadata: dict = None
     ) -> PageSignals:
         """Helper to create PageSignals."""
         return PageSignals(
@@ -418,7 +472,8 @@ class TestPageClassifierHeuristics:
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
-            page_hash=page_hash
+            page_hash=page_hash,
+            additional_metadata=metadata or {}
         )
     
     def test_early_page_confidence_boost(self, classifier):
@@ -534,7 +589,8 @@ class TestPageClassifierProcessingDecisions:
         text_density: float = 0.5,
         has_tables: bool = False,
         max_font_size: float = 12.0,
-        page_hash: str = "abc123"
+        page_hash: str = "abc123",
+        metadata: dict = None
     ) -> PageSignals:
         """Helper to create PageSignals."""
         return PageSignals(
@@ -543,7 +599,8 @@ class TestPageClassifierProcessingDecisions:
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
-            page_hash=page_hash
+            page_hash=page_hash,
+            additional_metadata=metadata or {}
         )
     
     def test_key_sections_always_processed(self, classifier):
@@ -551,25 +608,28 @@ class TestPageClassifierProcessingDecisions:
         # Declarations
         decl_signals = self._create_signals(
             page_number=1,
-            top_lines=["DECLARATIONS PAGE"]
+            top_lines=["POLICY DECLARATIONS PAGE", "POLICY NUMBER: ABC-123"]
         )
         decl_result = classifier.classify(decl_signals)
+        assert decl_result.page_type == PageType.DECLARATIONS
         assert decl_result.should_process is True
         
         # Coverages
         cov_signals = self._create_signals(
             page_number=10,
-            top_lines=["COVERAGES"]
+            top_lines=["COVERAGE FORM", "INSURING AGREEMENT"]
         )
         cov_result = classifier.classify(cov_signals)
+        assert cov_result.page_type == PageType.COVERAGES
         assert cov_result.should_process is True
         
         # Endorsements
         end_signals = self._create_signals(
             page_number=50,
-            top_lines=["ENDORSEMENT NO. 1"]
+            top_lines=["ENDORSEMENT NO. 1", "THIS ENDORSEMENT CHANGES THE POLICY"]
         )
         end_result = classifier.classify(end_signals)
+        assert end_result.page_type == PageType.ENDORSEMENT
         assert end_result.should_process is True
     
     def test_boilerplate_never_processed(self, classifier):
@@ -613,7 +673,8 @@ class TestPageClassifierReasoning:
         text_density: float = 0.5,
         has_tables: bool = False,
         max_font_size: float = 12.0,
-        page_hash: str = "abc123"
+        page_hash: str = "abc123",
+        metadata: dict = None
     ) -> PageSignals:
         """Helper to create PageSignals."""
         return PageSignals(
@@ -622,7 +683,8 @@ class TestPageClassifierReasoning:
             text_density=text_density,
             has_tables=has_tables,
             max_font_size=max_font_size,
-            page_hash=page_hash
+            page_hash=page_hash,
+            additional_metadata=metadata or {}
         )
     
     def test_reasoning_includes_keyword_match(self, classifier):
@@ -702,3 +764,88 @@ class TestPageClassifierConfidenceThreshold:
         # But processing decision may differ based on confidence threshold
         # (This depends on the actual confidence score)
 
+
+class TestPageClassifierMetadataHeuristics:
+    """Test structural metadata-aware heuristics."""
+    
+    @pytest.fixture
+    def classifier(self):
+        return PageClassifier(confidence_threshold=0.7)
+    
+    def _create_signals(
+        self,
+        page_number: int,
+        top_lines: list,
+        text_density: float = 0.5,
+        has_tables: bool = False,
+        max_font_size: float = 12.0,
+        metadata: dict = None
+    ) -> PageSignals:
+        return PageSignals(
+            page_number=page_number,
+            top_lines=top_lines,
+            text_density=text_density,
+            has_tables=has_tables,
+            max_font_size=max_font_size,
+            page_hash="test123",
+            additional_metadata=metadata or {}
+        )
+    
+    def test_table_heavy_boosts_sov_confidence(self, classifier):
+        """Test that structure_type='table_heavy' boosts SOV confidence more than standard table presence."""
+        standard_tables = self._create_signals(
+            page_number=60,
+            top_lines=["SCHEDULE OF VALUES"],
+            has_tables=True,
+            metadata={"structure_type": "standard"}
+        )
+        
+        table_heavy = self._create_signals(
+            page_number=60,
+            top_lines=["SCHEDULE OF VALUES"],
+            has_tables=True,
+            metadata={"structure_type": "table_heavy"}
+        )
+        
+        standard_result = classifier.classify(standard_tables)
+        heavy_result = classifier.classify(table_heavy)
+        
+        assert heavy_result.confidence > standard_result.confidence
+        assert heavy_result.page_type == PageType.SOV
+
+    def test_text_heavy_boosts_coverage_confidence(self, classifier):
+        """Test that structure_type='text_heavy' boosts coverage/conditions confidence."""
+        standard_text = self._create_signals(
+            page_number=10,
+            top_lines=["COVERAGE FORM", "INSURING AGREEMENT"],
+            text_density=0.6,
+            metadata={"structure_type": "standard"}
+        )
+        
+        text_heavy = self._create_signals(
+            page_number=10,
+            top_lines=["COVERAGE FORM", "INSURING AGREEMENT"],
+            text_density=0.6,
+            metadata={"structure_type": "text_heavy"}
+        )
+        
+        standard_result = classifier.classify(standard_text)
+        heavy_result = classifier.classify(text_heavy)
+        
+        assert heavy_result.confidence > standard_result.confidence
+        assert heavy_result.page_type == PageType.COVERAGES
+
+    def test_sparse_unknown_marked_as_boilerplate(self, classifier):
+        """Test that sparse unknown pages are re-classified as boilerplate."""
+        sparse_unknown = self._create_signals(
+            page_number=40,
+            top_lines=["Random Small Text"],
+            text_density=0.05,
+            metadata={"block_count": 1}
+        )
+        
+        result = classifier.classify(sparse_unknown)
+        
+        assert result.page_type == PageType.BOILERPLATE
+        assert result.confidence == 0.6
+        assert result.should_process is False
