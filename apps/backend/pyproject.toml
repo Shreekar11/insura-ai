@@ -1,5 +1,5 @@
 [project]
-name = "insurance-ai"
+name = "insura-ai-backend"
 version = "0.1.0"
 description = "AI-powered insurance document processing system with OCR capabilities"
 authors = [
@@ -32,6 +32,8 @@ dependencies = [
     "pyjwt[crypto]>=2.8.0",
     "cryptography>=42.0.0",
     "aiohttp>=3.9.0",
+    "datasketch>=1.6.4",
+    "email-validator>=2.1.0",
 ]
 
 [project.optional-dependencies]
