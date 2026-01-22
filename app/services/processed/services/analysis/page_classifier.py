@@ -77,16 +77,11 @@ class PageClassifier:
             r'coverage\s+form',
             r'coverage\s+part',
             r'coverage[s]?\s+[A-Z]\s*[-:]',
-            r'limits?\s+of\s+insurance',
             r'insuring\s+agreement',
             r'covered\s+property',
             r'covered\s+causes?\s+of\s+loss',
-            r'limits?\s+and\s+deductibles?',
             r'property\s+coverage',
             r'liability\s+coverage',
-            r'additional\s+coverage[s]?',
-            r'coverage\s+extensions?',
-            r'optional\s+coverage[s]?',
             r'special\s+coverage',
             r'blanket\s+coverage',
             r'building\s+coverage',
@@ -94,6 +89,36 @@ class PageClassifier:
             r'business\s+income',
             r'extra\s+expense',
             r'SECTION\s+[IVX]+\s*[-–—]\s*.*COVERAGES?',
+        ],
+        PageType.COVERAGE_GRANT: [
+            r"SECTION\s+II\s*[-–—]\s*COVERED\s+AUTOS\s+LIABILITY\s+COVERAGE",
+            r"SECTION\s+III\s*[-–—]\s*PHYSICAL\s+DAMAGE\s+COVERAGE",
+            r"we\s+will\s+pay\s+all\s+sums",
+            r"we\s+will\s+pay\s+for\s+loss\s+to",
+            r"we\s+will\s+pay",
+            r"we\s+will\s+also\s+pay",
+        ],
+        PageType.COVERAGE_EXTENSION: [
+            r'coverage\s+extensions?',
+            r'additional\s+coverage[s]?',
+            r'optional\s+coverage[s]?',
+            r'newly\s+acquired\s+autos',
+            r'supplementary\s+payments',
+            r'out-of-state\s+coverage\s+extensions',
+            r'transportation\s+expenses',
+            r'loss\s+of\s+use\s+expenses',
+        ],
+        PageType.LIMITS: [
+            r"LIMIT\s+OF\s+INSURANCE",
+            r"the\s+most\s+we\s+will\s+pay",
+            r"regardless\s+of\s+the\s+number\s+of",
+            r'limits?\s+and\s+deductibles?',
+            r'limits?\s+of\s+insurance',
+            r'we\s+will\s+pay\s+up\s+to',
+        ],
+        PageType.INSURED_DEFINITION: [
+            r"WHO\s+IS\s+AN\s+INSURED",
+            r"the\s+following\s+are\s+insureds?",
         ],
         PageType.CONDITIONS: [
             r'^#?\s*CONDITIONS?',
@@ -134,6 +159,19 @@ class PageClassifier:
             r'we\s+(do\s+not|will\s+not)\s+cover',
             r'we\s+(do\s+not|will\s+not)\s+pay',
             r'this\s+insurance\s+does\s+not\s+apply',
+            r"we\s+will\s+not\s+pay\s+for\s+[\"']?loss[\"']?",
+            r"expected\s+or\s+intended\s+injury",
+            r"contractual\b",
+            r"workers['\s]compensation",
+            r"employee\s+indemnification",
+            r"fellow\s+employee",
+            r"care\s*,\s*custody\s+or\s+control",
+            r"handling\s+of\s+property",
+            r"mechanical\s+device",
+            r"pollution\b",
+            r"war\b",
+            r"racing\b",
+            r"nuclear\s+hazard",
             r'this\s+policy\s+does\s+not\s+cover',
             r'loss\s+or\s+damage\s+caused\s+by',
             r'the\s+following\s+are\s+excluded',
@@ -204,6 +242,9 @@ class PageClassifier:
             r'the\s+following\s+definitions?\s+apply',
             r'as\s+used\s+in\s+this\s+policy',
             r'means?\s*[:\-]',
+            r"\"[A-Z][A-Za-z\s]+\"\s+means",
+            r"means\s+bodily\s+injury",
+            r"means\s+property\s+damage",
         ],
         PageType.TABLE_OF_CONTENTS: [
             r'table\s+of\s+contents?',
@@ -274,6 +315,9 @@ class PageClassifier:
             r'description\s+of\s+property',
             r'valuation\s+and\s+coinsurance',
             r'limits\s+and\s+deductibles',
+            r"covered\s+auto\s Designation\s+symbols",
+            r"item\s+two\s+of\s+the\s+declarations",
+            r"symbol\s+description",
         ],
         PageType.ACORD_APPLICATION: [
             r'acord\s+\d{2,4}',
@@ -607,9 +651,31 @@ class PageClassifier:
                         best_match = PageType.ENDORSEMENT
                         best_score = max(best_score, end_score)
                     # ALSO override if we have a very specific endorsement pattern (like "THIS ENDORSEMENT CHANGES THE POLICY")
-                    elif any(re.search(p, text, re.IGNORECASE) for p in [r"this\s+endorsement\s+(changes|modifies)", r"endorsement\s+no\.?\s*\d*"]):
+                    if any(re.search(p, text, re.IGNORECASE) for p in [r"this\s+endorsement\s+(changes|modifies)", r"endorsement\s+no\.?\s*\d*"]):
                         best_match = PageType.ENDORSEMENT
                         best_score = max(best_score, end_score)
+        
+        # Pass 2: Priority Overrides (Mandatory hierarchy)
+        # DEFINITIONS > EXCLUSIONS > CONDITIONS > LIMITS > COVERAGE_EXTENSION > COVERAGE_GRANT > COVERAGES
+        if best_match != PageType.UNKNOWN:
+            priority_order = [
+                PageType.DEFINITIONS,
+                PageType.EXCLUSIONS,
+                PageType.CONDITIONS,
+                PageType.LIMITS,
+                PageType.COVERAGE_EXTENSION,
+                PageType.COVERAGE_GRANT,
+                PageType.COVERAGES
+            ]
+            for p_type in priority_order:
+                if p_type in match_scores:
+                    # If a higher priority type matched, prefer it if score is close or it's an anchor
+                    p_score = match_scores[p_type][1]
+                    if p_score >= 0.8 or (p_score > best_score - 0.2):
+                        best_match = p_type
+                        best_score = max(best_score, p_score)
+                        break
+
         return best_match, best_score
     
     def _match_declarations_patterns(
@@ -747,6 +813,10 @@ class PageClassifier:
             PageType.VEHICLE_DETAILS,
             PageType.LIABILITY_COVERAGES,
             PageType.INSURED_DECLARED_VALUE,
+            PageType.COVERAGE_GRANT,
+            PageType.COVERAGE_EXTENSION,
+            PageType.LIMITS,
+            PageType.INSURED_DEFINITION,
         ]
         
         for i, line in enumerate(lines, 1):
@@ -770,8 +840,10 @@ class PageClassifier:
                 for p_type in TARGET_SPAN_TYPES:
                     patterns = self.SECTION_PATTERNS.get(p_type, [])
                     for pattern in patterns:
-                        # Look for anchor matches (headers)
-                        if re.search(r'^\s*#*\s*' + pattern, line_clean, re.IGNORECASE):
+                        # Allow optional prefixes like "## C. " or "11. " before the pattern
+                        # We look for Optional #, optional alphanumeric+dot prefix, then the pattern
+                        anchor_regex = r'^\s*#*\s*(?:[a-z\d]{1,2}[\.\)]\s+)*' + pattern
+                        if re.search(anchor_regex, line_clean, re.IGNORECASE):
                             detected_type = p_type
                             structural_reasoning = f"Section anchor: {line_clean[:50]}"
                             break

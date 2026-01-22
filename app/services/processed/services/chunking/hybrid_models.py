@@ -29,6 +29,10 @@ class SectionType(str, Enum):
     DEDUCTIBLES = "deductibles"
     PREMIUM = "premium"
     COVERAGES_CONTEXT = "coverages_context"
+    COVERAGE_GRANT = "coverage_grant"
+    COVERAGE_EXTENSION = "coverage_extension"
+    LIMITS = "limits"
+    INSURED_DEFINITION = "insured_definition"
     CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
     UNKNOWN = "unknown"
 
@@ -429,6 +433,38 @@ SECTION_CONFIG = {
         "requires_llm": False,  # No LLM extraction
         "table_only": False,
         "is_non_contractual": True,
+    },
+    SectionType.COVERAGE_GRANT: {
+        "max_chunks": 4,
+        "max_tokens": 5000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+        "is_non_contractual": False,
+    },
+    SectionType.COVERAGE_EXTENSION: {
+        "max_chunks": 4,
+        "max_tokens": 5000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+        "is_non_contractual": False,
+    },
+    SectionType.LIMITS: {
+        "max_chunks": 3,
+        "max_tokens": 4000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+        "is_non_contractual": False,
+    },
+    SectionType.INSURED_DEFINITION: {
+        "max_chunks": 3,
+        "max_tokens": 4000,
+        "priority": 2,
+        "requires_llm": True,
+        "table_only": False,
+        "is_non_contractual": False,
     },
 }
 

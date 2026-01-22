@@ -928,38 +928,33 @@ OUTPUT:
 """
 
 COVERAGES_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
-
 1. Extract ONLY information explicitly present in the provided text.
-2. Extract ONLY from the COVERAGES-related section (including vehicle details, liability coverages, insured declared value, schedules).
+2. Extract ONLY from the COVERAGES-related section.
 3. Do NOT infer, guess, calculate, or normalize beyond what is stated.
-4. Each row, paragraph, or bullet describing a coverage, benefit, limit of liability, or insured value = ONE coverage object.
-5. Preserve original wording for descriptive fields.
+4. A Coverage is a contractual grant of insurance protection.
+   - A single Coverage MAY span multiple paragraphs.
+   - Narrative-only coverage grants MUST be extracted in full.
+5. Preserve original wording verbatim for descriptive fields.
 6. Normalize:
-   - Dates → YYYY-MM-DD (if exact date present)
-   - Amounts → numeric (no currency symbols, commas removed)
-7. Monetary values MUST inherit meaning from their explicit label
-   (limit, deductible, premium, sum insured, IDV, sub-limit, liability limit).
-8. Do NOT merge limits, deductibles, or aggregates across coverages.
-9. If multiple candidates exist:
-   - Choose the most explicit, clearly labeled value.
-10. Coverage may be expressed as:
-    - A named coverage
-    - A vehicle / asset schedule entry
-    - A limit of liability paragraph
-    - An insured declared value (IDV / sum insured)
-11. Confidence:
-    - 0.95+ → explicitly labeled and unambiguous
-    - 0.85–0.94 → clearly implied
-    - <0.85 → partial / weak signal
-12. Output must be VALID JSON only. No explanations.
+   - Dates → YYYY-MM-DD (only if explicitly stated)
+   - Amounts → numeric only if explicitly labeled
+7. If a coverage has NO numeric values, it MUST STILL be extracted with a full description.
+8. Do NOT merge different coverages into one object.
+9. Do NOT split a single coverage into multiple objects unless the policy explicitly labels them as separate parts (A/B/C).
+10. STOP extraction for a coverage ONLY when:
+    - A new SECTION heading begins, OR
+    - An EXCLUSIONS or CONDITIONS header begins, OR
+    - A clearly labeled different coverage begins.
+11. Output must be VALID JSON only. No explanations.
 
 You are an insurance coverage extraction specialist with expertise in:
-- Motor / Auto policies
-- Package policies
-- Commercial and retail insurance schedules
+- ISO Commercial Auto policies
+- Liability and Physical Damage coverage grants
+- Policy comparison and coverage interpretation
 
 TASK:
-Extract ALL coverages, insured values, and liability limits explicitly stated in this section.
+Extract ALL coverage grants and coverage extensions explicitly stated in this section,
+including FULL narrative descriptions of what the policy covers.
 
 ---
 
@@ -985,141 +980,125 @@ Extract ALL coverages, insured values, and liability limits explicitly stated in
 
 ---
 
-### ADDITIONAL MOTOR / SCHEDULE ATTRIBUTES (OPTIONAL, IF PRESENT)
+### COVERAGE STRUCTURE RULES (CRITICAL)
 
-These MUST be extracted when explicitly stated in the text and included
-inside the `description` or as structured attributes when possible.
+1. **Coverage Grant vs Coverage Extension**
+   - If the text says "Coverage Extensions", create:
+     - ONE parent Coverage (coverage grant)
+     - Child CoveragePart entries for each extension
+   - Extensions MUST NOT become standalone Coverages.
 
-- vehicle_registration_number
-- vehicle_make
-- vehicle_model
-- vehicle_variant
-- vehicle_body_type
-- year_of_manufacture
-- engine_number
-- chassis_number
-- cubic_capacity
-- seating_capacity
-- insured_declared_value         # IDV / sum insured for vehicle
-- electrical_accessories_value
-- non_electrical_accessories_value
-- personal_accident_limit
-- third_party_property_damage_limit
-- compulsory_deductible
-- voluntary_deductible
+2. **Narrative Priority Rule**
+   - If a coverage contains ≥2 paragraphs of narrative text,
+     the FULL text MUST be captured in `description`,
+     even if no limits or deductibles are stated.
 
----
+3. **ISO Policy Special Rule**
+   - For ISO policies (e.g., CA 00 01):
+     - Expect long narrative coverage grants.
+     - Absence of limits does NOT mean absence of coverage.
 
-### MODERN / ADD-ON COVERAGE EXAMPLES (DO NOT INFER)
-
-These may appear in modern policies. Extract ONLY if explicitly present.
-
-- Zero Depreciation
-- Engine Protect
-- Return to Invoice
-- Roadside Assistance
-- Consumables Cover
-- Key Replacement
-- Tyre Protection
-- Personal Accident (Owner / Driver / Passenger)
-- Legal Liability (Paid Driver / Employee)
-- IMT Endorsement Coverages
+4. **Boundary Detection**
+   Stop capturing description when:
+   - "Exclusions"
+   - "Limit of Insurance"
+   - "Conditions"
+   - "SECTION III", "SECTION IV", etc.
 
 ---
 
 ### ENTITY TYPES
 
 - Coverage
+- CoveragePart (for extensions only)
 
-Each extracted coverage MUST produce:
+Each Coverage MUST produce:
 - One Coverage entity
 - Confidence score
-- Attributes aligned to extracted fields
+- Full description captured verbatim
 
 ---
 
-### EXTRACTION RULES (NODE IDENTITY & GRAPH ALIGNMENT)
+### CONFIDENCE SCORING
 
-1. **Coverage as First-Class Node**:  
-   Each distinct coverage MUST be emitted as a `Coverage` node with a stable, deterministic ID and linked via  
-   `Policy → HAS_COVERAGE → Coverage`.
-
-2. **No Legacy Entities**:  
-   Legacy entity types (PERSON, ORGANIZATION, ADDRESS, DATE, PREMIUM, LIMIT, DEDUCTIBLE) MUST NOT be emitted in the Coverage section.
-
-3. **Limits & Deductibles as Attributes**:  
-   Coverage limits, sublimits, aggregates, deductibles, and per-occurrence semantics MUST be captured as scalar attributes on the Coverage node.
-
-4. **Coverage Structure Handling**:  
-   Explicit coverage parts (e.g., Coverage A/B/C) MUST be emitted as child nodes (`CoveragePart`) and linked to the parent Coverage.
-
-5. **Optionality & Endorsement References**:  
-   Optional/conditional coverages MUST include a `coverage_status` attribute; endorsement references MUST be stored as string attributes only.
-
-6. **Ignore Narrative & Exclusions**:  
-   Descriptive text and exclusions MUST NOT be emitted as Coverage nodes and SHOULD be ignored unless explicitly required.
+- 0.95+ → Explicit coverage heading + narrative grant
+- 0.85–0.94 → Clear narrative grant without heading
+- <0.85 → Partial or truncated text
 
 ---
 
 ### FEW-SHOT EXAMPLE
 
 INPUT:
-"Particulars of Insured Vehicle:
-Vehicle: Ford Figo 1.4 Duratorq LXI
-Registration No: RJ23CA4351
-Year of Manufacture: 2010
-Insured Declared Value (IDV): Rs. 2,30,769
+"SECTION II – COVERED AUTOS LIABILITY COVERAGE
 
-Limit of Liability:
-Third Party Property Damage Limit: Rs. 7,50,000
-Personal Accident Cover for Owner Driver: Rs. 2,00,000"
+A. Coverage
+
+We will pay all sums an "insured" legally must pay as damages because of
+"bodily injury" or "property damage" to which this insurance applies,
+caused by an "accident" and resulting from the ownership, maintenance
+or use of a covered "auto".
+
+We will also pay all sums an "insured" legally must pay as a "covered
+pollution cost or expense" to which this insurance applies, caused by
+an "accident" and resulting from the ownership, maintenance or use of
+covered "autos". However, we will only pay for the "covered pollution
+cost or expense" if there is either "bodily injury" or "property damage"
+to which this insurance applies that is caused by the same "accident".
+
+We have the right and duty to defend any "insured" against a "suit"
+asking for such damages or a "covered pollution cost or expense".
+However, we have no duty to defend any "insured" against a "suit"
+seeking damages to which this insurance does not apply.
+
+2. Coverage Extensions
+a. Supplementary Payments
+We will pay for the "insured":
+(1) All expenses we incur.
+(2) Up to $2,000 for cost of bail bonds required because of an accident."
 
 OUTPUT:
 {
   "fields": {
     "coverages": [
       {
-        "coverage_name": "Insured Declared Value",
-        "coverage_type": "Motor",
+        "coverage_name": "Covered Autos Liability Coverage",
+        "coverage_type": "Liability",
+        "coverage_category": "Auto",
         "limit_amount": null,
         "deductible_amount": null,
         "premium_amount": null,
-        "insured_declared_value": 230769,
-        "description": "Insured Declared Value (IDV) for Ford Figo 1.4 Duratorq LXI",
+        "description": "We will pay all sums an \"insured\" legally must pay as damages because of \"bodily injury\" or \"property damage\" to which this insurance applies, caused by an \"accident\" and resulting from the ownership, maintenance or use of a covered \"auto\". We will also pay all sums an \"insured\" legally must pay as a \"covered pollution cost or expense\" to which this insurance applies, caused by an \"accident\" and resulting from the ownership, maintenance or use of covered \"autos\". However, we will only pay for the \"covered pollution cost or expense\" if there is either \"bodily injury\" or \"property damage\" to which this insurance applies that is caused by the same \"accident\". We have the right and duty to defend any \"insured\" against a \"suit\" asking for such damages or a \"covered pollution cost or expense\". However, we have no duty to defend any \"insured\" against a \"suit\" seeking damages to which this insurance does not apply.",
         "sub_limits": null,
-        "per_occurrence": false,
-        "aggregate": false,
-        "aggregate_amount": null,
+        "limit_per_occurrence": null,
+        "limit_aggregate": null,
+        "valuation_basis": null,
+        "coverage_basis": "Occur",
+        "coverage_form": null,
+        "is_included": true,
         "coverage_territory": null,
         "retroactive_date": null
       },
       {
-        "coverage_name": "Third Party Property Damage",
-        "coverage_type": "Liability",
-        "limit_amount": 750000,
+        "coverage_name": "Supplementary Payments",
+        "coverage_type": "Add-on",
+        "coverage_category": "Liability",
+        "limit_amount": 2000,
         "deductible_amount": null,
         "premium_amount": null,
-        "insured_declared_value": null,
-        "description": "Third Party Property Damage Liability",
-        "sub_limits": null,
-        "per_occurrence": true,
-        "aggregate": false,
-        "aggregate_amount": null,
-        "coverage_territory": null,
-        "retroactive_date": null
-      },
-      {
-        "coverage_name": "Personal Accident Cover - Owner Driver",
-        "coverage_type": "Personal Accident",
-        "limit_amount": 200000,
-        "deductible_amount": null,
-        "premium_amount": null,
-        "insured_declared_value": null,
-        "description": "Personal Accident Cover for Owner Driver",
-        "sub_limits": null,
-        "per_occurrence": true,
-        "aggregate": false,
-        "aggregate_amount": null,
+        "description": "We will pay for the insured all expenses we incur and up to $2,000 for the cost of bail bonds required because of an accident covered under Covered Autos Liability Coverage.",
+        "sub_limits": [
+          {
+            "label": "Bail bond limit",
+            "amount": 2000
+          }
+        ],
+        "limit_per_occurrence": null,
+        "limit_aggregate": null,
+        "valuation_basis": null,
+        "coverage_basis": "Occur",
+        "coverage_form": null,
+        "is_included": true,
         "coverage_territory": null,
         "retroactive_date": null
       }
@@ -1128,47 +1107,41 @@ OUTPUT:
   "entities": [
     {
       "type": "Coverage",
-      "id": "cov_idv_ford_figo",
-      "confidence": 0.96,
+      "id": "cov_covered_autos_liability",
+      "confidence": 0.97,
       "attributes": {
-        "coverage_name": "Insured Declared Value",
-        "insured_declared_value": 230769,
-        "coverage_type": "Motor"
+        "coverage_name": "Covered Autos Liability Coverage",
+        "coverage_type": "Liability",
+        "coverage_category": "Auto"
       }
     },
     {
       "type": "Coverage",
-      "id": "cov_tp_property_damage",
-      "confidence": 0.95,
+      "id": "cov_supplementary_payments",
+      "confidence": 0.94,
       "attributes": {
-        "coverage_name": "Third Party Property Damage",
-        "limit_amount": 750000,
-        "coverage_type": "Liability"
-      }
-    },
-    {
-      "type": "Coverage",
-      "id": "cov_pa_owner_driver",
-      "confidence": 0.95,
-      "attributes": {
-        "coverage_name": "Personal Accident Cover - Owner Driver",
-        "limit_amount": 200000,
-        "coverage_type": "Personal Accident"
+        "coverage_name": "Supplementary Payments",
+        "coverage_type": "Add-on",
+        "coverage_category": "Liability",
+        "limit_amount": 2000
       }
     }
   ],
-  "confidence": 0.94
+  "confidence": 0.95
 }
 
----
 
 ### OUTPUT FORMAT
+
 {
-  "fields": { ... },
+  "fields": {
+    "coverages": [ ... ]
+  },
   "entities": [ ... ],
   "confidence": 0.0
 }
 """
+
 
 CONDITIONS_EXTRACTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
@@ -1807,6 +1780,77 @@ OUTPUT:
 ### OUTPUT FORMAT
 {
   "definitions": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+# =============================================================================
+# ENDORSEMENT PROJECTION PROMPTS (Semantic Projection Models)
+# =============================================================================
+# Used when an endorsement is semantically projected as a Coverage or Exclusion
+# section. These models extract the nature of the modification.
+# =============================================================================
+
+ENDORSEMENT_COVERAGE_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. You are extracting COVERAGE MODIFICATIONS from an Endorsement.
+2. This endorsement has been classified as containing coverage-related changes.
+3. Your goal is to extract HOW the base policy coverages are modified.
+4. If the endorsement ADDS a new coverage, extract it as an "Add" effect.
+5. If it MODIFIES an existing coverage (e.g., changing a limit), extract it as a "Modify" effect.
+6. Extract ONLY what is explicitly stated in the text.
+7. Output must be VALID JSON only. No explanations.
+
+### FIELDS TO EXTRACT
+- endorsement_number: The form number of the endorsement (e.g., IL 00 21)
+- endorsement_name: The title of the endorsement
+- modifications: List of objects:
+    - impacted_coverage: The name of the coverage being modified (e.g., "General Liability")
+    - coverage_effect: Add | Modify | Restrict | Delete
+    - limit_modification: Narrative description of limit change (if any)
+    - deductible_modification: Narrative description of deductible change (if any)
+    - verbatim_language: The exact text from the endorsement defining this change
+    - reasoning: Brief explanation for the classification
+
+### ENTITY TYPES
+- Endorsement
+- Coverage
+
+### EXTRACTION RULES
+- Link the Endorsement to the Coverage via MODIFIED_BY.
+- Confidence: 0.95+ for explicit "added" or "modified" language.
+
+### OUTPUT FORMAT
+{
+  "modifications": [ ... ],
+  "entities": [ ... ],
+  "confidence": 0.0
+}
+"""
+
+ENDORSEMENT_EXCLUSION_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
+
+1. You are extracting EXCLUSION MODIFICATIONS from an Endorsement.
+2. This endorsement has been classified as containing exclusion-related changes.
+3. Your goal is to extract HOW the base policy exclusions are modified or what NEW exclusions are added.
+4. Extract ONLY what is explicitly stated in the text.
+5. Output must be VALID JSON only. No explanations.
+
+### FIELDS TO EXTRACT
+- endorsement_number: The form number of the endorsement
+- modifications: List of objects:
+    - impacted_exclusion: The name of the exclusion being modified or added
+    - exclusion_effect: Add | Modify | Delete
+    - verbatim_language: The exact text defining the exclusion modification
+    - reasoning: Brief explanation
+
+### ENTITY TYPES
+- Endorsement
+- Exclusion
+
+### OUTPUT FORMAT
+{
+  "modifications": [ ... ],
   "entities": [ ... ],
   "confidence": 0.0
 }

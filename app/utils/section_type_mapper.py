@@ -32,6 +32,10 @@ class SectionTypeMapper:
         PageType.BOILERPLATE: SemanticSection.BOILERPLATE,
         PageType.CERTIFICATE_OF_INSURANCE: SemanticSection.CERTIFICATE_OF_INSURANCE,
         PageType.LIABILITY_COVERAGES: SemanticSection.LIABILITY_COVERAGE,
+        PageType.COVERAGE_GRANT: SemanticSection.COVERAGES,
+        PageType.COVERAGE_EXTENSION: SemanticSection.COVERAGES,
+        PageType.LIMITS: SemanticSection.COVERAGES,
+        PageType.INSURED_DEFINITION: SemanticSection.COVERAGES,
         PageType.VEHICLE_DETAILS: SemanticSection.DECLARATIONS,
         PageType.INSURED_DECLARED_VALUE: SemanticSection.DECLARATIONS,
         PageType.UNKNOWN: SemanticSection.UNKNOWN,
@@ -56,7 +60,11 @@ class SectionTypeMapper:
         PageType.DEDUCTIBLES: SectionType.DEDUCTIBLES,
         PageType.PREMIUM: SectionType.PREMIUM,
         PageType.COVERAGES_CONTEXT: SectionType.COVERAGES_CONTEXT,
-        PageType.CERTIFICATE_OF_INSURANCE: SectionType.UNKNOWN,
+        PageType.COVERAGE_GRANT: SectionType.COVERAGE_GRANT,
+        PageType.COVERAGE_EXTENSION: SectionType.COVERAGE_EXTENSION,
+        PageType.LIMITS: SectionType.LIMITS,
+        PageType.INSURED_DEFINITION: SectionType.INSURED_DEFINITION,
+        PageType.CERTIFICATE_OF_INSURANCE: SectionType.CERTIFICATE_OF_INSURANCE,
         PageType.UNKNOWN: SectionType.UNKNOWN,
     }
     
@@ -114,6 +122,12 @@ class SectionTypeMapper:
         "deductibles": SectionType.DEDUCTIBLES,
         "premium": SectionType.PREMIUM,
         "coverages_context": SectionType.COVERAGES_CONTEXT,
+        "coverage_grant": SectionType.COVERAGE_GRANT,
+        "coverage_extension": SectionType.COVERAGE_EXTENSION,
+        "limits": SectionType.LIMITS,
+        "insured_definition": SectionType.INSURED_DEFINITION,
+        "certificate_of_insurance": SectionType.CERTIFICATE_OF_INSURANCE,
+        "acord_certificate": SectionType.CERTIFICATE_OF_INSURANCE,
         "unknown": SectionType.UNKNOWN,
     }
     
@@ -287,11 +301,21 @@ class SectionTypeMapper:
             PageType.DEFINITIONS,
             PageType.DECLARATIONS
         }
-        if page_type in authoritative:
+        if page_type in authoritative or page_type in {
+            PageType.COVERAGE_GRANT, 
+            PageType.COVERAGE_EXTENSION, 
+            PageType.LIMITS, 
+            PageType.INSURED_DEFINITION
+        }:
             return page_type
             
         # 2. Endorsement Semantic Projection
         if page_type == PageType.ENDORSEMENT and semantic_role:
+            # HARD GUARD: Certificate of insurance should NEVER be projected
+            # This handles cases where a certificate page is misclassified or mis-analyzed
+            if page_type == PageType.CERTIFICATE_OF_INSURANCE:
+                return PageType.CERTIFICATE_OF_INSURANCE
+
             from app.models.page_analysis_models import SemanticRole
             
             # String comparison to be enum-safe

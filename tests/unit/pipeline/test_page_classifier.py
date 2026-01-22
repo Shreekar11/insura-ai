@@ -111,37 +111,87 @@ class TestPageClassifierPatternMatching:
         assert result.page_type == PageType.COVERAGES
         assert result.should_process is True
     
-    def test_classify_coverages_with_limits(self, classifier):
-        """Test coverages detection via limits keyword."""
-        signals = self._create_signals(
-            page_number=15,
-            top_lines=[
-                "LIMITS AND DEDUCTIBLES",
-                "Coverage Limit: $5,000,000",
-                "Deductible: $10,000"
-            ]
-        )
-        
-        result = classifier.classify(signals)
-        
         assert result.page_type == PageType.COVERAGES
         assert result.should_process is True
     
-    def test_classify_insuring_agreement(self, classifier):
-        """Test coverages detection via insuring agreement."""
+    def test_classify_coverage_grant(self, classifier):
+        """Test classification of ISO coverage grant anchor."""
         signals = self._create_signals(
-            page_number=8,
+            page_number=10,
             top_lines=[
-                "INSURING AGREEMENT",
-                "We will pay for direct physical loss of or damage to",
-                "Covered Property at the premises described"
+                "SECTION II – COVERED AUTOS LIABILITY COVERAGE",
+                "A. Coverage",
+                "We will pay all sums an insured legally must pay"
             ]
         )
-        
         result = classifier.classify(signals)
-        
-        assert result.page_type == PageType.COVERAGES
+        assert result.page_type == PageType.COVERAGE_GRANT
         assert result.should_process is True
+
+    def test_classify_coverage_extension(self, classifier):
+        """Test classification of coverage extensions."""
+        signals = self._create_signals(
+            page_number=12,
+            top_lines=[
+                "COVERAGE EXTENSIONS",
+                "1. Newly Acquired Autos"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.COVERAGE_EXTENSION
+
+    def test_classify_limits_page(self, classifier):
+        """Test classification of limits section."""
+        signals = self._create_signals(
+            page_number=15,
+            top_lines=[
+                "LIMIT OF INSURANCE",
+                "Regardless of the number of covered autos"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.LIMITS
+
+    def test_classify_insured_definition(self, classifier):
+        """Test classification of Who Is An Insured section."""
+        signals = self._create_signals(
+            page_number=11,
+            top_lines=[
+                "WHO IS AN INSURED",
+                "The following are insureds:"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.INSURED_DEFINITION
+
+    def test_classify_coverage_grant_phrases(self, classifier):
+        """Test classification of coverage grants with specific phrases."""
+        signals = self._create_signals(
+            page_number=2,
+            top_lines=[
+                "SECTION II - COVERED AUTOS LIABILITY COVERAGE",
+                "A. Coverage",
+                "We will pay all sums an insured legally must pay"
+            ]
+        )
+        result = classifier.classify(signals)
+        assert result.page_type == PageType.COVERAGE_GRANT
+
+    def test_classify_coverage_extension_anchors(self, classifier):
+        """Test classification of coverage extensions with specific anchors."""
+        anchors = [
+            "Supplementary Payments",
+            "Out-of-state Coverage Extensions",
+            "Transportation Expenses",
+            "Loss Of Use Expenses"
+        ]
+        for anchor in anchors:
+            signals = self._create_signals(
+                page_number=3,
+                top_lines=[anchor]
+            )
+            result = classifier.classify(signals)
+            assert result.page_type == PageType.COVERAGE_EXTENSION, f"Failed on {anchor}"
     
     # ========== CONDITIONS SECTION TESTS ==========
     

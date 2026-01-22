@@ -41,6 +41,25 @@ SECTION_ANCHORS = {
         r'^\s*COVERAGE\s+FORM\s*$',
         r'^\s*COVERAGE\s+[A-Z]\s*[-:]',
         r'^\s*PROPERTY\s+COVERAGE\s*$',
+        r'^\s*LIABILITY\s+COVERAGE\s*$',
+    ],
+    SectionType.COVERAGE_GRANT: [
+        r'^\s*SECTION\s+II\s*[-–]\s*COVERED\s+AUTOS\s+LIABILITY\s+COVERAGE\s*$',
+        r'^\s*PHYSICAL\s+DAMAGE\s+COVERAGE\s*$',
+        r'^\s*SECTION\s+III\s*[-–]\s*PHYSICAL\s+DAMAGE\s+COVERAGE\s*$',
+        r'^\s*WE\s+WILL\s+PAY\s*$',
+        r'^\s*WE\s+WILL\s+ALSO\s+PAY\s*$',
+    ],
+    SectionType.COVERAGE_EXTENSION: [
+        r'^\s*SUPPLEMENTARY\s+PAYMENTS\s*$',
+        r'^\s*OUT-OF-STATE\s+COVERAGE\s+EXTENSIONS\s*$',
+        r'^\s*TRANSPORTATION\s+EXPENSES\s*$',
+        r'^\s*LOSS\s+OF\s+USE\s+EXPENSES\s*$',
+        r'^\s*COVERAGE\s+EXTENSIONS\s*$',
+    ],
+    SectionType.LIMITS: [
+        r'^\s*LIMIT\s+OF\s+INSURANCE\s*$',
+        r'^\s*LIMITS\s+AND\s+DEDUCTIBLES\s*$',
     ],
     SectionType.CONDITIONS: [
         r'^\s*CONDITIONS?\s*$',
@@ -58,6 +77,13 @@ SECTION_ANCHORS = {
         r'^\s*ENDORSEMENT\s+NO\.?\s*\d*',
         r'^\s*POLICY\s+ENDORSEMENTS?\s*$',
         r'^\s*FORMS?\s+AND\s+ENDORSEMENTS?\s*$',
+    ],
+    SectionType.DEFINITIONS: [
+        r'^\s*DEFINITIONS?\s*$',
+        r'^\s*SECTION\s+[IVX]+[\.\:]\s*DEFINITIONS?\s*$',
+    ],
+    SectionType.INSURED_DEFINITION: [
+        r'^\s*WHO\s+IS\s+AN\s+INSURED\s*$',
     ],
     SectionType.SOV: [
         r'^\s*SCHEDULE\s+OF\s+VALUES?\s*$',
@@ -624,10 +650,20 @@ class HybridChunkingService:
                         new_coverage_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.coverage_effects or [])]
                         new_exclusion_effects = [e.value if hasattr(e, 'value') else e for e in (current_boundary.exclusion_effects or [])]
 
-                    if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role:
+                    # HARD STOP: If boundary section matches one of our critical ISO anchors, we MUST flush
+                    ISO_HARD_STOPS = {
+                        SectionType.COVERAGE_GRANT,
+                        SectionType.INSURED_DEFINITION,
+                        SectionType.LIMITS,
+                        SectionType.EXCLUSIONS,
+                        SectionType.CONDITIONS,
+                        SectionType.DEFINITIONS
+                    }
+                    
+                    if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role or boundary_section in ISO_HARD_STOPS:
                         LOGGER.info(
-                            f"Section transition detected via boundary: {current_section}({current_semantic_role}) -> {boundary_section}({new_semantic_role})",
-                            extra={"page": page_num, "line": current_line_estimation}
+                            f"Section transition (HARD STOP) detected via boundary: {current_section} -> {boundary_section}",
+                            extra={"page": page_num, "line": current_line_estimation, "anchor": current_boundary.anchor_text}
                         )
                         transition_occurred = True
                         new_section = boundary_section
@@ -732,6 +768,17 @@ class HybridChunkingService:
                     (token_limit_reached and min_tokens_met)
                 )
                 
+                # Table Rule: If chunk has high table density and mentions symbols, force coverages_context
+                # Heuristic: 60% of paragraphs start with table-like patterns (pipe, etc.) or page metadata says so
+                if current_buffer and current_section in {SectionType.COVERAGES, SectionType.UNKNOWN}:
+                    para_joined = "\n".join(current_buffer).lower()
+                    if "symbol" in para_joined or "designation" in para_joined:
+                        table_para_count = sum(1 for p in current_buffer if p.strip().startswith('|') or p.strip().count('|') > 2)
+                        if (table_para_count / len(current_buffer) >= 0.6) or (current_has_tables and "symbol" in para_joined):
+                            LOGGER.info(f"Applying symbol-table rule for page {page_num}: forcing coverages_context")
+                            current_section = SectionType.COVERAGES_CONTEXT
+                            current_semantic_role = None # Symbols aren't semantic modifiers
+                
                 if should_flush:
                     # Determine effective section types (may return multiple for dual emission)
                     effective_types = self._get_effective_section_types(
@@ -787,6 +834,20 @@ class HybridChunkingService:
                     current_semantic_role = new_semantic_role
                     current_coverage_effects = new_coverage_effects
                     current_exclusion_effects = new_exclusion_effects
+
+                # Derive semantic role from granular section types if not explicitly set by boundary
+                from app.models.page_analysis_models import SemanticRole
+                if current_semantic_role in {None, SemanticRole.UNKNOWN, "unknown"}:
+                    if current_section == SectionType.COVERAGE_GRANT:
+                        current_semantic_role = SemanticRole.COVERAGE_GRANT
+                    elif current_section == SectionType.COVERAGE_EXTENSION:
+                        current_semantic_role = SemanticRole.COVERAGE_EXTENSION
+                    elif current_section == SectionType.LIMITS:
+                        current_semantic_role = SemanticRole.LIMITS
+                    elif current_section == SectionType.INSURED_DEFINITION:
+                        current_semantic_role = SemanticRole.INSURED_DEFINITION
+                    elif current_section == SectionType.DEFINITIONS:
+                        current_semantic_role = SemanticRole.DEFINITIONS
                 
                 current_buffer.append(para)
                 current_tokens += para_tokens

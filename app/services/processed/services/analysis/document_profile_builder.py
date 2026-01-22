@@ -54,6 +54,10 @@ class DocumentProfileBuilder:
         PageType.INVOICE: DocumentType.INVOICE,
         PageType.DEFINITIONS: DocumentType.POLICY,
         PageType.COVERAGES_CONTEXT: DocumentType.POLICY,
+        PageType.COVERAGE_GRANT: DocumentType.POLICY,
+        PageType.COVERAGE_EXTENSION: DocumentType.POLICY,
+        PageType.LIMITS: DocumentType.POLICY,
+        PageType.INSURED_DEFINITION: DocumentType.POLICY,
         PageType.TABLE_OF_CONTENTS: DocumentType.POLICY,
         PageType.ACORD_APPLICATION: DocumentType.ACORD_APPLICATION,
         PageType.PROPOSAL: DocumentType.PROPOSAL,
@@ -90,6 +94,8 @@ class DocumentProfileBuilder:
         ([PageType.CERTIFICATE_OF_INSURANCE], DocumentType.CERTIFICATE, 0.95),
         # If has canonical policy sections (Base Policy Rule)
         ([PageType.COVERAGES, PageType.EXCLUSIONS, PageType.CONDITIONS], DocumentType.POLICY, 0.90),
+        # If has granular coverage sections
+        ([PageType.COVERAGE_GRANT, PageType.LIMITS], DocumentType.POLICY, 0.95),
         # If has coverage context (ISO Symbol Tables)
         ([PageType.COVERAGES_CONTEXT], DocumentType.POLICY, 0.85),
     ]
@@ -428,6 +434,11 @@ class DocumentProfileBuilder:
             
             # Calculate effective section type
             semantic_role = r.get("semantic_role") if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else SemanticRole.UNKNOWN
+            
+            # HARD GUARD for Certificates - profile level
+            if r["page_type"] == PageType.CERTIFICATE_OF_INSURANCE:
+                semantic_role = SemanticRole.UNKNOWN
+                
             effective_type = SectionTypeMapper.resolve_effective_section_type(
                 r["page_type"], 
                 semantic_role
@@ -617,6 +628,7 @@ class DocumentProfileBuilder:
                     SemanticSection.EXCLUSIONS,
                     SemanticSection.DECLARATIONS,
                     SemanticSection.CONDITIONS,
+                    SemanticSection.DEFINITIONS,
                     SemanticSection.CERTIFICATE_OF_INSURANCE,
                     SemanticSection.CERTIFICATE,
                 ]
@@ -642,7 +654,30 @@ class DocumentProfileBuilder:
                 if c.page_type in self.MERGE_WITH_ADJACENT or c.page_type == PageType.UNKNOWN:
                     # Inheritance only makes sense if we were in an active section
                     if last_meaningful_semantic not in {SemanticSection.UNKNOWN, SemanticSection.BOILERPLATE}:
-                        selected_semantic = last_meaningful_semantic
+                        # mid-policy continuity: if we are between significant sections and 
+                        # text contains related keywords, inherit
+                        coverage_keywords = [r"pay", r"limit", r"loss", r"liability"]
+                        exclusion_keywords = [r"not\s+apply", r"exclude", r"except"]
+                        
+                        if last_meaningful_semantic in {SemanticSection.COVERAGES, SemanticSection.LIABILITY_COVERAGE}:
+                             if any(re.search(kw, c.reasoning, re.IGNORECASE) for kw in coverage_keywords):
+                                 selected_semantic = last_meaningful_semantic
+                             else:
+                                 selected_semantic = last_meaningful_semantic # Fallback for mid-policy consistency
+                        elif last_meaningful_semantic == SemanticSection.EXCLUSIONS:
+                             if any(re.search(kw, c.reasoning, re.IGNORECASE) for kw in exclusion_keywords):
+                                 selected_semantic = last_meaningful_semantic
+                             else:
+                                 selected_semantic = last_meaningful_semantic # Fallback for mid-policy consistency
+                        else:
+                            selected_semantic = last_meaningful_semantic
+            
+            # Pass 4: Special case forward-fill for DEFINITIONS (Forward Fill logic)
+            # If current page has high density of definitions (means:) it should inherit DEFINITIONS
+            # This is partly handled by PageClassifier, but we enforce it here for continuity
+            if selected_semantic == SemanticSection.COVERAGES and last_meaningful_semantic == SemanticSection.DEFINITIONS:
+                # If we're in the middle of a definitions run, avoid flipping back to coverages too easily
+                selected_semantic = SemanticSection.DEFINITIONS
 
             page_section_map[c.page_number] = selected_semantic.value
             
@@ -652,11 +687,15 @@ class DocumentProfileBuilder:
                 SemanticSection.COVERAGES,
                 SemanticSection.EXCLUSIONS,
                 SemanticSection.CONDITIONS,
+                SemanticSection.DEFINITIONS,
                 SemanticSection.LIABILITY_COVERAGE,
                 SemanticSection.PHYSICAL_DAMAGE_COVERAGE
             }
             if selected_semantic in inheritance_sources:
                 last_meaningful_semantic = selected_semantic
+            elif selected_semantic == SemanticSection.CERTIFICATE_OF_INSURANCE:
+                # Break inheritance on certificates
+                last_meaningful_semantic = SemanticSection.UNKNOWN
             elif selected_semantic not in {SemanticSection.UNKNOWN, SemanticSection.BOILERPLATE}:
                 last_meaningful_semantic = SemanticSection.UNKNOWN
                 

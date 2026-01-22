@@ -141,6 +141,61 @@ class TestSemanticChunkingVerification:
         assert len(result.chunks) == 1
         assert result.chunks[0].metadata.section_type == SectionType.COVERAGES
 
+    def test_acord_certificate_guard(self, service):
+        """Test that ACORD certificates are never projected to coverages/exclusions."""
+        page = PageData(
+            page_number=1,
+            text="ACORD CERTIFICATE OF LIABILITY INSURANCE",
+            markdown="# ACORD CERTIFICATE\n\nSome content...",
+            metadata={}
+        )
+        
+        # Erratic boundary that claims to be a coverage_modifier
+        boundaries = [
+            SectionBoundary(
+                section_type=PageType.CERTIFICATE_OF_INSURANCE,
+                start_page=1,
+                end_page=1,
+                confidence=1.0,
+                page_count=1,
+                semantic_role=SemanticRole.COVERAGE_MODIFIER,
+                effective_section_type=PageType.COVERAGES # This is what happened in the bug
+            )
+        ]
+        
+        result = service.chunk_pages([page], section_boundaries=boundaries)
+        
+        assert len(result.chunks) == 1
+        # Should stay as certificate_of_insurance
+        assert result.chunks[0].metadata.section_type == SectionType.CERTIFICATE_OF_INSURANCE
+        # Effective type should also be corrected to certificate_of_insurance
+        assert result.chunks[0].metadata.effective_section_type == SectionType.CERTIFICATE_OF_INSURANCE
+
+    @pytest.mark.asyncio
+    async def test_certificate_skip_extraction(self, service):
+        """Test that SectionExtractionOrchestrator explicitly skips certificates."""
+        from unittest.mock import AsyncMock, MagicMock
+        from app.services.extracted.services.extraction.section.section_extraction_orchestrator import SectionExtractionOrchestrator
+        from app.services.processed.services.chunking.hybrid_models import SectionSuperChunk
+        
+        # Setup orchestrator with mocked session
+        mock_session = AsyncMock()
+        orchestrator = SectionExtractionOrchestrator(session=mock_session, provider="gemini")
+        
+        # Create a certificate super chunk
+        sc = SectionSuperChunk(
+            section_type=SectionType.CERTIFICATE_OF_INSURANCE,
+            section_name="Certificate",
+            chunks=[],
+            requires_llm=True # Even if it requires LLM (erroneous config), it should be skipped
+        )
+        
+        # Run extraction
+        result = await orchestrator.extract_all_sections([sc], uuid4(), uuid4())
+        
+        # Result should be empty (certificate skipped)
+        assert len(result.section_results) == 0
+
 if __name__ == "__main__":
     # This allows running it directly if needed
     pytest.main([__file__])

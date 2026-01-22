@@ -31,6 +31,10 @@ class PageType(str, Enum):
     DEDUCTIBLES = "deductibles"
     PREMIUM = "premium"
     COVERAGES_CONTEXT = "coverages_context"
+    COVERAGE_GRANT = "coverage_grant"
+    COVERAGE_EXTENSION = "coverage_extension"
+    LIMITS = "limits"
+    INSURED_DEFINITION = "insured_definition"
     ACORD_APPLICATION = "acord_application"
     PROPOSAL = "proposal"
     CERTIFICATE_OF_INSURANCE = "certificate_of_insurance"
@@ -88,6 +92,11 @@ class SemanticRole(str, Enum):
     EXCLUSION_MODIFIER = "exclusion_modifier"
     BOTH = "both"
     ADMINISTRATIVE_ONLY = "administrative_only"
+    COVERAGE_GRANT = "coverage_grant"
+    COVERAGE_EXTENSION = "coverage_extension"
+    LIMITS = "limits"
+    INSURED_DEFINITION = "insured_definition"
+    DEFINITIONS = "definitions"
     UNKNOWN = "unknown"
 
 

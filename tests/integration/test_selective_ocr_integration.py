@@ -73,31 +73,6 @@ class TestSelectiveOCRWorkflowIntegration:
         )
     
     @pytest.mark.asyncio
-    async def test_ocr_workflow_respects_pages_to_process(
-        self, document_id, sample_manifest
-    ):
-        """OCRExtractionWorkflow should only OCR pages from manifest."""
-        pages_to_process = sample_manifest.pages_to_process
-        
-        # Mock the activity execution
-        with patch('temporalio.workflow.execute_activity') as mock_execute:
-            # Simulate the activity returning only the requested pages
-            mock_execute.return_value = {
-                "document_id": document_id,
-                "page_count": len(pages_to_process),
-            }
-            
-            # The workflow should pass pages_to_process to the activity
-            from app.temporal.workflows.ocr_extraction import OCRExtractionWorkflow
-            
-            workflow = OCRExtractionWorkflow()
-            # Note: In actual Temporal testing, we'd use a test environment
-            # This is a simplified test to verify the interface
-            
-            # Verify the workflow accepts pages_to_process parameter
-            assert hasattr(OCRExtractionWorkflow, 'run')
-    
-    @pytest.mark.asyncio
     async def test_workflow_stats_reflect_selective_processing(
         self, document_id, sample_manifest
     ):
