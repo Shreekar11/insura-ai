@@ -91,10 +91,7 @@
                         "content": {
                             "application/json": {
                                 "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "$ref": "#/components/schemas/WorkflowListResponse"
-                                    }
+                                    "$ref": "#/components/schemas/WorkflowListResponse"
                                 }
                             }
                         }
@@ -328,13 +325,13 @@
                     }
                 }
             },
-            "WorkflowListResponse":{
+            "WorkflowListResponse": {
                 "type": "object",
-                "properties":{
+                "properties": {
                     "total": {
                         "type": "number"
                     },
-                    "workflows":{
+                    "workflows": {
                         "type": "array",
                         "items": {
                             "type": "object",

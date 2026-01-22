@@ -34,6 +34,10 @@ class JWTAuthenticationMiddleware(BaseHTTPMiddleware):
     """
     
     async def dispatch(self, request: Request, call_next):
+        # Allow OPTIONS requests
+        if request.method == "OPTIONS":
+            return await call_next(request)
+            
         # Skip authentication for excluded paths
         if request.url.path in EXCLUDED_PATHS or request.url.path.startswith("/health"):
             return await call_next(request)

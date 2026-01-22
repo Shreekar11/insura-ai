@@ -115,6 +115,9 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# JWT authentication middleware
+app.add_middleware(JWTAuthenticationMiddleware)
+
 # Correlation ID middleware
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
@@ -123,9 +126,6 @@ async def add_correlation_id(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = correlation_id
     return response
-
-# JWT authentication middleware
-app.add_middleware(JWTAuthenticationMiddleware)
 
 # Include routers
 app.include_router(api_router, prefix=settings.api_v1_prefix)
