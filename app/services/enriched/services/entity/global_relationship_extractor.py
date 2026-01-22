@@ -661,7 +661,7 @@ class RelationshipExtractorGlobal:
         """
         # Fetch entity mentions for this document
         mention_repo = EntityMentionRepository(self.session)
-        mentions = await mention_repo.get_by_document(document_id)
+        mentions = await mention_repo.get_by_document_id(document_id)
         
         candidates = []
         
@@ -690,19 +690,97 @@ class RelationshipExtractorGlobal:
         return candidates
     
     async def _call_llm_api(self, context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Call LLM API for relationship extraction using section-aware context.
+        """Call LLM API for relationship extraction using partitioned section batches.
+        
+        This implements the batch-oriented processing to avoid output truncation
+        as described in docs/llm_truncation_error_relationship_generation.md.
         
         Args:
             context: Global context dictionary with section-aware data
             
         Returns:
-            List of relationship dictionaries
+            List of aggregated relationship dictionaries
         """
-
-        user_message = self._build_user_message(context)
-        
+        # Parse structured sections
+        section_batches_str = context.get("chunks_by_section_structured")
+        if not section_batches_str:
+            LOGGER.warning("No structured sections found for batching, falling back to full context")
+            user_message = self._build_user_message(context)
+            return await self._execute_llm_call(user_message)
+            
         try:
-            # Use GeminiClient
+            section_batches = json.loads(section_batches_str)
+        except Exception as e:
+            LOGGER.error(f"Failed to parse structured sections: {e}")
+            user_message = self._build_user_message(context)
+            return await self._execute_llm_call(user_message)
+        
+        if not section_batches:
+            LOGGER.warning("Empty section batches, falling back to full context")
+            user_message = self._build_user_message(context)
+            return await self._execute_llm_call(user_message)
+
+        all_relationships = []
+        
+        # Process each section as a separate batch
+        for i, batch in enumerate(section_batches):
+            section_type = batch.get("section_type", "unknown")
+            LOGGER.info(
+                f"Processing relationship extraction batch {i+1}/{len(section_batches)}",
+                extra={"section_type": section_type, "document_id": context.get("document_id")}
+            )
+            
+            # Build batch-specific user message
+            user_message = self._build_batch_user_message(context, batch)
+            
+            try:
+                # Execute LLM call for this batch
+                batch_data = await self._execute_llm_call(user_message)
+                
+                # Filter out candidates if they arrived (schema allows them but we use relationships here)
+                # Note: _execute_llm_call already returns just the relationships list
+                
+                # Tag relationships with source section for debugging
+                for rel in batch_data:
+                    if "attributes" not in rel:
+                        rel["attributes"] = {}
+                    rel["attributes"]["extraction_section"] = section_type
+                
+                all_relationships.extend(batch_data)
+                
+            except Exception as e:
+                LOGGER.error(
+                    f"Batch extraction failed for section {section_type}: {e}",
+                    extra={"section_type": section_type}
+                )
+                # Continue with next batch to be resilient
+                continue
+
+        # Deduplicate relationships
+        unique_relationships = self._deduplicate_relationships(all_relationships)
+        
+        LOGGER.info(
+            f"Completed batch relationship extraction",
+            extra={
+                "total_batches": len(section_batches),
+                "raw_relationships": len(all_relationships),
+                "unique_relationships": len(unique_relationships)
+            }
+        )
+        
+        return unique_relationships
+
+    async def _execute_llm_call(self, user_message: str) -> List[Dict[str, Any]]:
+        """Internal helper to execute a single LLM call and parse relationships.
+        
+        Args:
+            user_message: The formatted user prompt
+            
+        Returns:
+            List of extracted relationships
+        """
+        try:
+            # Use GeminiClient / UnifiedLLMClient
             response = await self.client.generate_content(
                 contents=user_message,
                 system_instruction=RELATIONSHIP_EXTRACTION_PROMPT,
@@ -718,8 +796,108 @@ class RelationshipExtractorGlobal:
             return parsed.get("relationships", [])
             
         except Exception as e:
-            LOGGER.error(f"LLM call failed: {e}", exc_info=True)
+            LOGGER.error(f"LLM call execution failed: {e}", exc_info=True)
             raise
+
+    def _deduplicate_relationships(self, relationships: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Deduplicate relationships based on source, target, and type.
+        
+        When duplicates are found, evidence is merged.
+        """
+        seen = {}  # (source, target, type) -> relationship_dict
+        
+        for rel in relationships:
+            source = rel.get("source_entity_id") or rel.get("source_canonical_id")
+            target = rel.get("target_entity_id") or rel.get("target_canonical_id")
+            rel_type = (rel.get("type") or rel.get("relationship_type") or "").upper()
+            
+            if not source or not target or not rel_type:
+                continue
+                
+            # Create a stable key
+            key = (str(source), str(target), rel_type)
+            
+            if key not in seen:
+                seen[key] = rel
+            else:
+                # Merge evidence if present
+                existing = seen[key]
+                existing_attr = existing.get("attributes", {})
+                new_attr = rel.get("attributes", {})
+                
+                existing_evidence = existing_attr.get("evidence", [])
+                new_evidence = new_attr.get("evidence", [])
+                
+                # Combine unique evidence
+                # Simple deduplication by quote/table_id
+                combined_evidence = list(existing_evidence)
+                for new_ev in new_evidence:
+                    if new_ev not in combined_evidence:
+                        combined_evidence.append(new_ev)
+                
+                if "attributes" not in existing:
+                    existing["attributes"] = {}
+                existing["attributes"]["evidence"] = combined_evidence
+                
+                # Update confidence to max of seen
+                existing["confidence"] = max(existing.get("confidence", 0), rel.get("confidence", 0))
+                
+        return list(seen.values())
+
+    def _build_batch_user_message(self, context: Dict[str, Any], batch: Dict[str, Any]) -> str:
+        """Build user message for a specific section batch focused extraction."""
+        
+        section_type = batch.get("section_type", "unknown")
+        section_name = batch.get("section_name", section_type.replace("_", " ").title())
+        
+        # Format the specific section text
+        batch_chunks_text = f"### Section: {section_name}\n"
+        for chunk in batch.get("chunks", []):
+            batch_chunks_text += f"\n[Chunk {chunk['chunk_id'][:8]}...]\n"
+            batch_chunks_text += chunk.get('text', '')
+            batch_chunks_text += "\n"
+
+        # Simplified entity summary for the batch
+        entities = json.loads(context['entities_json'])
+        entity_summary = {}
+        for entity in entities:
+            etype = entity.get('entity_type', 'Unknown')
+            entity_summary[etype] = entity_summary.get(etype, 0) + 1
+        
+        entity_breakdown = "\n".join([f"  • {etype}: {count}" for etype, count in sorted(entity_summary.items())])
+
+        user_message = f"""
+            Extract relationships from this {context['document_type']} document.
+            
+            IMPORTANT: You are receiving PARTIAL CONTEXT (only the {section_name} section).
+            Extract ONLY the relationships that are explicitly supported by the text provided below.
+
+            Entity Summary ({len(entities)} total available for linking):
+            {entity_breakdown}
+
+            CANONICAL ENTITIES (deduplicated, normalized)
+            {context['entities_json']}
+
+            CURRENT SECTION CONTENT ({section_name})
+            {batch_chunks_text}
+
+            TABLE DATA (Global context)
+            SOV Items: {context.get('sov_items_json', '[]')}
+            Loss Run Claims: {context.get('loss_run_claims_json', '[]')}
+            Document Tables: {context.get('document_tables_json', '[]')}
+
+            RELATIONSHIP EXTRACTION STRATEGY:
+            1. Scrutinize the CURRENT SECTION CONTENT for links between the CANONICAL ENTITIES.
+            2. Match entities mentioned in text to the provided CANONICAL ENTITIES.
+            3. Use the global TABLE DATA if the section text refers to specific locations, claims, or table entries.
+            4. If no relationships are found in this specific section, return an empty relationships list.
+
+            EXPECTED OUTPUT
+            Return ONLY valid JSON following the schema.
+            NO markdown backticks, NO explanations, JUST the JSON object.
+            """
+        return user_message
+
     
     def _parse_response(self, llm_response: str) -> Dict[str, Any]:
         """Parse LLM response.
