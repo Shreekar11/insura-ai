@@ -7,7 +7,6 @@ export type WorkflowDefinitionResponse = {
     name?: string;
     key?: string;
     description?: string | null;
-    input_schema?: Record<string, any> | null;
     created_at?: string;
 };
 

@@ -18,14 +18,6 @@ export const $WorkflowDefinitionResponse = {
             type: 'string',
             isNullable: true,
         },
-        input_schema: {
-            type: 'dictionary',
-            contains: {
-                properties: {
-                },
-            },
-            isNullable: true,
-        },
         created_at: {
             type: 'string',
             format: 'date-time',
