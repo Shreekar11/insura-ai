@@ -8,14 +8,27 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint --max-warnings 0",
-    "check-types": "next typegen && tsc --noEmit"
+    "check-types": "next typegen && tsc --noEmit",
+    "generate:schemas": "npm run generate:users && npm run generate:documents && npm run generate:workflows",
+    "generate:users": "openapi-typescript-codegen --input specs/users.json --output schema/generated --fileName users --exportSchemas true",
+    "generate:documents": "openapi-typescript-codegen --input specs/documents.json --output schema/generated --fileName documents --exportSchemas true",
+    "generate:workflows": "openapi-typescript-codegen --input specs/workflows.json --output schema/generated --fileName workflows --exportSchemas true"
   },
   "dependencies": {
+    "@radix-ui/react-avatar": "^1.1.11",
+    "@radix-ui/react-collapsible": "^1.1.12",
+    "@radix-ui/react-dialog": "^1.1.15",
+    "@radix-ui/react-dropdown-menu": "^2.1.16",
+    "@radix-ui/react-separator": "^1.1.8",
     "@radix-ui/react-slot": "^1.2.4",
+    "@radix-ui/react-tooltip": "^1.2.8",
+    "@tanstack/react-query": "^5.90.19",
+    "axios": "^1.13.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "lucide-react": "^0.562.0",
     "next": "16.1.4",
+    "openapi-typescript-codegen": "^0.30.0",
     "react": "19.2.3",
     "react-dom": "19.2.3",
     "tailwind-merge": "^3.4.0"
