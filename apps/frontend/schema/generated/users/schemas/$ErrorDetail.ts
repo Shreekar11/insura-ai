@@ -2,26 +2,29 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export const $DocumentResponse = {
+export const $ErrorDetail = {
     properties: {
-        id: {
+        title: {
             type: 'string',
             isRequired: true,
-            format: 'uuid',
         },
         status: {
-            type: 'string',
-            isRequired: true,
-        },
-        file_path: {
-            type: 'string',
-            isRequired: true,
-        },
-        page_count: {
             type: 'number',
+            isRequired: true,
+        },
+        detail: {
+            type: 'string',
+            isRequired: true,
+        },
+        instance: {
+            type: 'string',
             isNullable: true,
         },
-        created_at: {
+        request_id: {
+            type: 'string',
+            isRequired: true,
+        },
+        timestamp: {
             type: 'string',
             isRequired: true,
             format: 'date-time',

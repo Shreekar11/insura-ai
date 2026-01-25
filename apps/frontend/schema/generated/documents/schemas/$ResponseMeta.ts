@@ -2,29 +2,20 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
-export const $DocumentResponse = {
+export const $ResponseMeta = {
     properties: {
-        id: {
-            type: 'string',
-            isRequired: true,
-            format: 'uuid',
-        },
-        status: {
-            type: 'string',
-            isRequired: true,
-        },
-        file_path: {
-            type: 'string',
-            isRequired: true,
-        },
-        page_count: {
-            type: 'number',
-            isNullable: true,
-        },
-        created_at: {
+        timestamp: {
             type: 'string',
             isRequired: true,
             format: 'date-time',
+        },
+        request_id: {
+            type: 'string',
+            isRequired: true,
+        },
+        api_version: {
+            type: 'string',
+            isRequired: true,
         },
     },
 } as const;

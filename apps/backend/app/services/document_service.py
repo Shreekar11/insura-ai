@@ -91,7 +91,7 @@ class DocumentService(BaseService):
                         status=result.status,
                         file_path=result.file_path,
                         page_count=result.page_count,
-                        uploaded_at=result.uploaded_at
+                        created_at=result.uploaded_at
                     )
                 )
                 
@@ -137,7 +137,7 @@ class DocumentService(BaseService):
                     status=doc.status,
                     file_path=doc.file_path,
                     page_count=doc.page_count,
-                    uploaded_at=doc.uploaded_at
+                    created_at=doc.uploaded_at
                 ) for doc in documents
             ]
         }
@@ -161,7 +161,7 @@ class DocumentService(BaseService):
             status=document.status,
             file_path=document.file_path,
             page_count=document.page_count,
-            uploaded_at=document.uploaded_at
+            created_at=document.uploaded_at
         )
 
     async def delete_document(self, document_id: UUID, user_id: UUID) -> bool:

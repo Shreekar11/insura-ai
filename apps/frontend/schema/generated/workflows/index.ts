@@ -7,6 +7,9 @@ export { CancelablePromise, CancelError } from './core/CancelablePromise';
 export { OpenAPI } from './core/OpenAPI';
 export type { OpenAPIConfig } from './core/OpenAPI';
 
+export type { ApiResponse } from './models/ApiResponse';
+export type { ErrorDetail } from './models/ErrorDetail';
+export type { ResponseMeta } from './models/ResponseMeta';
 export type { WorkflowDefinitionResponse } from './models/WorkflowDefinitionResponse';
 export type { WorkflowExecutionRequest } from './models/WorkflowExecutionRequest';
 export type { WorkflowExecutionResponse } from './models/WorkflowExecutionResponse';
@@ -16,6 +19,9 @@ export type { WorkflowListResponse } from './models/WorkflowListResponse';
 export type { WorkflowResponse } from './models/WorkflowResponse';
 export type { WorkflowStatusResponse } from './models/WorkflowStatusResponse';
 
+export { $ApiResponse } from './schemas/$ApiResponse';
+export { $ErrorDetail } from './schemas/$ErrorDetail';
+export { $ResponseMeta } from './schemas/$ResponseMeta';
 export { $WorkflowDefinitionResponse } from './schemas/$WorkflowDefinitionResponse';
 export { $WorkflowExecutionRequest } from './schemas/$WorkflowExecutionRequest';
 export { $WorkflowExecutionResponse } from './schemas/$WorkflowExecutionResponse';

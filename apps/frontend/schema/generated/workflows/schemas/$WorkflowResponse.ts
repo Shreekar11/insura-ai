@@ -18,9 +18,6 @@ export const $WorkflowResponse = {
         key: {
             type: 'string',
         },
-        status: {
-            type: 'string',
-        },
         created_at: {
             type: 'string',
             format: 'date-time',

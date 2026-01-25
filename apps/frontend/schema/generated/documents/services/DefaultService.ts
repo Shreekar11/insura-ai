@@ -2,6 +2,7 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { ApiResponse } from '../models/ApiResponse';
 import type { DocumentResponse } from '../models/DocumentResponse';
 import type { EntityResponse } from '../models/EntityResponse';
 import type { SectionResponse } from '../models/SectionResponse';
@@ -12,19 +13,26 @@ export class DefaultService {
     /**
      * Upload document
      * @param formData
-     * @returns DocumentResponse Document uploaded
+     * @returns any Document uploaded
      * @throws ApiError
      */
     public static uploadDocument(
         formData?: {
             file?: Blob;
         },
-    ): CancelablePromise<DocumentResponse> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: DocumentResponse;
+    })> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/documents/upload',
             formData: formData,
             mediaType: 'multipart/form-data',
+            errors: {
+                400: `Invalid request`,
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
         });
     }
     /**
@@ -37,10 +45,12 @@ export class DefaultService {
     public static listDocuments(
         limit: number = 50,
         offset?: number,
-    ): CancelablePromise<{
-        total?: number;
-        documents?: Array<DocumentResponse>;
-    }> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            total?: number;
+            documents?: Array<DocumentResponse>;
+        };
+    })> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/documents',
@@ -48,22 +58,33 @@ export class DefaultService {
                 'limit': limit,
                 'offset': offset,
             },
+            errors: {
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
         });
     }
     /**
      * Get document details
      * @param documentId
-     * @returns DocumentResponse Document details
+     * @returns any Document details
      * @throws ApiError
      */
     public static getDocument(
         documentId: string,
-    ): CancelablePromise<DocumentResponse> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: DocumentResponse;
+    })> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/documents/{document_id}',
             path: {
                 'document_id': documentId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
+                500: `Internal server error`,
             },
         });
     }
@@ -75,12 +96,19 @@ export class DefaultService {
      */
     public static deleteDocument(
         documentId: string,
-    ): CancelablePromise<any> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: Record<string, any> | null;
+    })> {
         return __request(OpenAPI, {
             method: 'DELETE',
             url: '/api/v1/documents/{document_id}',
             path: {
                 'document_id': documentId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
+                500: `Internal server error`,
             },
         });
     }
@@ -94,10 +122,12 @@ export class DefaultService {
     public static getDocumentEntities(
         documentId: string,
         entityType?: string,
-    ): CancelablePromise<{
-        total?: number;
-        entities?: Array<EntityResponse>;
-    }> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            total?: number;
+            entities?: Array<EntityResponse>;
+        };
+    })> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/documents/{document_id}/entities',
@@ -106,6 +136,11 @@ export class DefaultService {
             },
             query: {
                 'entity_type': entityType,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
+                500: `Internal server error`,
             },
         });
     }
@@ -117,14 +152,21 @@ export class DefaultService {
      */
     public static getDocumentSections(
         documentId: string,
-    ): CancelablePromise<{
-        sections?: Array<SectionResponse>;
-    }> {
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            sections?: Array<SectionResponse>;
+        };
+    })> {
         return __request(OpenAPI, {
             method: 'GET',
             url: '/api/v1/documents/{document_id}/sections',
             path: {
                 'document_id': documentId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
+                500: `Internal server error`,
             },
         });
     }

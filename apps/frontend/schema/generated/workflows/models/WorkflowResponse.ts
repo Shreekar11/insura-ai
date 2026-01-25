@@ -7,7 +7,6 @@ export type WorkflowResponse = {
     definition_id?: string;
     name?: string;
     key?: string;
-    status?: string;
     created_at?: string;
     updated_at?: string;
 };

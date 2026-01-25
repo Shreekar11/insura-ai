@@ -8,11 +8,5 @@ export const $WorkflowExecutionResponse = {
             type: 'string',
             format: 'uuid',
         },
-        status: {
-            type: 'string',
-        },
-        message: {
-            type: 'string',
-        },
     },
 } as const;

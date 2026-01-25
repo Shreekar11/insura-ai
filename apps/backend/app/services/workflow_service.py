@@ -17,7 +17,7 @@ from app.utils.logging import get_logger
 from app.services.base_service import BaseService
 from app.services.storage_service import StorageService
 from app.core.exceptions import ValidationError, AppError
-from app.schemas.generated.workflows import WorkflowResponse, WorkflowExecutionResponse
+from app.schemas.generated.workflows import Workflow, WorkflowResponse, WorkflowExecutionResponse
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.step_repository import StepEntityOutputRepository, StepSectionOutputRepository
 from app.core.temporal_client import get_temporal_client
@@ -600,7 +600,7 @@ class WorkflowService(BaseService):
         return {
             "total": total,
             "workflows": [
-                WorkflowResponse(
+                Workflow(
                     id=wf.id,
                     definition_id=wf.workflow_definition_id,
                     name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",

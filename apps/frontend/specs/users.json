@@ -1,126 +1,247 @@
 {
-    "openapi": "3.0.3",
-    "info": {
-        "title": "User API",
-        "version": "1.0.0",
-        "description": "API for user profile management and authentication sync."
-    },
-    "paths": {
-        "/api/v1/users/whoami": {
-            "get": {
-                "summary": "Get current user profile",
-                "operationId": "get_whoami",
-                "responses": {
-                    "200": {
-                        "description": "User profile retrieved successfully",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/UserProfile"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized"
-                    }
-                },
-                "security": [
+  "openapi": "3.0.3",
+  "info": {
+    "title": "User API",
+    "version": "1.0.0",
+    "description": "API for user profile management and authentication sync."
+  },
+  "paths": {
+    "/api/v1/users/whoami": {
+      "get": {
+        "summary": "Get current user profile",
+        "operationId": "get_whoami",
+        "responses": {
+          "200": {
+            "description": "User profile retrieved successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
                     {
-                        "bearerAuth": []
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/UserProfile" }
+                      }
                     }
-                ]
-            }
-        },
-        "/api/v1/users/sync": {
-            "post": {
-                "summary": "Sync user with database",
-                "operationId": "sync_user",
-                "responses": {
-                    "200": {
-                        "description": "User synced successfully",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "$ref": "#/components/schemas/UserProfile"
-                                }
-                            }
-                        }
-                    },
-                    "401": {
-                        "description": "Unauthorized"
-                    }
-                },
-                "security": [
-                    {
-                        "bearerAuth": []
-                    }
-                ]
-            }
-        },
-        "/api/v1/users/logout": {
-            "get": {
-                "summary": "Logout user",
-                "operationId": "logout_user",
-                "responses": {
-                    "200": {
-                        "description": "Logged out successfully",
-                        "content": {
-                            "application/json": {
-                                "schema": {
-                                    "type": "object",
-                                    "properties": {
-                                        "message": {
-                                            "type": "string"
-                                        },
-                                        "status": {
-                                            "type": "string"
-                                        }
-                                    }
-                                }
-                            }
-                        }
-                    }
+                  ]
                 }
+              }
             }
-        }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
     },
-    "components": {
-        "securitySchemes": {
-            "bearerAuth": {
-                "type": "http",
-                "scheme": "bearer",
-                "bearerFormat": "JWT"
-            }
-        },
-        "schemas": {
-            "UserProfile": {
-                "type": "object",
-                "required": [
-                    "id",
-                    "email",
-                    "full_name",
-                    "created_at"
-                ],
-                "properties": {
-                    "id": {
-                        "type": "string",
-                        "description": "Supabase User ID"
-                    },
-                    "email": {
-                        "type": "string",
-                        "format": "email"
-                    },
-                    "full_name": {
-                        "type": "string",
-                        "nullable": true
-                    },
-                    "created_at": {
-                        "type": "string",
-                        "format": "date-time"
+    "/api/v1/users/sync": {
+      "post": {
+        "summary": "Sync user with database",
+        "operationId": "sync_user",
+        "responses": {
+          "200": {
+            "description": "User synced successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": { "$ref": "#/components/schemas/UserProfile" }
+                      }
                     }
+                  ]
                 }
+              }
             }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
+    "/api/v1/users/logout": {
+      "get": {
+        "summary": "Logout user",
+        "operationId": "logout_user",
+        "responses": {
+          "200": {
+            "description": "Logged out successfully",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "message": { "type": "string" }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorDetail"
+                }
+              }
+            }
+          }
         }
+      }
     }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "UserProfile": {
+        "type": "object",
+        "required": ["id", "email", "full_name", "created_at"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "description": "Supabase User ID"
+          },
+          "email": {
+            "type": "string",
+            "format": "email"
+          },
+          "full_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ApiResponse": {
+        "type": "object",
+        "properties": {
+          "status": {
+            "type": "boolean"
+          },
+          "message": {
+            "type": "string"
+          },
+          "data": {
+            "type": "object"
+          },
+          "meta": {
+            "$ref": "#/components/schemas/ResponseMeta"
+          }
+        },
+        "required": ["status", "message", "data", "meta"]
+      },
+      "ResponseMeta": {
+        "type": "object",
+        "properties": {
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "api_version": {
+            "type": "string",
+            "default": "v1"
+          }
+        },
+        "required": ["timestamp", "request_id", "api_version"]
+      },
+      "ErrorDetail": {
+        "type": "object",
+        "properties": {
+          "title": {
+            "type": "string"
+          },
+          "status": {
+            "type": "integer"
+          },
+          "detail": {
+            "type": "string"
+          },
+          "instance": {
+            "type": "string",
+            "nullable": true
+          },
+          "request_id": {
+            "type": "string"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        },
+        "required": ["title", "status", "detail", "request_id", "timestamp"]
+      }
+    }
+  }
 }

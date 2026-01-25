@@ -7,6 +7,6 @@ export type DocumentResponse = {
     status: string;
     file_path: string;
     page_count?: number | null;
-    uploaded_at: string;
+    created_at: string;
 };
 
