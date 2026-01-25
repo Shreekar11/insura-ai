@@ -6,7 +6,7 @@ import { DefaultService, WorkflowListItem } from "@/schema/generated/workflows";
  *
  * @param {number} limit - The number of workflows to fetch
  * @param {number} offset - The offset for pagination
- * @returns {Object} An object containing the workflows, loading state, error state, and refetch function
+ * @returns {Object} An object containing the workflows, total count, loading state, error state, and refetch function
  */
 export const useWorkflows = (limit: number = 10, offset: number = 0) => {
   return useQuery({
@@ -18,7 +18,10 @@ export const useWorkflows = (limit: number = 10, offset: number = 0) => {
         throw new Error("Failed to fetch workflows");
       }
 
-      return (response.data?.workflows || []) as WorkflowListItem[];
+      return {
+        workflows: (response.data?.workflows || []) as WorkflowListItem[],
+        total: response.data?.total || 0,
+      };
     },
     staleTime: 1000 * 60 * 5, // Consider data fresh for 5 minutes
     gcTime: 1000 * 60 * 10, // Keep unused data in cache for 10 minutes

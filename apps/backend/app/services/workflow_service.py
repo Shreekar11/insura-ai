@@ -791,6 +791,17 @@ class WorkflowService(BaseService):
             } for d in definitions
         ]
 
+    async def fetch_definition_by_id(self, definition_id) -> Dict[str, Any]:
+        """Get workflow definition by id"""
+
+        definition = await self.def_repo.get_by_definition_id(definition_id)
+        return {
+            "id": definition.id,
+            "key": definition.workflow_key,
+            "name": definition.display_name,
+            "description": definition.description
+        }
+
     async def get_workflow_extraction(
         self, 
         workflow_id: UUID, 

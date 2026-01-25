@@ -25,3 +25,20 @@ export const useWorkflowDefinitions = () => {
     refetchOnWindowFocus: true,
   });
 };
+
+export const useWorkflowDefinitionById = (workflowDefinitionId: string) => {
+  return useQuery({
+    queryKey: ["workflow-definition", workflowDefinitionId],
+    queryFn: async () => {
+      const response = await DefaultService.getWorkflowDefinitionById(workflowDefinitionId);
+      if (!response?.status) {
+        throw new Error("Failed to fetch workflow definition");
+      }
+      return response.data?.definition as WorkflowDefinitionResponse;
+    },
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
+};

@@ -88,6 +88,30 @@ export class DefaultService {
         });
     }
     /**
+     * Get workflow definition by id
+     * @param workflowDefinitionId
+     * @returns any Workflow definition
+     * @throws ApiError
+     */
+    public static getWorkflowDefinitionById(
+        workflowDefinitionId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            definition?: WorkflowDefinitionResponse;
+        };
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/definitions/{workflow_definition_id}',
+            path: {
+                'workflow_definition_id': workflowDefinitionId,
+            },
+            errors: {
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
      * Get workflow details
      * @param workflowId
      * @returns any Workflow details

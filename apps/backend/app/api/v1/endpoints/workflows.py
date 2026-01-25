@@ -161,6 +161,33 @@ async def get_workflow_definitions(
         request=request
     )
 
+@router.get(
+    "/definitions/{workflow_definition_id}",     
+    response_model=ApiResponse,
+    summary="Get workflow definition by id",
+    operation_id="get_workflow_definition_by_id"
+)
+async def get_workflow_definition_by_id(
+    request: Request,
+    workflow_definition_id: UUID,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Retrieve workflow definition by id"""
+    definition = await workflow_service.fetch_definition_by_id(workflow_definition_id)
+    if not definition:
+        error_detail = create_error_detail(
+            title="Workflow definition Not Found",
+            status=status.HTTP_404_NOT_FOUND,
+            detail=f"Workflow definition with ID {workflow_definition_id} not found",
+            request=request
+        )
+        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        
+    return create_api_response(
+        data={"definition": definition},
+        message="Workflow definition details retrieved successfully",
+        request=request
+    )
 
 @router.get(
     "/{workflow_id}",

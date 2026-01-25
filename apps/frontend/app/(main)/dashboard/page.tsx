@@ -1,5 +1,7 @@
 "use client";
 
+import * as React from "react";
+
 import { DataTable } from "@/components/custom/data-table";
 import { workflowColumns } from "@/components/custom/workflow-columns";
 import { DashboardHeader } from "@/components/custom/dashboard-header";
@@ -8,7 +10,18 @@ import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 
 export default function Page() {
-  const { data: workflows, isLoading, error, refetch } = useWorkflows();
+  const [pagination, setPagination] = React.useState({
+    pageIndex: 0,
+    pageSize: 10,
+  });
+
+  const { data, isLoading, error, refetch } = useWorkflows(
+    pagination.pageSize,
+    pagination.pageIndex * pagination.pageSize
+  );
+
+  const workflowsResult = data || { workflows: [], total: 0 };
+  const pageCount = Math.ceil(workflowsResult.total / pagination.pageSize);
 
   if (isLoading) {
     return (
@@ -40,13 +53,17 @@ export default function Page() {
 
   return (
     <div className="flex flex-col gap-2">
-      <DashboardHeader workflows={workflows || []} userName="Shreekar" />
+      <DashboardHeader workflows={workflowsResult.workflows} userName="Shreekar" />
       <div className="px-4 lg:px-6 pb-12">
         <DataTable
-          data={workflows || []}
+          data={workflowsResult.workflows}
           columns={workflowColumns}
           addLabel="New Workflow"
           onAddClick={() => console.log("New workflow clicked")}
+          manualPagination={true}
+          pageCount={pageCount}
+          paginationState={pagination}
+          onPaginationChange={setPagination}
         />
       </div>
     </div>

@@ -1,10 +1,5 @@
 import { AppSidebar } from "@/components/layout/app-sidebar";
-import {
-  Breadcrumb,
-  BreadcrumbItem,
-  BreadcrumbLink,
-  BreadcrumbList,
-} from "@/components/ui/breadcrumb";
+import { DynamicBreadcrumb } from "@/components/layout/dynamic-breadcrumb";
 import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
@@ -30,13 +25,7 @@ export default function DashboardLayout({
                 orientation="vertical"
                 className="mr-2 data-[orientation=vertical]:h-4"
               />
-              <Breadcrumb>
-                <BreadcrumbList>
-                  <BreadcrumbItem className="hidden md:block">
-                    <BreadcrumbLink href="/dashboard">Dashboard</BreadcrumbLink>
-                  </BreadcrumbItem>
-                </BreadcrumbList>
-              </Breadcrumb>
+              <DynamicBreadcrumb />
             </div>
           </header>
           {children}

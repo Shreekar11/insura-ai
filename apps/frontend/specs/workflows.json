@@ -204,6 +204,58 @@
         }
       }
     },
+    "/api/v1/workflows/definitions/{workflow_definition_id}": {
+      "get": {
+        "summary": "Get workflow definition by id",
+        "operationId": "get_workflow_definition_by_id",
+        "parameters": [
+          {
+            "name": "workflow_definition_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Workflow definition",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "type": "object",
+                          "properties": {
+                            "definition": {
+                              "$ref": "#/components/schemas/WorkflowDefinitionResponse"
+                            }
+                          }
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        }
+      }
+    },
     "/api/v1/workflows/{workflow_id}": {
       "get": {
         "summary": "Get workflow details",

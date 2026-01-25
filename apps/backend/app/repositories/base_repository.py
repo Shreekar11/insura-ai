@@ -55,7 +55,7 @@ class BaseRepository(Generic[ModelType]):
     async def get_all(
         self, 
         skip: int = 0, 
-        limit: int = 100,
+        limit: int = 200,
         filters: Optional[Dict[str, Any]] = None
     ) -> List[ModelType]:
         """Get all records with optional pagination and filtering.
