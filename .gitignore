@@ -89,8 +89,6 @@ yarn-error.log*
 # turbo
 .turbo
 
-.cursor
-
 # typescript
 *.tsbuildinfo
 next-env.d.ts
