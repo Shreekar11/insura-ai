@@ -116,6 +116,13 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         self._progress = 1.0
         self._current_step = "completed"
 
+        # Persist status to database
+        await workflow.execute_activity(
+            "update_workflow_status",
+            args=[workflow_id, "completed"],
+            start_to_close_timeout=timedelta(minutes=1),
+        )
+
         return {
             "status": persist_result.get("status"),
             "workflow_id": str(workflow_id),

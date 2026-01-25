@@ -516,40 +516,182 @@
         "type": "object",
         "properties": {
           "total": {
-            "type": "number"
+            "type": "integer"
           },
           "workflows": {
             "type": "array",
             "items": {
-              "type": "object",
-              "properties": {
-                "id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "definition_id": {
-                  "type": "string",
-                  "format": "uuid"
-                },
-                "name": {
-                  "type": "string"
-                },
-                "key": {
-                  "type": "string"
-                },
-                "status": {
-                  "type": "string"
-                },
-                "created_at": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "updated_at": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              }
+              "$ref": "#/components/schemas/WorkflowListItem"
             }
+          }
+        }
+      },
+      "WorkflowListItem": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "temporal_workflow_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "workflow_name": {
+            "type": "string"
+          },
+          "workflow_type": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/WorkflowMetrics"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            }
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageMetrics"
+            }
+          },
+          "recent_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventLogItem"
+            }
+          }
+        }
+      },
+      "StageMetrics": {
+        "type": "object",
+        "properties": {
+          "stage_name": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "completed_at": {
+            "type": "string",
+            "format": "date-time",
+            "nullable": true
+          },
+          "duration_seconds": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "DocumentSummary": {
+        "type": "object",
+        "properties": {
+          "document_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "file_name": {
+            "type": "string"
+          },
+          "page_count": {
+            "type": "integer",
+            "nullable": true
+          },
+          "status": {
+            "type": "string"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "WorkflowMetrics": {
+        "type": "object",
+        "properties": {
+          "documents_total": {
+            "type": "integer"
+          },
+          "documents_completed": {
+            "type": "integer"
+          },
+          "documents_failed": {
+            "type": "integer"
+          },
+          "documents_processing": {
+            "type": "integer"
+          },
+          "progress_percent": {
+            "type": "integer"
+          },
+          "total_duration_seconds": {
+            "type": "number",
+            "nullable": true
+          }
+        }
+      },
+      "EventLogItem": {
+        "type": "object",
+        "properties": {
+          "event_type": {
+            "type": "string"
+          },
+          "event_payload": {
+            "type": "object",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "Workflow": {
+        "type": "object",
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "definition_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "name": {
+            "type": "string"
+          },
+          "key": {
+            "type": "string"
+          },
+          "status": {
+            "type": "string"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time"
           }
         }
       },

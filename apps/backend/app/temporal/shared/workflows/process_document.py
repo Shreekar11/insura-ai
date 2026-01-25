@@ -1,6 +1,7 @@
 """Parent workflow orchestrating the entire document processing pipeline."""
 
 from temporalio import workflow
+from datetime import timedelta
 from typing import Optional, Dict
 
 from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
@@ -53,6 +54,13 @@ class ProcessDocumentWorkflow(DocumentProcessingMixin):
         
         self._status = "completed"
         self._progress = 1.0
+
+        # Persist status to database
+        await workflow.execute_activity(
+            "update_workflow_status",
+            args=[workflow_id, "completed"],
+            start_to_close_timeout=timedelta(minutes=1),
+        )
 
         return {
             "status": self._status,

@@ -5,10 +5,42 @@ from temporalio import activity
 from typing import Optional
 from app.core.database import async_session_maker
 from app.repositories.stages_repository import StagesRepository
+from app.repositories.workflow_repository import WorkflowRepository
 from app.utils.logging import get_logger
 from app.temporal.core.activity_registry import ActivityRegistry
 
 LOGGER = get_logger(__name__)
+
+
+@ActivityRegistry.register("shared", "update_workflow_status")
+@activity.defn
+async def update_workflow_status(
+    workflow_id: str,
+    status: str  # "completed" | "failed"
+) -> bool:
+    """Update workflow status in the database.
+    
+    This activity should be called at the end of workflow execution
+    to persist the final status to the database.
+    
+    Args:
+        workflow_id: UUID of the workflow to update (as string)
+        status: New status value ("completed" or "failed")
+        
+    Returns:
+        True if update was successful
+    """
+    LOGGER.info(f"Updating workflow {workflow_id} status to: {status}")
+    async with async_session_maker() as session:
+        wf_repo = WorkflowRepository(session)
+        await wf_repo.update_status(
+            workflow_id=UUID(workflow_id),
+            status=status
+        )
+        await session.commit()
+        LOGGER.info(f"Workflow {workflow_id} status updated to: {status}")
+        return True
+
 
 @ActivityRegistry.register("shared", "update_stage_status")
 @activity.defn

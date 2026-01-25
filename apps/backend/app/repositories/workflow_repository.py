@@ -71,6 +71,39 @@ class WorkflowRepository(BaseRepository[Workflow]):
         result = await self.session.execute(query)
         return result.scalars().all()
 
+    async def get_all_with_relationships(
+        self,
+        skip: int = 0,
+        limit: int = 50,
+        filters: Optional[dict[str, Any]] = None,
+        include_documents: bool = True,
+        include_stages: bool = True,
+        include_events: bool = True
+    ) -> Sequence[Workflow]:
+        """Fetch workflows with selective eager loading of relationships."""
+        query = select(Workflow).options(selectinload(Workflow.workflow_definition))
+        
+        if include_documents:
+            query = query.options(
+                selectinload(Workflow.workflow_documents).selectinload(WorkflowDocument.document)
+            )
+        
+        if include_stages:
+            query = query.options(selectinload(Workflow.stage_runs))
+            
+        if include_events:
+            query = query.options(selectinload(Workflow.events))
+            
+        if filters:
+            for key, value in filters.items():
+                if hasattr(Workflow, key):
+                    query = query.where(getattr(Workflow, key) == value)
+                    
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
     async def update_temporal_id(
         self,
         workflow_id: uuid.UUID,

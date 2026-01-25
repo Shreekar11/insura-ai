@@ -612,6 +612,147 @@ class WorkflowService(BaseService):
             ]
         }
 
+    async def list_workflows_enhanced(
+        self, 
+        user_id: UUID, 
+        limit: int = 50, 
+        offset: int = 0,
+        include_documents: bool = True,
+        include_stages: bool = True,
+        include_events: bool = True,
+        events_limit: int = 5
+    ) -> Dict[str, Any]:
+        """List workflows with comprehensive dashboard data."""
+        filters = {"user_id": user_id}
+        workflows = await self.wf_repo.get_all_with_relationships(
+            skip=offset, 
+            limit=limit, 
+            filters=filters,
+            include_documents=include_documents,
+            include_stages=include_stages,
+            include_events=include_events
+        )
+        total = await self.wf_repo.count(filters=filters)
+        
+        workflow_items = []
+        for wf in workflows:
+            item = await self._build_workflow_list_item(
+                wf, 
+                include_documents=include_documents,
+                include_stages=include_stages,
+                include_events=include_events,
+                events_limit=events_limit
+            )
+            workflow_items.append(item)
+            
+        return {
+            "total": total,
+            "workflows": workflow_items
+        }
+
+    async def _build_workflow_list_item(
+        self,
+        workflow: Any,
+        include_documents: bool,
+        include_stages: bool,
+        include_events: bool,
+        events_limit: int = 5
+    ) -> Dict[str, Any]:
+        """Build enhanced workflow item with metrics."""
+        
+        # Calculate metrics
+        metrics = await self._calculate_workflow_metrics(workflow)
+        
+        # Build documents list
+        documents = []
+        if include_documents and workflow.workflow_documents:
+            for wd in workflow.workflow_documents:
+                doc = wd.document
+                documents.append({
+                    "document_id": doc.id,
+                    "file_name": doc.file_path.split("/")[-1],
+                    "page_count": doc.page_count,
+                    "status": doc.status,
+                    "uploaded_at": doc.uploaded_at
+                })
+                
+        # Build stages list
+        stages = []
+        if include_stages and workflow.stage_runs:
+            for sr in workflow.stage_runs:
+                duration = None
+                if sr.started_at and sr.completed_at:
+                    duration = (sr.completed_at - sr.started_at).total_seconds()
+                
+                stages.append({
+                    "stage_name": sr.stage_name,
+                    "status": sr.status,
+                    "started_at": sr.started_at,
+                    "completed_at": sr.completed_at,
+                    "duration_seconds": duration
+                })
+                
+        # Build events list
+        events = []
+        if include_events and workflow.events:
+            # Sort events by created_at desc and take top N
+            sorted_events = sorted(workflow.events, key=lambda e: e.created_at, reverse=True)
+            for event in sorted_events[:events_limit]:
+                events.append({
+                    "event_type": event.event_type,
+                    "event_payload": event.event_payload,
+                    "created_at": event.created_at
+                })
+                
+        return {
+            "id": workflow.id,
+            "temporal_workflow_id": workflow.temporal_workflow_id,
+            "workflow_name": workflow.workflow_definition.display_name if workflow.workflow_definition else "Unknown",
+            "workflow_type": workflow.workflow_definition.workflow_key if workflow.workflow_definition else "unknown",
+            "status": workflow.status,
+            "metrics": metrics,
+            "created_at": workflow.created_at,
+            "updated_at": workflow.updated_at,
+            "documents": documents,
+            "stages": stages,
+            "recent_events": events
+        }
+        
+    async def _calculate_workflow_metrics(self, workflow: Any) -> Dict[str, Any]:
+        """Calculate document processing metrics for a workflow."""
+        total_docs = len(workflow.workflow_documents) if workflow.workflow_documents else 0
+        completed_docs = 0
+        failed_docs = 0
+        processing_docs = 0
+        
+        if workflow.workflow_documents:
+            for wd in workflow.workflow_documents:
+                status = wd.document.status
+                if status == "extracted":
+                    completed_docs += 1
+                elif status == "failed":
+                    failed_docs += 1
+                else:
+                    processing_docs += 1
+                    
+        progress = 0
+        if total_docs > 0:
+            progress = int((completed_docs / total_docs) * 100)
+            
+        # Calculate total duration if completed
+        total_duration = None
+        if workflow.status == "completed":
+            total_duration = (workflow.updated_at - workflow.created_at).total_seconds()
+            
+        return {
+            "documents_total": total_docs,
+            "documents_completed": completed_docs,
+            "documents_failed": failed_docs,
+            "documents_processing": processing_docs,
+            "progress_percent": progress,
+            "total_duration_seconds": total_duration
+        }
+
     async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[WorkflowResponse]:
         """Get workflow details.
         
