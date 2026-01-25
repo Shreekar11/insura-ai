@@ -1,0 +1,28 @@
+import { useQuery } from "@tanstack/react-query";
+import { DefaultService, WorkflowListItem } from "@/schema/generated/workflows";
+
+/**
+ * Custom hook to fetch workflows using TanStack Query
+ *
+ * @param {number} limit - The number of workflows to fetch
+ * @param {number} offset - The offset for pagination
+ * @returns {Object} An object containing the workflows, loading state, error state, and refetch function
+ */
+export const useWorkflows = (limit: number = 10, offset: number = 0) => {
+  return useQuery({
+    queryKey: ["workflows", limit, offset],
+    queryFn: async () => {
+      const response = await DefaultService.listWorkflows(limit, offset);
+
+      if (!response?.status) {
+        throw new Error("Failed to fetch workflows");
+      }
+
+      return (response.data?.workflows || []) as WorkflowListItem[];
+    },
+    staleTime: 1000 * 60 * 5, // Consider data fresh for 5 minutes
+    gcTime: 1000 * 60 * 10, // Keep unused data in cache for 10 minutes
+    retry: 2, // Retry failed requests twice
+    refetchOnWindowFocus: true, // Refetch when window regains focus
+  });
+};

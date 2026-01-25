@@ -2,16 +2,9 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { WorkflowListItem } from './WorkflowListItem';
 export type WorkflowListResponse = {
     total?: number;
-    workflows?: Array<{
-        id?: string;
-        definition_id?: string;
-        name?: string;
-        key?: string;
-        status?: string;
-        created_at?: string;
-        updated_at?: string;
-    }>;
+    workflows?: Array<WorkflowListItem>;
 };
 

@@ -4,45 +4,24 @@ import {
   WorkflowDefinitionResponse,
 } from "@/schema/generated/workflows";
 
+/**
+ * Custom hook to fetch workflow definitions using TanStack Query
+ *
+ * @returns {Object} An object containing the workflow definitions, loading state, error state, and refetch function
+ */
 export const useWorkflowDefinitions = () => {
-  try {
-    const fetchWorkflowDefinitions = async () => {
+  return useQuery({
+    queryKey: ["workflow-definitions"],
+    queryFn: async () => {
       const response = await DefaultService.getWorkflowDefinitions();
-      return response;
-    };
-
-    const {
-      data: response,
-      isPending,
-      isSuccess,
-      isError,
-      error,
-    } = useQuery({
-      queryKey: ["workflow-definitions"],
-      queryFn: fetchWorkflowDefinitions,
-    });
-
-    if (!response?.status) {
-      throw new Error("Failed to fetch workflow definitions");
-    }
-
-    const data: WorkflowDefinitionResponse[] = response.data?.definitions || [];
-
-    return {
-      data,
-      isPending,
-      isSuccess,
-      isError,
-      error,
-    };
-  } catch (error) {
-    console.error("Error fetching workflow definitions:", error);
-    return {
-      data: [],
-      isPending: false,
-      isSuccess: false,
-      isError: true,
-      error,
-    };
-  }
+      if (!response?.status) {
+        throw new Error("Failed to fetch workflow definitions");
+      }
+      return (response.data?.definitions || []) as WorkflowDefinitionResponse[];
+    },
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
 };

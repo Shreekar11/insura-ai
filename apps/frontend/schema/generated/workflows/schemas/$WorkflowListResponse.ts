@@ -10,33 +10,7 @@ export const $WorkflowListResponse = {
         workflows: {
             type: 'array',
             contains: {
-                properties: {
-                    id: {
-                        type: 'string',
-                        format: 'uuid',
-                    },
-                    definition_id: {
-                        type: 'string',
-                        format: 'uuid',
-                    },
-                    name: {
-                        type: 'string',
-                    },
-                    key: {
-                        type: 'string',
-                    },
-                    status: {
-                        type: 'string',
-                    },
-                    created_at: {
-                        type: 'string',
-                        format: 'date-time',
-                    },
-                    updated_at: {
-                        type: 'string',
-                        format: 'date-time',
-                    },
-                },
+                type: 'WorkflowListItem',
             },
         },
     },

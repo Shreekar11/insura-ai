@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GalleryVerticalEnd, FileText, Shield, FileWarning, Blocks } from "lucide-react";
+import { GalleryVerticalEnd, FileText, Blocks } from "lucide-react";
 import { IconChartBar, IconReport, IconFileWord } from "@tabler/icons-react";
 
 import { NavUser } from "@/components/layout/nav-user";
@@ -31,12 +31,11 @@ const data = {
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const {
-    data: workflowDef,
-    isPending,
-    isSuccess,
-    isError,
+    data: workflowDefinitions,
+    isLoading,
     error,
   } = useWorkflowDefinitions();
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader>
@@ -69,7 +68,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
             <SidebarGroupLabel>Workflows</SidebarGroupLabel>
             <SidebarMenu>
-                {workflowDef?.map((item, index) => {
+                {workflowDefinitions?.map((item, index) => {
                 const Icon = item.name?.toLowerCase().includes("policy")
                     ? IconReport
                     : item.name?.toLowerCase().includes("proposal")

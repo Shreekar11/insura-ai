@@ -1,0 +1,133 @@
+"use client"
+
+import { ColumnDef } from "@tanstack/react-table"
+import { WorkflowListItem } from "@/schema/generated/workflows"
+import { Badge } from "@/components/ui/badge"
+import { Progress } from "@/components/ui/progress"
+import { 
+  IconCircleCheckFilled, 
+  IconLoader2, 
+  IconCircleXFilled,
+  IconDotsVertical,
+  IconClock
+} from "@tabler/icons-react"
+import { format } from "date-fns"
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu"
+import { Button } from "@/components/ui/button"
+
+export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
+  {
+    accessorKey: "workflow_name",
+    header: "Workflow",
+    cell: ({ row }) => {
+      const name = row.getValue("workflow_name") as string
+      const id = row.original.id
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium text-foreground">{name}</span>
+          <span className="text-xs text-muted-foreground font-mono">{id?.slice(0, 8)}...</span>
+        </div>
+      )
+    }
+  },
+  {
+    accessorKey: "status",
+    header: "Status",
+    cell: ({ row }) => {
+      const status = row.getValue("status") as string
+      
+      const statusConfig: Record<string, { label: string, icon: any, color: string }> = {
+        running: { 
+          label: "Running", 
+          icon: <IconLoader2 className="size-3.5 animate-spin" />, 
+          color: "text-blue-500 bg-blue-500/10 border-blue-500/20" 
+        },
+        completed: { 
+          label: "Completed", 
+          icon: <IconCircleCheckFilled className="size-3.5" />, 
+          color: "text-emerald-500 bg-emerald-500/10 border-emerald-500/20" 
+        },
+        failed: { 
+          label: "Failed", 
+          icon: <IconCircleXFilled className="size-3.5" />, 
+          color: "text-red-500 bg-red-500/10 border-red-500/20" 
+        },
+        pending: { 
+          label: "Pending", 
+          icon: <IconClock className="size-3.5" />, 
+          color: "text-amber-500 bg-amber-500/10 border-amber-500/20" 
+        }
+      }
+
+      const config = statusConfig[status.toLowerCase()] || { 
+        label: status, 
+        icon: null, 
+        color: "text-gray-500 bg-gray-500/10 border-gray-500/20" 
+      }
+
+      return (
+        <Badge variant="outline" className={`${config.color} gap-1.5 px-2 py-0.5 font-medium`}>
+          {config.icon}
+          {config.label}
+        </Badge>
+      )
+    }
+  },
+  {
+    id: "progress",
+    header: "Progress",
+    cell: ({ row }) => {
+      const progress = row.original.metrics?.progress_percent || 0
+      return (
+        <div className="flex items-center gap-3 w-[140px]">
+          <Progress value={progress} className="h-1.5" />
+          <span className="text-xs font-medium text-muted-foreground w-8">{progress}%</span>
+        </div>
+      )
+    }
+  },
+  {
+    accessorKey: "created_at",
+    header: "Started",
+    cell: ({ row }) => {
+      const dateString = row.getValue("created_at") as string
+      if (!dateString) return <span className="text-muted-foreground">-</span>
+      return (
+        <div className="text-sm text-muted-foreground">
+          {format(new Date(dateString), "MMM d, h:mm a")}
+        </div>
+      )
+    }
+  },
+  {
+    id: "actions",
+    cell: ({ row }) => {
+      return (
+        <DropdownMenu>
+          <DropdownMenuTrigger asChild>
+            <Button variant="ghost" className="size-8 p-0">
+              <span className="sr-only">Open menu</span>
+              <IconDotsVertical className="size-4" />
+            </Button>
+          </DropdownMenuTrigger>
+          <DropdownMenuContent align="end" className="w-[160px]">
+            <DropdownMenuLabel>Actions</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => navigator.clipboard.writeText(row.original.id!)}>
+              Copy Workflow ID
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem>View details</DropdownMenuItem>
+            <DropdownMenuItem className="text-red-600">Cancel Workflow</DropdownMenuItem>
+          </DropdownMenuContent>
+        </DropdownMenu>
+      )
+    }
+  }
+]
