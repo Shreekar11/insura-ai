@@ -106,7 +106,7 @@ async def get_document(
             detail=f"Document with ID {document_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data=DocumentResponse(**document) if isinstance(document, dict) else document,
@@ -138,7 +138,7 @@ async def delete_document(
             detail=f"Document with ID {document_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
     
     return create_api_response(
         data=None,
@@ -171,7 +171,7 @@ async def get_document_entities(
             detail=f"Document with ID {document_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data=result,
@@ -203,7 +203,7 @@ async def get_document_sections(
             detail=f"Document with ID {document_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data={"sections": result},

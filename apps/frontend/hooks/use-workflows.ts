@@ -29,3 +29,24 @@ export const useWorkflows = (limit: number = 10, offset: number = 0) => {
     refetchOnWindowFocus: true, // Refetch when window regains focus
   });
 };
+
+export const useWorkflowsByDefinitionId = (workflowDefinitionId: string) => {
+  return useQuery({
+    queryKey: ["workflows", workflowDefinitionId],
+    queryFn: async () => {
+      const response =
+        await DefaultService.getAllWorkflows(workflowDefinitionId);
+      if (!response?.status) {
+        throw new Error("Failed to fetch workflows");
+      }
+      return {
+        workflows: (response.data?.workflows || []) as WorkflowListItem[],
+        total: response.data?.total || 0,
+      };
+    },
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
+};

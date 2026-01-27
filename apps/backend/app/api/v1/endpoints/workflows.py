@@ -90,7 +90,7 @@ async def execute_workflow(
             detail=str(e),
             request=request
         )
-        raise HTTPException(status_code=500, detail=error_detail.model_dump())
+        raise HTTPException(status_code=500, detail=error_detail.model_dump(mode='json'))
 
 
 @router.get(
@@ -144,6 +144,35 @@ async def list_workflows(
     )
 
 @router.get(
+    "/all/{workflow_definition_id}",
+    response_model=ApiResponse,
+    summary="Get all workflows for a workflow definition",
+    operation_id="get_all_workflows",
+)
+async def get_all_workflows(
+    request: Request,
+    workflow_definition_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Retrieve details of a specific workflow execution."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+    
+    wf = await workflow_service.get_all_workflows(workflow_definition_id, user.id)
+    
+    data = WorkflowListResponse(
+        total=len(wf),
+        workflows=wf,
+    )
+        
+    return create_api_response(
+        data=data,
+        message="Workflows for the given workflow definition retrieved successfully",
+        request=request
+    )
+
+@router.get(
     "/definitions",
     response_model=ApiResponse,
     summary="Get workflow definitions",
@@ -181,7 +210,7 @@ async def get_workflow_definition_by_id(
             detail=f"Workflow definition with ID {workflow_definition_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data={"definition": definition},
@@ -213,7 +242,7 @@ async def get_workflow(
             detail=f"Workflow with ID {workflow_id} not found",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data=WorkflowResponse(**wf) if isinstance(wf, dict) else wf,
@@ -267,7 +296,7 @@ async def get_extracted_data(
             detail=f"Extraction results not found for document {document_id} in workflow {workflow_id}",
             request=request
         )
-        raise HTTPException(status_code=404, detail=error_detail.model_dump())
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
         
     return create_api_response(
         data=result,

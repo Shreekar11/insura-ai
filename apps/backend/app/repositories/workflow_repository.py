@@ -19,6 +19,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
     async def create_workflow(
         self,
         workflow_definition_id: Optional[uuid.UUID] = None,
+        workflow_name: str = "Untitled",
         temporal_workflow_id: Optional[str] = None,
         status: str = "running",
         user_id: Optional[uuid.UUID] = None,
@@ -27,6 +28,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
         
         Args:
             workflow_definition_id: Optional workflow definition ID
+            workflow_name: Name of the workflow instance
             temporal_workflow_id: Optional Temporal workflow ID
             status: Workflow status (default: "running")
             user_id: Optional user ID
@@ -36,6 +38,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
         """
         return await self.create(
             workflow_definition_id=workflow_definition_id,
+            workflow_name=workflow_name,
             temporal_workflow_id=temporal_workflow_id,
             status=status,
             user_id=user_id,

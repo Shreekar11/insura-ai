@@ -12,10 +12,16 @@ export const $WorkflowResponse = {
             type: 'string',
             format: 'uuid',
         },
-        name: {
+        workflow_name: {
+            type: 'string',
+        },
+        definition_name: {
             type: 'string',
         },
         key: {
+            type: 'string',
+        },
+        status: {
             type: 'string',
         },
         created_at: {

@@ -10,6 +10,7 @@ export type WorkflowListItem = {
     id?: string;
     temporal_workflow_id?: string | null;
     workflow_name?: string;
+    definition_name?: string;
     workflow_type?: string;
     status?: string;
     metrics?: WorkflowMetrics;

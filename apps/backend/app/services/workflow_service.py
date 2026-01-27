@@ -127,6 +127,7 @@ class WorkflowService(BaseService):
         workflow_key: str,
         document_ids: List[UUID],
         user_id: UUID,
+        workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Execute a generic workflow by its key.
@@ -135,6 +136,7 @@ class WorkflowService(BaseService):
             workflow_key: Key of the workflow definition to execute
             document_ids: List of document IDs involved
             user_id: ID of the user initiating the workflow
+            workflow_name: Name of the workflow instance
             metadata: Optional metadata for the workflow
             
         Returns:
@@ -145,6 +147,7 @@ class WorkflowService(BaseService):
             workflow_key=workflow_key,
             document_ids=document_ids,
             user_id=user_id,
+            workflow_name=workflow_name,
             metadata=metadata
         )
 
@@ -170,6 +173,8 @@ class WorkflowService(BaseService):
                 raise ValidationError("document_ids are required")
             if not kwargs.get("user_id"):
                 raise ValidationError("user_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
 
     def _validate_start_extraction(
         self, 
@@ -258,6 +263,7 @@ class WorkflowService(BaseService):
             self.logger.info(f"Creating workflow run for definition: {definition.id}")
             workflow_run = await self.wf_repo.create_workflow(
                 workflow_definition_id=definition.id,
+                workflow_name="Document Extraction",
                 status="running",
                 user_id=user_id,
             )
@@ -474,6 +480,7 @@ class WorkflowService(BaseService):
         workflow_key: str,
         document_ids: List[UUID],
         user_id: UUID,
+        workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
     ) -> Dict[str, Any]:
         """Core logic for executing a generic workflow.
@@ -482,6 +489,7 @@ class WorkflowService(BaseService):
             workflow_key: Key of the workflow definition
             document_ids: List of document IDs
             user_id: User ID
+            workflow_name: Name of the workflow instance
             metadata: Optional metadata
             
         Returns:
@@ -492,11 +500,12 @@ class WorkflowService(BaseService):
             definition = await self.def_repo.get_by_key(workflow_key)
             if not definition:
                 raise ValidationError(f"Workflow definition {workflow_key} not found")
-
+ 
             # Step 2: Create workflow execution record
             self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
             workflow_run = await self.wf_repo.create_workflow(
                 workflow_definition_id=definition.id,
+                workflow_name=workflow_name,
                 status="running",
                 user_id=user_id,
             )
@@ -603,7 +612,8 @@ class WorkflowService(BaseService):
                 Workflow(
                     id=wf.id,
                     definition_id=wf.workflow_definition_id,
-                    name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
+                    workflow_name=wf.workflow_name,
+                    definition_name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
                     key=wf.workflow_definition.workflow_key if wf.workflow_definition else "unknown",
                     status=wf.status,
                     created_at=wf.created_at,
@@ -707,7 +717,8 @@ class WorkflowService(BaseService):
         return {
             "id": workflow.id,
             "temporal_workflow_id": workflow.temporal_workflow_id,
-            "workflow_name": workflow.workflow_definition.display_name if workflow.workflow_definition else "Unknown",
+            "workflow_name": workflow.workflow_name,
+            "definition_name": workflow.workflow_definition.display_name if workflow.workflow_definition else "Unknown",
             "workflow_type": workflow.workflow_definition.workflow_key if workflow.workflow_definition else "unknown",
             "status": workflow.status,
             "metrics": metrics,
@@ -770,6 +781,8 @@ class WorkflowService(BaseService):
         return WorkflowResponse(
             id=wf.id,
             definition_id=wf.workflow_definition_id,
+            workflow_name=wf.workflow_name,
+            definition_name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
             status=wf.status,
             created_at=wf.created_at,
             updated_at=wf.updated_at
@@ -790,6 +803,44 @@ class WorkflowService(BaseService):
                 "description": d.description
             } for d in definitions
         ]
+
+    async def get_all_workflows(self, workflow_definition_id: UUID, user_id: UUID) -> List[Dict[str, Any]]:
+        """Get all workflows for a workflow definition with enhanced data.
+        
+        Args:
+            workflow_definition_id: Workflow definition ID
+            user_id: User ID
+            
+        Returns:
+            List of workflows with enhanced data
+        """
+        filters = {
+            "workflow_definition_id": workflow_definition_id,
+            "user_id": user_id
+        }
+        
+        # Use existing enhanced fetching logic
+        workflows = await self.wf_repo.get_all_with_relationships(
+            filters=filters,
+            include_documents=True,
+            include_stages=True,
+            include_events=True
+        )
+        
+        if not workflows:
+            return []
+            
+        workflow_items = []
+        for wf in workflows:
+            item = await self._build_workflow_list_item(
+                wf, 
+                include_documents=True,
+                include_stages=True,
+                include_events=True
+            )
+            workflow_items.append(item)
+            
+        return workflow_items
 
     async def fetch_definition_by_id(self, definition_id) -> Dict[str, Any]:
         """Get workflow definition by id"""
@@ -897,5 +948,6 @@ class WorkflowService(BaseService):
             workflow_key=wf_def.workflow_key,
             document_ids=document_ids,
             user_id=user_id,
+            workflow_name=workflow_name,
             metadata=metadata
         )

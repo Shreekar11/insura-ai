@@ -35,10 +35,6 @@ interface BreadcrumbItemData {
  */
 const ROUTE_CONFIG: Record<string, (segments: string[]) => string> = {
   dashboard: () => "Dashboard",
-  workflows: () => "Workflows",
-  settings: () => "Settings",
-  documents: () => "Documents",
-  // Add more routes as needed
 };
 
 /**
@@ -68,7 +64,32 @@ export function DynamicBreadcrumb() {
   const buildBreadcrumbItems = (): BreadcrumbItemData[] => {
     const items: BreadcrumbItemData[] = [];
 
-    // Always start with Dashboard as home
+    // Handle dashboard page - show only "Dashboard"
+    if (pathSegments[0] === "dashboard" && pathSegments.length === 1) {
+      items.push({
+        label: "Dashboard",
+        href: "/dashboard",
+        isCurrentPage: true,
+      });
+      return items;
+    }
+
+    // Handle workflow detail page - show only workflow name
+    if (pathSegments[0] === "workflows" && pathSegments[1] && pathSegments.length === 2) {
+      items.push({
+        label: isLoadingWorkflow 
+          ? "Loading..." 
+          : isWorkflowError 
+            ? "Unknown Workflow"
+            : workflow?.name || "Workflow",
+        href: pathname,
+        isCurrentPage: true,
+        isLoading: isLoadingWorkflow,
+      });
+      return items;
+    }
+
+    // For all other pages, start with Dashboard as home
     if (pathSegments[0] !== "dashboard") {
       items.push({
         label: "Dashboard",
@@ -81,6 +102,11 @@ export function DynamicBreadcrumb() {
     pathSegments.forEach((segment, index) => {
       const isLast = index === pathSegments.length - 1;
       const href = "/" + pathSegments.slice(0, index + 1).join("/");
+
+      // Skip "dashboard" segment if it's the first one (already added above)
+      if (segment === "dashboard" && index === 0) {
+        return;
+      }
 
       // Handle workflow pages specially
       if (segment === "workflows" && pathSegments[index + 1]) {

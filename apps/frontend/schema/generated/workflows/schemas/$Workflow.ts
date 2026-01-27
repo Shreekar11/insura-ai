@@ -12,7 +12,10 @@ export const $Workflow = {
             type: 'string',
             format: 'uuid',
         },
-        name: {
+        workflow_name: {
+            type: 'string',
+        },
+        definition_name: {
             type: 'string',
         },
         key: {

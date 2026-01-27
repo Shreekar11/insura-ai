@@ -5,7 +5,8 @@
 export type Workflow = {
     id?: string;
     definition_id?: string;
-    name?: string;
+    workflow_name?: string;
+    definition_name?: string;
     key?: string;
     status?: string;
     created_at?: string;

@@ -945,6 +945,11 @@ class Workflow(Base):
         ForeignKey("workflow_definitions.id"), 
         nullable=True
     )
+    workflow_name: Mapped[str] = mapped_column(
+        String, 
+        nullable=False, 
+        default="Untitled"
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
@@ -1001,7 +1006,6 @@ class Workflow(Base):
     proposals: Mapped[list["Proposal"]] = relationship(
         "Proposal", back_populates="workflow", cascade="all, delete-orphan"
     )
-
 
 
 class WorkflowRunEvent(Base):

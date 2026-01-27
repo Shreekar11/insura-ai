@@ -15,6 +15,9 @@ export const $WorkflowListItem = {
         workflow_name: {
             type: 'string',
         },
+        definition_name: {
+            type: 'string',
+        },
         workflow_type: {
             type: 'string',
         },

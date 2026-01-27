@@ -70,6 +70,54 @@ export class DefaultService {
         });
     }
     /**
+     * Get workflow details
+     * @param workflowId
+     * @returns any Workflow details
+     * @throws ApiError
+     */
+    public static getWorkflow(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get all workflows for a workflow definition
+     * @param workflowDefinitionId
+     * @returns any List of workflows
+     * @throws ApiError
+     */
+    public static getAllWorkflows(
+        workflowDefinitionId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowListResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/all/{workflow_definition_id}',
+            path: {
+                'workflow_definition_id': workflowDefinitionId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflows not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
      * Get workflow definitions
      * @returns any List of workflow definitions
      * @throws ApiError
@@ -107,30 +155,6 @@ export class DefaultService {
                 'workflow_definition_id': workflowDefinitionId,
             },
             errors: {
-                500: `Internal server error`,
-            },
-        });
-    }
-    /**
-     * Get workflow details
-     * @param workflowId
-     * @returns any Workflow details
-     * @throws ApiError
-     */
-    public static getWorkflow(
-        workflowId: string,
-    ): CancelablePromise<(ApiResponse & {
-        data?: WorkflowResponse;
-    })> {
-        return __request(OpenAPI, {
-            method: 'GET',
-            url: '/api/v1/workflows/{workflow_id}',
-            path: {
-                'workflow_id': workflowId,
-            },
-            errors: {
-                401: `Unauthorized`,
-                404: `Workflow not found`,
                 500: `Internal server error`,
             },
         });

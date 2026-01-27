@@ -28,11 +28,21 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
     header: "Workflow",
     cell: ({ row }) => {
       const name = row.getValue("workflow_name") as string
-      const id = row.original.id
       return (
         <div className="flex flex-col gap-0.5">
           <span className="font-medium text-foreground">{name}</span>
-          <span className="text-xs text-muted-foreground font-mono">{id?.slice(0, 8)}...</span>
+        </div>
+      )
+    }
+  },
+  {
+    accessorKey: "definition_name",
+    header: "Workflow Type",
+    cell: ({ row }) => {
+      const name = row.getValue("definition_name") as string
+      return (
+        <div className="flex flex-col gap-0.5">
+          <span className="font-medium text-foreground">{name}</span>
         </div>
       )
     }
