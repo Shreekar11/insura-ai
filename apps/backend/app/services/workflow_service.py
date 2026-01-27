@@ -770,10 +770,8 @@ class WorkflowService(BaseService):
         if total_docs > 0:
             progress = int((completed_docs / total_docs) * 100)
             
-        # Calculate total duration if completed
-        total_duration = None
-        if workflow.status == "completed":
-            total_duration = (workflow.updated_at - workflow.created_at).total_seconds()
+        # Calculate total duration if terminal
+        total_duration = self._get_total_duration(workflow)
             
         return {
             "documents_total": total_docs,
@@ -789,32 +787,29 @@ class WorkflowService(BaseService):
         if not workflow.created_at:
             return None
 
-        now = datetime.now(timezone.utc)
-
         # Authoritative source: workflow lifecycle
         if workflow.status in {"completed", "failed"} and workflow.updated_at:
-            duration = (workflow.updated_at - workflow.created_at).total_seconds()
+            # If updated_at is very close to created_at but we have stages/events, 
+            # it might be stale. Let's find the true end time.
+            potential_ends = [workflow.updated_at]
+            
+            if workflow.stage_runs:
+                potential_ends.extend([sr.completed_at for sr in workflow.stage_runs if sr.completed_at])
+                potential_ends.extend([sr.started_at for sr in workflow.stage_runs if sr.started_at])
+            
+            if workflow.events:
+                potential_ends.extend([e.created_at for e in workflow.events if e.created_at])
+            
+            # Use the latest known activity as the end time
+            end_time = max(potential_ends)
+            duration = (end_time - workflow.created_at).total_seconds()
             return max(duration, 0)
 
-        # Running workflow: created_at → now
+        # Running workflow: created_at -> now (using UTC)
         if workflow.status == "running":
+            now = datetime.now(timezone.utc)
             duration = (now - workflow.created_at).total_seconds()
             return max(duration, 0)
-
-        # Fallback: derive from stage runs
-        if workflow.stage_runs:
-            starts = [sr.started_at for sr in workflow.stage_runs if sr.started_at]
-            ends = [sr.completed_at for sr in workflow.stage_runs if sr.completed_at]
-
-            if starts:
-                earliest_start = min(starts)
-
-                if ends:
-                    duration = (max(ends) - earliest_start).total_seconds()
-                else:
-                    duration = (now - earliest_start).total_seconds()
-
-                return max(duration, 0)
 
         return None
 
