@@ -16,9 +16,16 @@
               "schema": {
                 "type": "object",
                 "properties": {
-                  "file": {
+                  "workflow_id": {
                     "type": "string",
-                    "format": "binary"
+                    "format": "uuid"
+                  },
+                  "files": {
+                    "type": "array",
+                    "items": {
+                      "type": "string",
+                      "format": "binary"
+                    }
                   }
                 }
               }
@@ -37,7 +44,7 @@
                       "type": "object",
                       "properties": {
                         "data": {
-                          "$ref": "#/components/schemas/DocumentResponse"
+                          "$ref": "#/components/schemas/MultipleDocumentResponse"
                         }
                       }
                     }
@@ -98,6 +105,15 @@
               "type": "integer",
               "default": 0
             }
+          },
+          {
+            "name": "workflow_id",
+            "in": "query",
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "description": "Filter documents by workflow ID"
           }
         ],
         "responses": {
@@ -470,6 +486,10 @@
           "file_path": {
             "type": "string"
           },
+          "document_name": {
+            "type": "string",
+            "nullable": true
+          },
           "page_count": {
             "type": "integer",
             "nullable": true
@@ -477,6 +497,35 @@
           "created_at": {
             "type": "string",
             "format": "date-time"
+          }
+        }
+      },
+      "MultipleDocumentResponse": {
+        "type": "object",
+        "required": ["total_uploaded", "documents", "failed_uploads"],
+        "properties": {
+          "total_uploaded": {
+            "type": "integer"
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentResponse"
+            }
+          },
+          "failed_uploads": {
+            "type": "array",
+            "items": {
+              "type": "object",
+              "properties": {
+                "filename": {
+                  "type": "string"
+                },
+                "error": {
+                  "type": "string"
+                }
+              }
+            }
           }
         }
       },

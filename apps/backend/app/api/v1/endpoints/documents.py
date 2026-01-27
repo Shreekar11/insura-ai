@@ -1,4 +1,4 @@
-from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Query, Request
+from fastapi import APIRouter, Depends, HTTPException, status, UploadFile, File, Form, Query, Request
 from sqlalchemy.ext.asyncio import AsyncSession
 from uuid import UUID
 from typing import Annotated, List, Optional, Dict, Any
@@ -11,6 +11,7 @@ from app.schemas.auth import CurrentUser
 from app.schemas.generated.documents import (
     ApiResponse,
     DocumentResponse,
+    MultipleDocumentResponse,
     EntityResponse,
     SectionResponse
 )
@@ -42,15 +43,16 @@ async def upload_documents(
     request: Request,
     files: List[UploadFile] = File(
         ..., 
-        description="One or more documents to upload (PDF, images, etc.)"
+        description="One or more documents to upload PDF"
     ),
+    workflow_id: Optional[UUID] = Form(None),
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     document_service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> ApiResponse:
     """Upload one or multiple documents."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
-    result = await document_service.upload_documents(files, user.id)
+    result = await document_service.upload_documents(files, user.id, workflow_id)
     
     return create_api_response(
         data=result,
@@ -68,13 +70,16 @@ async def list_documents(
     request: Request,
     limit: int = Query(50),
     offset: int = Query(0),
+    workflow_id: Optional[UUID] = Query(None),
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     document_service: Annotated[DocumentService, Depends(get_document_service)] = None,
 ) -> ApiResponse:
     """List documents for the current user."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
-    documents_data = await document_service.list_documents(user.id, limit=limit, offset=offset)
+    documents_data = await document_service.list_documents(
+        user.id, limit=limit, offset=offset, workflow_id=workflow_id
+    )
     
     return create_api_response(
         data=documents_data,

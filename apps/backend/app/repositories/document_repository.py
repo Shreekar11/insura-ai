@@ -32,6 +32,7 @@ class DocumentRepository(BaseRepository[Document]):
         file_path: str,
         page_count: int,
         user_id: UUID,
+        document_name: Optional[str] = None,
         mime_type: str = "application/pdf",
         status: str = "ocr_processing"
     ) -> Document:
@@ -50,6 +51,7 @@ class DocumentRepository(BaseRepository[Document]):
         return await self.create(
             user_id=user_id,
             file_path=file_path,
+            document_name=document_name,
             page_count=page_count,
             status=status,
             mime_type=mime_type,

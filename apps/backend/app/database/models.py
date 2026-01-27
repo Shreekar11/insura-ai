@@ -63,6 +63,7 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     file_path: Mapped[str] = mapped_column(String, nullable=False)
+    document_name: Mapped[str | None] = mapped_column(String, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(

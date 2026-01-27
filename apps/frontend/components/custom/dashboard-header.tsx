@@ -38,7 +38,7 @@ export function DashboardHeader({ workflows, userName = "User" }: DashboardHeade
         </h1>
       </div>
 
-      <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
+      {/* <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mt-2">
         <StatCard 
           label="Total Workflows" 
           value={stats.total} 
@@ -63,7 +63,7 @@ export function DashboardHeader({ workflows, userName = "User" }: DashboardHeade
           icon={<IconAlertCircle className="size-4" />}
           color="red" 
         />
-      </div>
+      </div> */}
     </div>
   )
 }

@@ -5,6 +5,7 @@
 import type { ApiResponse } from '../models/ApiResponse';
 import type { DocumentResponse } from '../models/DocumentResponse';
 import type { EntityResponse } from '../models/EntityResponse';
+import type { MultipleDocumentResponse } from '../models/MultipleDocumentResponse';
 import type { SectionResponse } from '../models/SectionResponse';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
@@ -18,10 +19,11 @@ export class DefaultService {
      */
     public static uploadDocument(
         formData?: {
-            file?: Blob;
+            workflow_id?: string;
+            files?: Array<Blob>;
         },
     ): CancelablePromise<(ApiResponse & {
-        data?: DocumentResponse;
+        data?: MultipleDocumentResponse;
     })> {
         return __request(OpenAPI, {
             method: 'POST',
@@ -39,12 +41,14 @@ export class DefaultService {
      * List documents
      * @param limit
      * @param offset
+     * @param workflowId Filter documents by workflow ID
      * @returns any List of documents
      * @throws ApiError
      */
     public static listDocuments(
         limit: number = 50,
         offset?: number,
+        workflowId?: string,
     ): CancelablePromise<(ApiResponse & {
         data?: {
             total?: number;
@@ -57,6 +61,7 @@ export class DefaultService {
             query: {
                 'limit': limit,
                 'offset': offset,
+                'workflow_id': workflowId,
             },
             errors: {
                 401: `Unauthorized`,

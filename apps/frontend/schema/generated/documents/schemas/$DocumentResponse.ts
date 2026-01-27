@@ -17,6 +17,10 @@ export const $DocumentResponse = {
             type: 'string',
             isRequired: true,
         },
+        document_name: {
+            type: 'string',
+            isNullable: true,
+        },
         page_count: {
             type: 'number',
             isNullable: true,

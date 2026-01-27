@@ -699,7 +699,8 @@ class WorkflowService(BaseService):
                 doc = wd.document
                 documents.append({
                     "document_id": doc.id,
-                    "file_name": doc.file_path.split("/")[-1],
+                    "document_name": doc.document_name or doc.file_path.split("/")[-1],
+                    "file_name": doc.document_name or doc.file_path.split("/")[-1],
                     "page_count": doc.page_count,
                     "status": doc.status,
                     "uploaded_at": doc.uploaded_at

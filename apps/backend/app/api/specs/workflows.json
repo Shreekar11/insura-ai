@@ -823,6 +823,10 @@
             "type": "string",
             "format": "uuid"
           },
+          "document_name": {
+            "type": "string",
+            "nullable": true
+          },
           "file_name": {
             "type": "string"
           },

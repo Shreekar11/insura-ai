@@ -272,7 +272,11 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         Returns:
             WorkflowDocument if found, None otherwise
         """
-        return await super().get_by_id(document_id)
+        query = select(WorkflowDocument).where(
+            WorkflowDocument.document_id == document_id
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
 
     async def get_by_workflow_id(
         self,
@@ -311,6 +315,27 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def get_documents_for_workflow(
+        self,
+        workflow_id: uuid.UUID
+    ) -> List[Any]:
+        """Get all documents associated with a workflow.
+        
+        Args:
+            workflow_id: Workflow ID
+            
+        Returns:
+            List of Document instances
+        """
+        query = select(WorkflowDocument).where(
+            WorkflowDocument.workflow_id == workflow_id
+        ).options(selectinload(WorkflowDocument.document))
+        
+        result = await self.session.execute(query)
+        workflow_docs = result.scalars().all()
+        
+        return [wd.document for wd in workflow_docs if wd.document]
 
 
 class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):
