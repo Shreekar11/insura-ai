@@ -35,6 +35,10 @@ export const $WorkflowListItem = {
             type: 'string',
             format: 'date-time',
         },
+        duration_seconds: {
+            type: 'number',
+            isNullable: true,
+        },
         documents: {
             type: 'array',
             contains: {

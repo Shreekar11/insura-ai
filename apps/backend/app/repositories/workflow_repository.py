@@ -16,6 +16,19 @@ class WorkflowRepository(BaseRepository[Workflow]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, Workflow)
 
+    async def get_by_id(self, id: uuid.UUID) -> Optional[Workflow]:
+        """Get a workflow by ID with its definition loaded.
+        
+        This overrides the base implementation to provide eager loading
+        of the workflow_definition relationship.
+        """
+        query = select(Workflow).where(Workflow.id == id).options(
+            selectinload(Workflow.workflow_definition),
+            selectinload(Workflow.stage_runs)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def create_workflow(
         self,
         workflow_definition_id: Optional[uuid.UUID] = None,

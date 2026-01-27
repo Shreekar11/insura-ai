@@ -4,6 +4,10 @@
 /* eslint-disable */
 export const $WorkflowExecutionRequest = {
     properties: {
+        workflow_id: {
+            type: 'string',
+            format: 'uuid',
+        },
         workflow_name: {
             type: 'string',
             isRequired: true,

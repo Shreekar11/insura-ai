@@ -16,6 +16,7 @@ export type WorkflowListItem = {
     metrics?: WorkflowMetrics;
     created_at?: string;
     updated_at?: string;
+    duration_seconds?: number | null;
     documents?: Array<DocumentSummary>;
     stages?: Array<StageMetrics>;
     recent_events?: Array<EventLogItem>;

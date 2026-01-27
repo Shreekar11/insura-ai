@@ -32,5 +32,9 @@ export const $Workflow = {
             type: 'string',
             format: 'date-time',
         },
+        duration_seconds: {
+            type: 'number',
+            isNullable: true,
+        },
     },
 } as const;

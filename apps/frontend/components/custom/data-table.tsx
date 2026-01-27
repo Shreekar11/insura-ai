@@ -122,6 +122,7 @@ function DraggableRow<TData>({ row }: { row: Row<TData> }) {
 }
 
 export function DataTable<TData, TValue>({
+  title,
   data: initialData,
   columns,
   onAddClick,
@@ -130,10 +131,12 @@ export function DataTable<TData, TValue>({
   pageCount,
   paginationState,
   onPaginationChange,
+  workflowDefinitionId,
 }: {
+  title?: string;
   data: TData[];
   columns: ColumnDef<TData, TValue>[];
-  onAddClick?: () => void;
+  onAddClick?: (workflowDefinitionId: string) => void;
   addLabel?: string;
   manualPagination?: boolean;
   pageCount?: number;
@@ -145,6 +148,7 @@ export function DataTable<TData, TValue>({
     pageIndex: number;
     pageSize: number;
   }) => void;
+  workflowDefinitionId?: string;
 }) {
   const [data, setData] = React.useState(() => initialData);
   const [rowSelection, setRowSelection] = React.useState({});
@@ -263,7 +267,7 @@ export function DataTable<TData, TValue>({
         <Label htmlFor="view-selector" className="sr-only">
           View
         </Label>
-        {uniqueWorkflowNames.length > 0 && (
+        {uniqueWorkflowNames.length > 0 && title != "Workflows" && (
           <div className="flex items-center gap-2">
             <Label htmlFor="workflow-filter" className="text-sm font-medium">
               Filter by Workflow:
@@ -323,7 +327,7 @@ export function DataTable<TData, TValue>({
             </DropdownMenuContent>
           </DropdownMenu>
           {onAddClick && (
-            <Button variant="outline" size="sm" onClick={onAddClick}>
+            <Button variant="outline" size="sm" onClick={() => onAddClick(workflowDefinitionId || "")}>
               <IconPlus />
               <span className="hidden lg:inline">{addLabel}</span>
             </Button>

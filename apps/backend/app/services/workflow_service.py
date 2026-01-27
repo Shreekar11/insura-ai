@@ -2,6 +2,7 @@
 
 from uuid import UUID
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.document_repository import DocumentRepository
@@ -70,7 +71,15 @@ class WorkflowService(BaseService):
                 kwargs.get("workflow_key"),
                 kwargs.get("document_ids"),
                 kwargs.get("user_id"),
-                kwargs.get("metadata")
+                kwargs.get("workflow_name"),
+                kwargs.get("metadata"),
+                kwargs.get("workflow_id")
+            )
+        elif action == "create_workflow":
+            return await self._create_workflow_logic(
+                kwargs.get("workflow_definition_id"),
+                kwargs.get("user_id"),
+                kwargs.get("workflow_name")
             )
         else:
             raise ValidationError(f"Unknown action: {action}")
@@ -129,6 +138,7 @@ class WorkflowService(BaseService):
         user_id: UUID,
         workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """Execute a generic workflow by its key.
         
@@ -138,6 +148,7 @@ class WorkflowService(BaseService):
             user_id: ID of the user initiating the workflow
             workflow_name: Name of the workflow instance
             metadata: Optional metadata for the workflow
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Dict containing workflow details and status
@@ -148,7 +159,31 @@ class WorkflowService(BaseService):
             document_ids=document_ids,
             user_id=user_id,
             workflow_name=workflow_name,
-            metadata=metadata
+            metadata=metadata,
+            workflow_id=workflow_id
+        )
+
+    async def execute_create_workflow(
+        self,
+        workflow_definition_id: UUID,
+        user_id: UUID,
+        workflow_name: str = "Untitled"
+    ) -> Dict[str, Any]:
+        """Create a draft workflow execution.
+        
+        Args:
+            workflow_definition_id: ID of definition
+            user_id: User ID
+            workflow_name: Name of workflow
+            
+        Returns:
+            Dict containing workflow details
+        """
+        return await self.execute(
+            action="create_workflow",
+            workflow_definition_id=workflow_definition_id,
+            user_id=user_id,
+            workflow_name=workflow_name
         )
 
     def validate(self, *args, **kwargs):
@@ -175,6 +210,11 @@ class WorkflowService(BaseService):
                 raise ValidationError("user_id is required")
             if not kwargs.get("workflow_name"):
                 raise ValidationError("workflow_name is required")
+        elif action == "create_workflow":
+            if not kwargs.get("workflow_definition_id"):
+                raise ValidationError("workflow_definition_id is required")
+            if not kwargs.get("user_id"):
+                raise ValidationError("user_id is required")
 
     def _validate_start_extraction(
         self, 
@@ -482,6 +522,7 @@ class WorkflowService(BaseService):
         user_id: UUID,
         workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """Core logic for executing a generic workflow.
         
@@ -491,6 +532,7 @@ class WorkflowService(BaseService):
             user_id: User ID
             workflow_name: Name of the workflow instance
             metadata: Optional metadata
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Dict containing workflow details and status
@@ -501,14 +543,27 @@ class WorkflowService(BaseService):
             if not definition:
                 raise ValidationError(f"Workflow definition {workflow_key} not found")
  
-            # Step 2: Create workflow execution record
-            self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
-            workflow_run = await self.wf_repo.create_workflow(
-                workflow_definition_id=definition.id,
-                workflow_name=workflow_name,
-                status="running",
-                user_id=user_id,
-            )
+            # Step 2: Create or fetch workflow execution record
+            if workflow_id:
+                self.logger.info(f"Resuming existing workflow run: {workflow_id}")
+                workflow_run = await self.wf_repo.get_by_id(workflow_id)
+                if not workflow_run:
+                    raise ValidationError(f"Workflow {workflow_id} not found")
+                
+                # Update status to running
+                await self.wf_repo.update_status(workflow_id, "running")
+                # Update name if different
+                if workflow_name != workflow_run.workflow_name:
+                    workflow_run.workflow_name = workflow_name
+            else:
+                self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
+                workflow_run = await self.wf_repo.create_workflow(
+                    workflow_definition_id=definition.id,
+                    workflow_name=workflow_name,
+                    status="running",
+                    user_id=user_id,
+                )
+            
             workflow_id = workflow_run.id
 
             # Step 3: Link documents to workflow
@@ -587,42 +642,6 @@ class WorkflowService(BaseService):
             )
 
     async def list_workflows(
-        self, 
-        user_id: UUID, 
-        limit: int = 50, 
-        offset: int = 0
-    ) -> Dict[str, Any]:
-        """List workflows for a user.
-        
-        Args:
-            user_id: User ID
-            limit: Limit
-            offset: Offset
-            
-        Returns:
-            Dict with total and list of workflows
-        """
-        filters = {"user_id": user_id}
-        workflows = await self.wf_repo.get_all_with_definitions(skip=offset, limit=limit, filters=filters)
-        total = await self.wf_repo.count(filters=filters)
-        
-        return {
-            "total": total,
-            "workflows": [
-                Workflow(
-                    id=wf.id,
-                    definition_id=wf.workflow_definition_id,
-                    workflow_name=wf.workflow_name,
-                    definition_name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
-                    key=wf.workflow_definition.workflow_key if wf.workflow_definition else "unknown",
-                    status=wf.status,
-                    created_at=wf.created_at,
-                    updated_at=wf.updated_at
-                ) for wf in workflows
-            ]
-        }
-
-    async def list_workflows_enhanced(
         self, 
         user_id: UUID, 
         limit: int = 50, 
@@ -724,6 +743,7 @@ class WorkflowService(BaseService):
             "metrics": metrics,
             "created_at": workflow.created_at,
             "updated_at": workflow.updated_at,
+            "duration_seconds": self._get_total_duration(workflow),
             "documents": documents,
             "stages": stages,
             "recent_events": events
@@ -764,6 +784,40 @@ class WorkflowService(BaseService):
             "total_duration_seconds": total_duration
         }
 
+    def _get_total_duration(self, workflow: Any) -> Optional[float]:
+        """Calculate total workflow duration in seconds."""
+        if not workflow.created_at:
+            return None
+
+        now = datetime.now(timezone.utc)
+
+        # Authoritative source: workflow lifecycle
+        if workflow.status in {"completed", "failed"} and workflow.updated_at:
+            duration = (workflow.updated_at - workflow.created_at).total_seconds()
+            return max(duration, 0)
+
+        # Running workflow: created_at → now
+        if workflow.status == "running":
+            duration = (now - workflow.created_at).total_seconds()
+            return max(duration, 0)
+
+        # Fallback: derive from stage runs
+        if workflow.stage_runs:
+            starts = [sr.started_at for sr in workflow.stage_runs if sr.started_at]
+            ends = [sr.completed_at for sr in workflow.stage_runs if sr.completed_at]
+
+            if starts:
+                earliest_start = min(starts)
+
+                if ends:
+                    duration = (max(ends) - earliest_start).total_seconds()
+                else:
+                    duration = (now - earliest_start).total_seconds()
+
+                return max(duration, 0)
+
+        return None
+
     async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[WorkflowResponse]:
         """Get workflow details.
         
@@ -785,7 +839,8 @@ class WorkflowService(BaseService):
             definition_name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
             status=wf.status,
             created_at=wf.created_at,
-            updated_at=wf.updated_at
+            updated_at=wf.updated_at,
+            duration_seconds=self._get_total_duration(wf)
         )
 
     async def list_definitions(self) -> List[Dict[str, Any]]:
@@ -897,13 +952,40 @@ class WorkflowService(BaseService):
             }
         }
 
+    async def _create_workflow_logic(
+        self,
+        workflow_definition_id: UUID,
+        user_id: UUID,
+        workflow_name: str = "Untitled"
+    ) -> Dict[str, Any]:
+        """Core logic for creating a draft workflow execution."""
+        try:
+            workflow_run = await self.wf_repo.create_workflow(
+                workflow_definition_id=workflow_definition_id,
+                workflow_name=workflow_name,
+                status="draft",
+                user_id=user_id,
+            )
+            await self.session.commit()
+            
+            return {
+                "workflow_id": str(workflow_run.id),
+                "status": "draft",
+                "message": "Draft workflow created successfully."
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to create draft workflow: {e}", exc_info=True)
+            await self.session.rollback()
+            raise AppError(f"Failed to create draft workflow: {e}", original_error=e)
+
     async def submit_product_workflow(
         self,
         workflow_name: str,
         workflow_definition_id: str,
         files: List[UploadFile],
         user_id: UUID,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """Submit a product workflow (handle uploads and execution).
         
@@ -913,6 +995,7 @@ class WorkflowService(BaseService):
             files: List of files
             user_id: User ID
             metadata: Metadata
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Workflow execution result
@@ -949,5 +1032,6 @@ class WorkflowService(BaseService):
             document_ids=document_ids,
             user_id=user_id,
             workflow_name=workflow_name,
-            metadata=metadata
+            metadata=metadata,
+            workflow_id=workflow_id
         )

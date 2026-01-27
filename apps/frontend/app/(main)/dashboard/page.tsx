@@ -54,7 +54,6 @@ export default function Page() {
   return (
     <div className="flex flex-col gap-2">
       <DashboardHeader workflows={workflowsResult.workflows} userName="Shreekar" />
-      <div className="px-4 lg:px-6 pb-12">
         <DataTable
           data={workflowsResult.workflows}
           columns={workflowColumns}
@@ -65,7 +64,6 @@ export default function Page() {
           paginationState={pagination}
           onPaginationChange={setPagination}
         />
-      </div>
     </div>
   );
 }

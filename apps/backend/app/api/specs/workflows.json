@@ -23,6 +23,10 @@
                     "type": "string",
                     "format": "uuid"
                   },
+                  "workflow_id": {
+                    "type": "string",
+                    "format": "uuid"
+                  },
                   "metadata_json": {
                     "type": "string"
                   },
@@ -133,6 +137,71 @@
                     }
                   ]
                 }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Create workflow",
+        "operationId": "create_workflow",
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/WorkflowCreateRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Workflow created",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/WorkflowExecutionResponse"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Invalid request",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
               }
             }
           },
@@ -604,6 +673,10 @@
         "type": "object",
         "required": ["workflow_name", "workflow_definition_id"],
         "properties": {
+          "workflow_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "workflow_name": {
             "type": "string"
           },
@@ -620,6 +693,20 @@
           },
           "metadata": {
             "type": "object"
+          }
+        }
+      },
+      "WorkflowCreateRequest": {
+        "type": "object",
+        "required": ["workflow_definition_id"],
+        "properties": {
+          "workflow_definition_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflow_name": {
+            "type": "string",
+            "default": "Untitled"
           }
         }
       },
@@ -679,6 +766,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "nullable": true
           },
           "documents": {
             "type": "array",
@@ -818,6 +909,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "nullable": true
           }
         }
       },
@@ -851,6 +946,10 @@
           "updated_at": {
             "type": "string",
             "format": "date-time"
+          },
+          "duration_seconds": {
+            "type": "number",
+            "nullable": true
           }
         }
       },

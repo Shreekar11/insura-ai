@@ -1,5 +1,5 @@
-import { useQuery } from "@tanstack/react-query";
-import { DefaultService, WorkflowListItem } from "@/schema/generated/workflows";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { DefaultService, WorkflowListItem, WorkflowCreateRequest, WorkflowResponse } from "@/schema/generated/workflows";
 
 /**
  * Custom hook to fetch workflows using TanStack Query
@@ -44,6 +44,52 @@ export const useWorkflowsByDefinitionId = (workflowDefinitionId: string) => {
         total: response.data?.total || 0,
       };
     },
+    staleTime: 1000 * 60 * 5,
+    gcTime: 1000 * 60 * 10,
+    retry: 2,
+    refetchOnWindowFocus: true,
+  });
+};
+
+export const useCreateWorkflow = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (request: WorkflowCreateRequest) =>
+      DefaultService.createWorkflow(request),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+};
+
+export const useExecuteWorkflow = () => {
+  const queryClient = useQueryClient();
+  return useMutation({
+    mutationFn: (formData: {
+      workflow_name: string;
+      workflow_definition_id: string;
+      workflow_id?: string;
+      metadata_json?: string;
+      file1: Blob;
+      file2?: Blob;
+    }) => DefaultService.executeWorkflow(formData),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["workflows"] });
+    },
+  });
+};
+
+export const useWorkflowById = (workflowId: string) => {
+  return useQuery({
+    queryKey: ["workflow", workflowId],
+    queryFn: async () => {
+      const response = await DefaultService.getWorkflow(workflowId);
+      if (!response?.status) {
+        throw new Error("Failed to fetch workflow details");
+      }
+      return response.data as WorkflowResponse;
+    },
+    enabled: !!workflowId,
     staleTime: 1000 * 60 * 5,
     gcTime: 1000 * 60 * 10,
     retry: 2,

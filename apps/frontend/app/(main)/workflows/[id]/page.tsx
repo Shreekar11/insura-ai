@@ -1,10 +1,11 @@
 "use client";
 
 import React from "react";
-import { useParams } from "next/navigation";
-import { useWorkflowsByDefinitionId } from "@/hooks/use-workflows";
+import { useParams, useRouter } from "next/navigation";
+import { useWorkflowsByDefinitionId, useCreateWorkflow } from "@/hooks/use-workflows";
 import { workflowColumns } from "@/components/custom/workflow-columns";
 import { DataTable } from "@/components/custom/data-table";
+import { toast } from "sonner";
 
 // icons
 import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
@@ -14,7 +15,10 @@ import { Button } from "@/components/ui/button";
 
 export default function WorkflowExecutionPage() {
   const params = useParams();
-  const workflowDefinitionId = params.id;
+  const router = useRouter();
+  const workflowDefinitionId = params.id as string;
+
+  const createWorkflow = useCreateWorkflow();
 
   const [pagination, setPagination] = React.useState({
     pageIndex: 0,
@@ -27,6 +31,25 @@ export default function WorkflowExecutionPage() {
 
   const workflowsResult = data || { workflows: [], total: 0 };
   const pageCount = Math.ceil(workflowsResult.total / pagination.pageSize);
+
+  const handleCreateNewWorkflow = async (workflowDefinitionId: string) => {
+    try {
+      const result = await createWorkflow.mutateAsync({
+        workflow_definition_id: workflowDefinitionId,
+        workflow_name: "Untitled",
+      });
+
+      if (result.status && result.data?.workflow_id) {
+        toast.success("Workflow blueprint created");
+        router.push(`/workflow-execution/${result.data.workflow_id}`);
+      } else {
+        toast.error("Failed to create workflow blueprint");
+      }
+    } catch (error) {
+      console.error("Error creating workflow blueprint:", error);
+      toast.error("An error occurred while creating the workflow blueprint");
+    }
+  };
 
   if (isLoading) {
     return (
@@ -57,17 +80,17 @@ export default function WorkflowExecutionPage() {
   }
 
   return (
-    <div className="px-4 lg:px-6 pb-12">
-      <DataTable
-        data={workflowsResult.workflows}
-        columns={workflowColumns}
-        addLabel="New Workflow"
-        onAddClick={() => console.log("New workflow clicked")}
-        manualPagination={true}
-        pageCount={pageCount}
-        paginationState={pagination}
-        onPaginationChange={setPagination}
-      />
-    </div>
+    <DataTable
+      title="Workflows"
+      data={workflowsResult.workflows}
+      columns={workflowColumns}
+      addLabel="New Workflow"
+      onAddClick={() => handleCreateNewWorkflow(workflowDefinitionId as string)}
+      manualPagination={true}
+      pageCount={pageCount}
+      paginationState={pagination}
+      onPaginationChange={setPagination}
+      workflowDefinitionId={workflowDefinitionId as string}
+    />
   );
 }

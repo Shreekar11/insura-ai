@@ -16,6 +16,7 @@ from app.schemas.generated.workflows import (
     WorkflowResponse,
     WorkflowListResponse,
     WorkflowExecutionRequest,
+    WorkflowCreateRequest,
     WorkflowExtractRequest,
     WorkflowDefinitionResponse,
     WorkflowStatusResponse,
@@ -56,6 +57,7 @@ async def execute_workflow(
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
     metadata_json: Annotated[Optional[str], Form()] = None,
+    workflow_id: Annotated[Optional[str], Form()] = None,
 ) -> ApiResponse:
     """Execute a product-specific workflow (e.g., policy comparison)."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
@@ -69,7 +71,8 @@ async def execute_workflow(
             workflow_definition_id=workflow_definition_id,
             files=files,
             user_id=user.id,
-            metadata=metadata
+            metadata=metadata,
+            workflow_id=UUID(workflow_id) if workflow_id else None
         )
         
         data = WorkflowExecutionResponse(
@@ -93,6 +96,40 @@ async def execute_workflow(
         raise HTTPException(status_code=500, detail=error_detail.model_dump(mode='json'))
 
 
+@router.post(
+    "/",
+    response_model=ApiResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Create a draft workflow",
+    operation_id="create_workflow",
+)
+async def create_workflow(
+    request: Request,
+    create_req: WorkflowCreateRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Create a draft workflow instance."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+    
+    result = await workflow_service.execute_create_workflow(
+        workflow_definition_id=create_req.workflow_definition_id,
+        user_id=user.id,
+        workflow_name=create_req.workflow_name
+    )
+    
+    data = WorkflowExecutionResponse(
+        workflow_id=result["workflow_id"]
+    )
+    
+    return create_api_response(
+        data=data,
+        message=result["message"],
+        request=request
+    )
+
+
 @router.get(
     "/",
     response_model=ApiResponse,
@@ -114,7 +151,7 @@ async def list_workflows(
     """List workflow executions for the current user."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     
-    workflows_data = await workflow_service.list_workflows_enhanced(
+    workflows_data = await workflow_service.list_workflows(
         user.id, 
         limit=limit, 
         offset=offset,

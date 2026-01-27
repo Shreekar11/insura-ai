@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse } from '../models/ApiResponse';
+import type { WorkflowCreateRequest } from '../models/WorkflowCreateRequest';
 import type { WorkflowDefinitionResponse } from '../models/WorkflowDefinitionResponse';
 import type { WorkflowExecutionResponse } from '../models/WorkflowExecutionResponse';
 import type { WorkflowExtractedDataResponse } from '../models/WorkflowExtractedDataResponse';
@@ -24,6 +25,7 @@ export class DefaultService {
         formData?: {
             workflow_name: string;
             workflow_definition_id: string;
+            workflow_id?: string;
             metadata_json?: string;
             file1: Blob;
             file2?: Blob;
@@ -64,6 +66,29 @@ export class DefaultService {
                 'offset': offset,
             },
             errors: {
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Create workflow
+     * @param requestBody
+     * @returns any Workflow created
+     * @throws ApiError
+     */
+    public static createWorkflow(
+        requestBody: WorkflowCreateRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowExecutionResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Invalid request`,
                 401: `Unauthorized`,
                 500: `Internal server error`,
             },

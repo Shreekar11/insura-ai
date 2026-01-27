@@ -11,5 +11,6 @@ export type Workflow = {
     status?: string;
     created_at?: string;
     updated_at?: string;
+    duration_seconds?: number | null;
 };
 

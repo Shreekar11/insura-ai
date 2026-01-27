@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/dropdown-menu";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkflowDefinitionById } from "@/hooks/use-workflow-definitions";
+import { useWorkflowById } from "@/hooks/use-workflows";
 import { Fragment } from "react";
 import { IconChevronRight } from "@tabler/icons-react";
 
@@ -52,13 +53,25 @@ export function DynamicBreadcrumb() {
 
   // Detect workflow page and fetch workflow data
   const isWorkflowPage = pathSegments[0] === "workflows" && pathSegments[1];
-  const workflowId = isWorkflowPage ? pathSegments[1] : null;
+  const isExecutionPage = pathSegments[0] === "workflow-execution" && pathSegments[1];
+  const workflowId = isWorkflowPage || isExecutionPage ? pathSegments[1] : null;
 
   const { 
-    data: workflow, 
-    isLoading: isLoadingWorkflow,
-    isError: isWorkflowError,
-  } = useWorkflowDefinitionById(workflowId || "");
+    data: workflowDefinition, 
+    isLoading: isLoadingDefinition,
+    isError: isDefinitionError,
+  } = useWorkflowDefinitionById(isWorkflowPage ? (workflowId || "") : "");
+
+  const {
+    data: workflowInstance,
+    isLoading: isLoadingInstance,
+    isError: isInstanceError,
+  } = useWorkflowById(isExecutionPage ? (workflowId || "") : "");
+
+  const isLoadingWorkflow = isLoadingDefinition || isLoadingInstance;
+  const isWorkflowError = isDefinitionError || isInstanceError;
+
+  console.log("workflowInstance", workflowInstance);
 
   // Build breadcrumb items dynamically
   const buildBreadcrumbItems = (): BreadcrumbItemData[] => {
@@ -77,20 +90,50 @@ export function DynamicBreadcrumb() {
     // Handle workflow detail page - show only workflow name
     if (pathSegments[0] === "workflows" && pathSegments[1] && pathSegments.length === 2) {
       items.push({
-        label: isLoadingWorkflow 
+        label: isLoadingDefinition 
           ? "Loading..." 
-          : isWorkflowError 
+          : isDefinitionError 
             ? "Unknown Workflow"
-            : workflow?.name || "Workflow",
+            : workflowDefinition?.name || "Workflow",
         href: pathname,
         isCurrentPage: true,
-        isLoading: isLoadingWorkflow,
+        isLoading: isLoadingDefinition,
+      });
+      return items;
+    }
+
+    // Handle workflow execution page - show definition_name > workflow_name
+    if (pathSegments[0] === "workflow-execution" && pathSegments[1] && pathSegments.length === 2) {
+      // First segment: Definition
+      items.push({
+        label: isLoadingInstance 
+          ? "Loading..." 
+          : isInstanceError 
+            ? "Unknown Process"
+            : workflowInstance?.definition_name || "Definition",
+        href: workflowInstance?.definition_id 
+          ? `/workflows/${workflowInstance.definition_id}`
+          : "#",
+        isCurrentPage: false,
+        isLoading: isLoadingInstance,
+      });
+      
+      // Second segment: Execution
+      items.push({
+        label: isLoadingInstance 
+          ? "Loading..." 
+          : isInstanceError 
+            ? "Unknown Execution"
+            : workflowInstance?.workflow_name || "Execution",
+        href: pathname,
+        isCurrentPage: true,
+        isLoading: isLoadingInstance,
       });
       return items;
     }
 
     // For all other pages, start with Dashboard as home
-    if (pathSegments[0] !== "dashboard") {
+    if (pathSegments[0] !== "dashboard" && pathSegments[0] !== "workflow-execution") {
       items.push({
         label: "Dashboard",
         href: "/dashboard",
@@ -121,14 +164,14 @@ export function DynamicBreadcrumb() {
       // Handle workflow ID (dynamic name from API)
       if (pathSegments[index - 1] === "workflows" && workflowId === segment) {
         items.push({
-          label: isLoadingWorkflow 
+          label: isLoadingDefinition 
             ? "Loading..." 
-            : isWorkflowError 
+            : isDefinitionError 
               ? "Unknown Workflow"
-              : workflow?.name || "Workflow",
+              : workflowDefinition?.name || "Workflow",
           href,
           isCurrentPage: isLast,
-          isLoading: isLoadingWorkflow,
+          isLoading: isLoadingDefinition,
         });
         return;
       }
