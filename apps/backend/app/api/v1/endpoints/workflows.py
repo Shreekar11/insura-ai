@@ -21,7 +21,9 @@ from app.schemas.generated.workflows import (
     WorkflowExtractRequest,
     WorkflowDefinitionResponse,
     WorkflowStatusResponse,
-    WorkflowExtractedDataResponse
+    WorkflowStatusResponse,
+    WorkflowExtractedDataResponse,
+    WorkflowUpdateRequest
 )
 from app.utils.logging import get_logger
 from app.utils.responses import create_api_response, create_error_detail
@@ -279,6 +281,35 @@ async def get_workflow(
     return create_api_response(
         data=WorkflowResponse(**wf) if isinstance(wf, dict) else wf,
         message="Workflow details retrieved successfully",
+        request=request
+    )
+
+
+@router.put(
+    "/{workflow_id}",
+    response_model=ApiResponse,
+    summary="Update workflow",
+    operation_id="update_workflow",
+)
+async def update_workflow(
+    request: Request,
+    payload: WorkflowUpdateRequest,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Update workflow details (e.g. name)."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+
+    wf = await workflow_service.execute_update_workflow(
+        workflow_id=payload.workflow_id,
+        workflow_name=payload.workflow_name,
+        user_id=user.id
+    )
+    
+    return create_api_response(
+        data=WorkflowResponse(**wf) if isinstance(wf, dict) else wf,
+        message="Workflow updated successfully",
         request=request
     )
 

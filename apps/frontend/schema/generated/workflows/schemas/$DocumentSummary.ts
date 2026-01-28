@@ -8,6 +8,10 @@ export const $DocumentSummary = {
             type: 'string',
             format: 'uuid',
         },
+        document_name: {
+            type: 'string',
+            isNullable: true,
+        },
         file_name: {
             type: 'string',
         },

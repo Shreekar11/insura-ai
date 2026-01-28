@@ -20,7 +20,70 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { useWorkflowDefinitionById } from "@/hooks/use-workflow-definitions";
 import { useWorkflowById } from "@/hooks/use-workflows";
 import { Fragment } from "react";
-import { IconChevronRight } from "@tabler/icons-react";
+import { IconChevronRight, IconPencil } from "@tabler/icons-react";
+import { useState, useEffect, useRef } from "react";
+import { Input } from "@/components/ui/input";
+import { useUpdateWorkflow } from "@/hooks/use-workflows";
+import { cn } from "@/lib/utils";
+
+const EditableBreadcrumbItem = ({ label, workflowId }: { label: string, workflowId: string }) => {
+  const [isEditing, setIsEditing] = useState(false);
+  const [value, setValue] = useState(label);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { mutate: updateWorkflow } = useUpdateWorkflow();
+
+  useEffect(() => {
+    setValue(label);
+  }, [label]);
+
+  useEffect(() => {
+    if (isEditing && inputRef.current) {
+      inputRef.current.focus();
+    }
+  }, [isEditing]);
+
+  const handleSave = () => {
+    if (value.trim() && value !== label) {
+      updateWorkflow({ workflow_id: workflowId, workflow_name: value });
+    } else {
+        setValue(label);
+    }
+    setIsEditing(false);
+  };
+
+  const handleKeyDown = (e: React.KeyboardEvent) => {
+    if (e.key === "Enter") {
+      handleSave();
+    } else if (e.key === "Escape") {
+      setValue(label);
+      setIsEditing(false);
+    }
+  };
+
+  if (isEditing) {
+    return (
+      <Input
+        ref={inputRef}
+        value={value}
+        onChange={(e) => setValue(e.target.value)}
+        onBlur={handleSave}
+        onKeyDown={handleKeyDown}
+        className="h-6 w-[200px] px-2 py-0 text-sm"
+      />
+    );
+  }
+
+  return (
+    <span 
+      className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 px-1.5 py-0.5 rounded transition-colors group"
+      onClick={() => setIsEditing(true)}
+      title="Click to rename"
+    >
+      {label}
+      <IconPencil className="size-3 opacity-0 group-hover:opacity-50 transition-opacity" />
+    </span>
+  );
+};
 
 interface BreadcrumbItemData {
   label: string;
@@ -28,6 +91,8 @@ interface BreadcrumbItemData {
   isCurrentPage: boolean;
   isLoading?: boolean;
   icon?: React.ReactNode;
+  isEditable?: boolean;
+  workflowId?: string;
 }
 
 /**
@@ -116,7 +181,7 @@ export function DynamicBreadcrumb() {
         isLoading: isLoadingInstance,
       });
       
-      // Second segment: Execution
+      // Second segment: Execution (Editable)
       items.push({
         label: isLoadingInstance 
           ? "Loading..." 
@@ -126,6 +191,8 @@ export function DynamicBreadcrumb() {
         href: pathname,
         isCurrentPage: true,
         isLoading: isLoadingInstance,
+        isEditable: true,
+        workflowId: workflowInstance?.id
       });
       return items;
     }
@@ -265,6 +332,11 @@ export function DynamicBreadcrumb() {
                     <BreadcrumbPage>
                       {(item as any).isLoading ? (
                         <Skeleton className="h-4 w-32 animate-pulse" />
+                      ) : (item as any).isEditable ? (
+                         <EditableBreadcrumbItem 
+                           label={(item as any).label} 
+                           workflowId={(item as any).workflowId} 
+                         />
                       ) : (
                         <span className="flex items-center gap-2">
                           {(item as any).icon}
@@ -299,6 +371,11 @@ export function DynamicBreadcrumb() {
                   <BreadcrumbPage>
                     {item.isLoading ? (
                       <Skeleton className="h-4 w-32 animate-pulse" />
+                    ) : item.isEditable ? (
+                      <EditableBreadcrumbItem 
+                        label={item.label} 
+                        workflowId={item.workflowId!} 
+                      />
                     ) : (
                       <span className="flex items-center gap-2">
                         {item.icon}

@@ -81,6 +81,11 @@ class WorkflowService(BaseService):
                 kwargs.get("user_id"),
                 kwargs.get("workflow_name")
             )
+        elif action == "update_workflow":
+            return await self._update_workflow_logic(
+                kwargs.get("workflow_id"),
+                kwargs.get("workflow_name")
+            )
         else:
             raise ValidationError(f"Unknown action: {action}")
 
@@ -182,8 +187,30 @@ class WorkflowService(BaseService):
         return await self.execute(
             action="create_workflow",
             workflow_definition_id=workflow_definition_id,
-            user_id=user_id,
             workflow_name=workflow_name
+        )
+
+    async def execute_update_workflow(
+        self,
+        workflow_id: UUID,
+        workflow_name: str,
+        user_id: UUID
+    ) -> Dict[str, Any]:
+        """Update an existing workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            workflow_name: New name
+            user_id: User ID (for validation/access check if needed, though currently unused for direct update)
+
+        Returns:
+            Dict containing updated workflow details
+        """
+        return await self.execute(
+            action="update_workflow",
+            workflow_id=workflow_id,
+            workflow_name=workflow_name,
+            user_id=user_id
         )
 
     def validate(self, *args, **kwargs):
@@ -215,6 +242,14 @@ class WorkflowService(BaseService):
                 raise ValidationError("workflow_definition_id is required")
             if not kwargs.get("user_id"):
                 raise ValidationError("user_id is required")
+
+            if not kwargs.get("user_id"):
+                raise ValidationError("user_id is required")
+        elif action == "update_workflow":
+            if not kwargs.get("workflow_id"):
+                raise ValidationError("workflow_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
 
     def _validate_start_extraction(
         self, 
@@ -514,6 +549,35 @@ class WorkflowService(BaseService):
                 f"Failed to retrieve stages for document {document_id}: {str(e)}",
                 original_error=e
             )
+
+    async def _update_workflow_logic(
+        self,
+        workflow_id: UUID,
+        workflow_name: str
+    ) -> Dict[str, Any]:
+        """Core logic for updating a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            workflow_name: New name
+
+        Returns:
+            Dict containing updated workflow details
+        """
+        try:
+            workflow = await self.wf_repo.update_workflow_name(
+                workflow_id=workflow_id,
+                workflow_name=workflow_name
+            )
+            await self.session.commit()
+
+            # Return standard workflow response format (similar to get_workflow_details)
+            return await self.get_workflow_details(workflow.id, workflow.user_id)
+
+        except Exception as e:
+            self.logger.error(f"Failed to update workflow {workflow_id}: {e}", exc_info=True)
+            await self.session.rollback()
+            raise AppError(f"Failed to update workflow: {e}", original_error=e)
 
     async def _execute_generic_workflow(
         self,

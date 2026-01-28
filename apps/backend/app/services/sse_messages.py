@@ -12,7 +12,7 @@ def format_stage_message(stage_name: str, status: str, metadata: Optional[Dict] 
         },
         "classified": {
             "running": "Classifying document...",
-            "completed": "Document classified.",
+            "completed": "Classified document.",
             "failed": "Failed to classify document."
         },
         "extracted": {

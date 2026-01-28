@@ -25,6 +25,7 @@ export type { WorkflowListResponse } from './models/WorkflowListResponse';
 export type { WorkflowMetrics } from './models/WorkflowMetrics';
 export type { WorkflowResponse } from './models/WorkflowResponse';
 export type { WorkflowStatusResponse } from './models/WorkflowStatusResponse';
+export type { WorkflowUpdateRequest } from './models/WorkflowUpdateRequest';
 
 export { $ApiResponse } from './schemas/$ApiResponse';
 export { $DocumentSummary } from './schemas/$DocumentSummary';
@@ -44,5 +45,6 @@ export { $WorkflowListResponse } from './schemas/$WorkflowListResponse';
 export { $WorkflowMetrics } from './schemas/$WorkflowMetrics';
 export { $WorkflowResponse } from './schemas/$WorkflowResponse';
 export { $WorkflowStatusResponse } from './schemas/$WorkflowStatusResponse';
+export { $WorkflowUpdateRequest } from './schemas/$WorkflowUpdateRequest';
 
 export { DefaultService } from './services/DefaultService';

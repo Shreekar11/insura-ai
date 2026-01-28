@@ -56,9 +56,31 @@ class WorkflowRepository(BaseRepository[Workflow]):
             temporal_workflow_id=temporal_workflow_id,
             status=status,
             user_id=user_id,
-            created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
+
+    async def update_workflow_name(
+        self,
+        workflow_id: uuid.UUID,
+        workflow_name: str
+    ) -> Workflow:
+        """Update the name of a workflow.
+
+        Args:
+            workflow_id: Workflow record ID
+            workflow_name: New name for the workflow
+
+        Returns:
+            Updated Workflow instance
+        """
+        workflow = await self.get_by_id(workflow_id)
+        if not workflow:
+            raise ValueError(f"Workflow {workflow_id} not found")
+
+        workflow.workflow_name = workflow_name
+        workflow.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return workflow
 
     async def get_all_with_definitions(
         self,

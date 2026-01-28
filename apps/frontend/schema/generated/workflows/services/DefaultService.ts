@@ -12,6 +12,7 @@ import type { WorkflowExtractRequest } from '../models/WorkflowExtractRequest';
 import type { WorkflowListResponse } from '../models/WorkflowListResponse';
 import type { WorkflowResponse } from '../models/WorkflowResponse';
 import type { WorkflowStatusResponse } from '../models/WorkflowStatusResponse';
+import type { WorkflowUpdateRequest } from '../models/WorkflowUpdateRequest';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -84,6 +85,29 @@ export class DefaultService {
             errors: {
                 400: `Invalid request`,
                 401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Update workflow
+     * @param requestBody
+     * @returns any Workflow updated
+     * @throws ApiError
+     */
+    public static updateWorkflow(
+        requestBody: WorkflowUpdateRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/workflows/{workflow_id}',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow not found`,
                 500: `Internal server error`,
             },
         });
