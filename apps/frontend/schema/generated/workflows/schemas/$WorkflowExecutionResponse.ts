@@ -8,5 +8,8 @@ export const $WorkflowExecutionResponse = {
             type: 'string',
             format: 'uuid',
         },
+        stream_url: {
+            type: 'string',
+        },
     },
 } as const;

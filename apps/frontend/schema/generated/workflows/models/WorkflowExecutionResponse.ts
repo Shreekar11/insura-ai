@@ -4,5 +4,6 @@
 /* eslint-disable */
 export type WorkflowExecutionResponse = {
     workflow_id?: string;
+    stream_url?: string;
 };
 

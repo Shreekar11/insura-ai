@@ -572,14 +572,11 @@ class WorkflowService(BaseService):
                 doc = await self.doc_repo.get_by_id(doc_id)
                 if not doc:
                     raise ValidationError(f"Document {doc_id} not found")
-                
-                await self.wf_doc_repo.create_workflow_document(
-                    workflow_id=workflow_id,
-                    document_id=doc_id,
-                )
+
                 documents_data.append({
                     "document_id": str(doc_id),
-                    "url": doc.file_path
+                    "url": doc.file_path,
+                    "document_name": doc.document_name or doc.file_path.split("/")[-1]
                 })
 
             # Commit database changes before Temporal
@@ -592,27 +589,35 @@ class WorkflowService(BaseService):
             # Map workflow key to workflow class
             from app.temporal.product.policy_comparison.workflows.policy_comparison import PolicyComparisonWorkflow
             from app.temporal.product.proposal_generation.workflows.proposal_generation import ProposalGenerationWorkflow
+            from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
             workflow_class_map = {
                 "policy_comparison": PolicyComparisonWorkflow,
                 "proposal_generation": ProposalGenerationWorkflow,
+                "document_extraction": ProcessDocumentWorkflow,
             }
             
             wf_class = workflow_class_map.get(workflow_key)
             if not wf_class:
                 raise ValidationError(f"Temporal workflow not implemented for key: {workflow_key}")
 
-            workflow_handle = await temporal_client.start_workflow(
-                wf_class.run,
-                {
-                    "workflow_id": str(workflow_id),
-                    "workflow_definition_id": str(definition.id),
-                    "workflow_name": workflow_key,
-                    "documents": documents_data,
-                    "metadata": metadata or {},
-                },
-                id=f"workflow-{workflow_id}",
-                task_queue="documents-queue",
-            )
+            from temporalio.exceptions import WorkflowAlreadyStartedError
+            
+            try:
+                workflow_handle = await temporal_client.start_workflow(
+                    wf_class.run,
+                    {
+                        "workflow_id": str(workflow_id),
+                        "workflow_definition_id": str(definition.id),
+                        "workflow_name": workflow_key,
+                        "documents": documents_data,
+                        "metadata": metadata or {},
+                    },
+                    id=f"workflow-{workflow_id}",
+                    task_queue="documents-queue",
+                )
+            except WorkflowAlreadyStartedError:
+                self.logger.info(f"Temporal workflow workflow-{workflow_id} already running, getting handle.")
+                workflow_handle = temporal_client.get_workflow_handle(f"workflow-{workflow_id}")
 
             # Step 5: Update with Temporal ID
             await self.wf_repo.update_temporal_id(
@@ -978,17 +983,17 @@ class WorkflowService(BaseService):
         self,
         workflow_name: str,
         workflow_definition_id: str,
-        files: List[UploadFile],
+        document_ids: List[UUID],
         user_id: UUID,
         metadata: Optional[Dict[str, Any]] = None,
         workflow_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
-        """Submit a product workflow (handle uploads and execution).
+        """Submit a product workflow (execution with existing documents).
         
         Args:
             workflow_name: Name of workflow
             workflow_definition_id: ID of definition
-            files: List of files
+            document_ids: List of pre-uploaded document IDs
             user_id: User ID
             metadata: Metadata
             workflow_id: Optional existing workflow ID
@@ -996,33 +1001,12 @@ class WorkflowService(BaseService):
         Returns:
             Workflow execution result
         """
-        document_ids = []
-        
-        # 1. Handle file uploads
-        for file in files:
-            import uuid
-            file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-            storage_path = f"{user_id}/workflows/{workflow_name}/{uuid.uuid4()}.{file_extension}"
-            
-            await self.storage_service.upload_file(file, bucket="docs", path=storage_path)
-            storage_result = await self.storage_service.get_signed_url(bucket="docs", path=storage_path)
-            pdf_url = storage_result["public_url"]
-            
-            document = await self.doc_repo.create_document(
-                file_path=pdf_url,
-                page_count=0,
-                user_id=user_id,
-            )
-            document_ids.append(document.id)
-
-        await self.session.commit()
-        
-        # 2. Get definition to verify key
+        # 1. Get definition to verify key
         wf_def = await self.def_repo.get_by_id(UUID(workflow_definition_id))
         if not wf_def:
             raise ValidationError("Workflow definition not found")
             
-        # 3. Start workflow
+        # 2. Start workflow
         return await self.execute_workflow(
             workflow_key=wf_def.workflow_key,
             document_ids=document_ids,

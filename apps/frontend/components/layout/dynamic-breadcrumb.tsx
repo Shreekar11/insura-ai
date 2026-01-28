@@ -71,8 +71,6 @@ export function DynamicBreadcrumb() {
   const isLoadingWorkflow = isLoadingDefinition || isLoadingInstance;
   const isWorkflowError = isDefinitionError || isInstanceError;
 
-  console.log("workflowInstance", workflowInstance);
-
   // Build breadcrumb items dynamically
   const buildBreadcrumbItems = (): BreadcrumbItemData[] => {
     const items: BreadcrumbItemData[] = [];

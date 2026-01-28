@@ -6,7 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun
+from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun, WorkflowRunEvent
 from app.repositories.base_repository import BaseRepository
 
 
@@ -24,7 +24,8 @@ class WorkflowRepository(BaseRepository[Workflow]):
         """
         query = select(Workflow).where(Workflow.id == id).options(
             selectinload(Workflow.workflow_definition),
-            selectinload(Workflow.stage_runs)
+            selectinload(Workflow.stage_runs),
+            selectinload(Workflow.events)
         )
         result = await self.session.execute(query)
         return result.scalar_one_or_none()
@@ -165,6 +166,33 @@ class WorkflowRepository(BaseRepository[Workflow]):
         workflow.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return workflow
+
+    async def emit_run_event(
+        self,
+        workflow_id: uuid.UUID,
+        event_type: str,
+        payload: Optional[dict] = None
+    ) -> WorkflowRunEvent:
+        """Create a new granular workflow run event.
+        
+        Args:
+            workflow_id: Parent workflow ID
+            event_type: Type of event (e.g. "workflow:progress")
+            payload: Optional JSON payload for the event
+            
+        Returns:
+            Created WorkflowRunEvent instance
+        """
+        event = WorkflowRunEvent(
+            workflow_id=workflow_id,
+            event_type=event_type,
+            event_payload=payload,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        self.session.add(event)
+        await self.session.flush()
+        return event
 
     async def create_stage_run(
         self,

@@ -97,21 +97,6 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
     },
   },
   {
-    id: "progress",
-    header: "Progress",
-    cell: ({ row }) => {
-      const progress = row.original.metrics?.progress_percent || 0;
-      return (
-        <div className="flex items-center gap-3 w-[140px]">
-          <Progress value={progress} className="h-1.5" />
-          <span className="text-xs font-medium text-muted-foreground w-8">
-            {progress}%
-          </span>
-        </div>
-      );
-    },
-  },
-  {
     accessorKey: "created_at",
     header: "Started",
     cell: ({ row }) => {

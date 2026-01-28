@@ -1091,6 +1091,10 @@ class WorkflowStageRun(Base):
         TIMESTAMP(timezone=True), 
         nullable=True
     )
+    stage_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
 
     # Relationships
     workflow: Mapped["Workflow"] = relationship(
@@ -1126,6 +1130,10 @@ class WorkflowDocumentStageRun(Base):
         TIMESTAMP(timezone=True), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stage_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="stage_runs")

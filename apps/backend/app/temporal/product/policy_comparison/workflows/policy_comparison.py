@@ -89,7 +89,8 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
                     skip_processed=doc_readiness["processed"],
                     skip_extraction=doc_readiness["extracted"],
                     skip_enrichment=doc_readiness["enriched"],
-                    skip_indexing=doc_readiness["indexed"]
+                    skip_indexing=doc_readiness["indexed"],
+                    document_name=doc_readiness.get("document_name") or next((d.get("document_name") for d in documents if d.get("document_id") == doc_id), None)
                 )
                 
                 await self.process_document(doc_id, config)
@@ -97,7 +98,7 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         # Core Comparison
         self._current_step = "core_comparison"
         self._progress = 0.60
-        core_result = await self._execute_core_comparison(workflow_id, document_ids)
+        core_result = await self._execute_core_comparison(workflow_id, document_ids, doc_names)
 
         phase_b_result = core_result.get("phase_b_result")
         alignment_result = core_result.get("alignment_result")
@@ -110,6 +111,12 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
             "persist_comparison_result_activity",
             args=[workflow_id, workflow_definition_id, document_ids, alignment_result, reasoning_result, phase_b_result],
             start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Policy comparison completed successfully."}],
+            start_to_close_timeout=timedelta(seconds=10),
         )
 
         self._status = "completed"
@@ -131,9 +138,11 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
             "comparison_scope": phase_b_result.get("comparison_scope", "full"),
         }
 
-    async def _execute_core_comparison(self, workflow_id: str, document_ids: List[str]) -> Dict[str, Any]:
+    async def _execute_core_comparison(self, workflow_id: str, document_ids: List[str], document_names: List[str]) -> Dict[str, Any]:
         """Execute core comparison logic (Phase B, Alignment, Comparison, and Reasoning)."""
         workflow.logger.info(f"Starting core comparison logic for workflow {workflow_id}")
+
+        doc_msg = " and ".join(document_names) if len(document_names) > 1 else document_names[0]
 
         # 1. Phase B: Capability Pre-Flight Validation
         phase_b_result = await workflow.execute_activity(
@@ -143,6 +152,11 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 2. Section Alignment
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": f"Aligning sections from {doc_msg}"}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         alignment_result = await workflow.execute_activity(
             "section_alignment_activity",
             args=[workflow_id, document_ids],
@@ -150,6 +164,11 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 3. Detailed Entity Comparison
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": f"Comparing sections from {doc_msg}"}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         diff_result = await workflow.execute_activity(
             "detailed_comparison_activity",
             args=[workflow_id, alignment_result],
@@ -157,6 +176,11 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 4. Generate Comparison Reasoning
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": f"Generating insights for {doc_msg}"}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         reasoning_result = await workflow.execute_activity(
             "generate_comparison_reasoning_activity",
             args=[workflow_id, diff_result],

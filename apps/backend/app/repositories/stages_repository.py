@@ -44,6 +44,7 @@ class StagesRepository(BaseRepository[WorkflowDocumentStageRun]):
             "started_at": stage.started_at,
             "completed_at": stage.completed_at,
             "error_message": stage.error_message,
+            "stage_metadata": stage.stage_metadata,
         }
 
     async def get_all_document_stages(self) -> List[dict]:
@@ -103,6 +104,7 @@ class StagesRepository(BaseRepository[WorkflowDocumentStageRun]):
         stage_name: str,
         status: str,
         error_message: Optional[str] = None,
+        stage_metadata: Optional[dict] = None,
     ) -> bool:
         """
         Update document-level stage status and aggregate to workflow-level.
@@ -127,6 +129,7 @@ class StagesRepository(BaseRepository[WorkflowDocumentStageRun]):
                 started_at=now,
                 completed_at=now if status in {"completed", "failed"} else None,
                 error_message=error_message,
+                stage_metadata=stage_metadata,
             )
             self.session.add(stage_run)
         else:
@@ -135,6 +138,8 @@ class StagesRepository(BaseRepository[WorkflowDocumentStageRun]):
                 stage_run.completed_at = now
             if error_message:
                 stage_run.error_message = error_message
+            if stage_metadata:
+                stage_run.stage_metadata = stage_metadata
 
         await self.session.flush()
 

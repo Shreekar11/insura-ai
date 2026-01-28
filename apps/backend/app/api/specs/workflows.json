@@ -11,35 +11,11 @@
         "summary": "Execute workflow",
         "operationId": "execute_workflow",
         "requestBody": {
+          "required": true,
           "content": {
-            "multipart/form-data": {
+            "application/json": {
               "schema": {
-                "type": "object",
-                "properties": {
-                  "workflow_name": {
-                    "type": "string"
-                  },
-                  "workflow_definition_id": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "workflow_id": {
-                    "type": "string",
-                    "format": "uuid"
-                  },
-                  "metadata_json": {
-                    "type": "string"
-                  },
-                  "file1": {
-                    "type": "string",
-                    "format": "binary"
-                  },
-                  "file2": {
-                    "type": "string",
-                    "format": "binary"
-                  }
-                },
-                "required": ["workflow_name", "workflow_definition_id", "file1"]
+                "$ref": "#/components/schemas/WorkflowExecutionRequest"
               }
             }
           }
@@ -716,6 +692,9 @@
           "workflow_id": {
             "type": "string",
             "format": "uuid"
+          },
+          "stream_url": {
+            "type": "string"
           }
         }
       },

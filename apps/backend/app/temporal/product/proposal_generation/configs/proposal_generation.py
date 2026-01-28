@@ -1,5 +1,25 @@
 """Configuration for Proposal Generation Workflow."""
 
+import os
+from typing import Literal
+import yaml
+from pathlib import Path
+
+# Path to the YAML template
+CONFIG_PATH = Path(__file__).parent / "proposal_generation.yaml"
+
+def load_proposal_generation_config():
+    """Load proposal generation configuration from YAML."""
+    if not CONFIG_PATH.exists():
+        return {}
+    try:
+        with open(CONFIG_PATH, 'r') as f:
+            return yaml.safe_load(f)
+    except Exception:
+        return {}
+
+CONFIG = load_proposal_generation_config()
+
 # Required sections for proposal generation
 REQUIRED_SECTIONS = [
     "declarations",
@@ -10,7 +30,7 @@ REQUIRED_SECTIONS = [
     "endorsements",
 ]
 
-# Required entities for proposal comparison
+# Required entities for proposal generation
 REQUIRED_ENTITIES = [
     "policy_number",
     "insured_name",

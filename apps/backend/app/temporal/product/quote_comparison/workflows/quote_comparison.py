@@ -117,6 +117,12 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
             start_to_close_timeout=timedelta(seconds=60),
         )
 
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Quote comparison completed successfully."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
         self._status = "completed"
         self._progress = 1.0
         self._current_step = "completed"
@@ -148,6 +154,11 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 2. Coverage Normalization
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Normalizing coverages for comparison..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         normalization_result = await workflow.execute_activity(
             "coverage_normalization_activity",
             args=[workflow_id, document_ids],
@@ -155,6 +166,11 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 3. Quality Evaluation
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Evaluating quote quality and completeness..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         quality_result = await workflow.execute_activity(
             "quality_evaluation_activity",
             args=[workflow_id, normalization_result.get("normalized_coverages", {})],
@@ -162,6 +178,11 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
         )
 
         # 4. Generate Side-by-Side Comparison Matrix
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Generating side-by-side comparison matrix..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         comparison_result = await workflow.execute_activity(
             "generate_comparison_matrix_activity",
             args=[workflow_id, document_ids],

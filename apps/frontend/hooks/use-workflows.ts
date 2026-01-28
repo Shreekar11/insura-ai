@@ -1,5 +1,5 @@
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
-import { DefaultService, WorkflowListItem, WorkflowCreateRequest, WorkflowResponse } from "@/schema/generated/workflows";
+import { DefaultService, WorkflowListItem, WorkflowCreateRequest, WorkflowResponse, WorkflowExecutionRequest } from "@/schema/generated/workflows";
 
 /**
  * Custom hook to fetch workflows using TanStack Query
@@ -65,14 +65,8 @@ export const useCreateWorkflow = () => {
 export const useExecuteWorkflow = () => {
   const queryClient = useQueryClient();
   return useMutation({
-    mutationFn: (formData: {
-      workflow_name: string;
-      workflow_definition_id: string;
-      workflow_id?: string;
-      metadata_json?: string;
-      file1: Blob;
-      file2?: Blob;
-    }) => DefaultService.executeWorkflow(formData),
+    mutationFn: (request: WorkflowExecutionRequest) =>
+      DefaultService.executeWorkflow(request),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["workflows"] });
     },

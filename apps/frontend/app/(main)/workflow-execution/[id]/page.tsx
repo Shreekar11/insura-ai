@@ -2,25 +2,44 @@
 
 import { useState, useCallback, useEffect } from "react";
 import { useParams } from "next/navigation";
-import { useWorkflowById } from "@/hooks/use-workflows";
+import { useWorkflowById, useExecuteWorkflow } from "@/hooks/use-workflows";
 import { useUploadDocument, useDocuments } from "@/hooks/use-documents";
-import { FileDropzone, type UploadedFile } from "@/components/custom/file-dropzone";
+import {
+  FileDropzone,
+  type UploadedFile,
+} from "@/components/custom/file-dropzone";
 import { Button } from "@/components/ui/button";
-import { IconLoader2, IconPlayerPlay, IconCircleCheck } from "@tabler/icons-react";
+import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
+import { Sparkles } from "lucide-react";
+import { useWorkflowStream } from "@/hooks/use-workflow-stream";
+import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
+import { toast } from "sonner";
 
 export default function WorkflowExecutionPage() {
   const { id } = useParams();
   const workflowId = id as string;
 
-  const { data: workflow, isLoading: isLoadingWorkflow } = useWorkflowById(workflowId);
-  const { data: existingDocuments, isLoading: isLoadingDocuments } = useDocuments(workflowId);
+  const { data: workflow, isLoading: isLoadingWorkflow } =
+    useWorkflowById(workflowId);
+  const { data: existingDocuments, isLoading: isLoadingDocuments } =
+    useDocuments(workflowId);
   const uploadMutation = useUploadDocument();
+  const executeMutation = useExecuteWorkflow();
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
-  const [isStarting, setIsStarting] = useState(false);
+  const [isStarted, setIsStarted] = useState(false);
 
-  // Sync existing documents to local state
+  // SSE Stream
+  const { events, isConnected, isComplete } = useWorkflowStream(
+    isStarted ? workflowId : null,
+  );
+
+  // Sync existing documents to local state and rehydrate isStarted
   useEffect(() => {
+    if (workflow?.status && workflow.status !== "draft") {
+      setIsStarted(true);
+    }
+
     if (existingDocuments?.documents) {
       setUploadedFiles((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
@@ -31,12 +50,12 @@ export default function WorkflowExecutionPage() {
             name: doc.document_name || "Untitled",
             status: "success" as const,
           }));
-        
+
         if (newFiles.length === 0) return prev;
         return [...prev, ...newFiles];
       });
     }
-  }, [existingDocuments]);
+  }, [existingDocuments, workflow]);
 
   const handleFilesSelect = useCallback(
     async (files: File[]) => {
@@ -49,29 +68,36 @@ export default function WorkflowExecutionPage() {
       setUploadedFiles((prev) => [...prev, ...newFiles]);
 
       try {
-        const result = await uploadMutation.mutateAsync({ files, workflowId: id as string });
-        
+        const result = await uploadMutation.mutateAsync({
+          files,
+          workflowId: id as string,
+        });
+
         // Update successful files
         setUploadedFiles((prev) =>
           prev.map((f) => {
-            const uploadedDoc = result.documents.find((d) => d.document_name === f.name);
+            const uploadedDoc = result.documents.find(
+              (d) => d.document_name === f.name,
+            );
             if (uploadedDoc) {
               return { ...f, id: uploadedDoc.id, status: "success" };
             }
             return f;
-          })
+          }),
         );
 
         // Update failed files if any
         if (result.failed_uploads.length > 0) {
           setUploadedFiles((prev) =>
             prev.map((f) => {
-              const failure = result.failed_uploads.find((fail) => fail.filename === f.name);
+              const failure = result.failed_uploads.find(
+                (fail) => fail.filename === f.name,
+              );
               if (failure) {
                 return { ...f, status: "error", error: failure.error };
               }
               return f;
-            })
+            }),
           );
         }
       } catch (error) {
@@ -79,24 +105,43 @@ export default function WorkflowExecutionPage() {
           prev.map((f) => {
             const isOneOfNewFiles = newFiles.some((nf) => nf.id === f.id);
             if (isOneOfNewFiles) {
-              return { ...f, status: "error", error: error instanceof Error ? error.message : "Upload failed" };
+              return {
+                ...f,
+                status: "error",
+                error: error instanceof Error ? error.message : "Upload failed",
+              };
             }
             return f;
-          })
+          }),
         );
       }
     },
-    [uploadMutation]
+    [uploadMutation, id],
   );
 
   const hasSuccessfulUpload = uploadedFiles.some((f) => f.status === "success");
   const isAnyUploading = uploadedFiles.some((f) => f.status === "uploading");
 
   const handleStartWorkflow = async () => {
-    setIsStarting(true);
-    // TODO: Implement workflow execution logic
-    await new Promise((resolve) => setTimeout(resolve, 1000));
-    setIsStarting(false);
+    if (!workflow) return;
+
+    try {
+      await executeMutation.mutateAsync({
+        workflow_name: workflow.workflow_name || "Untitled",
+        workflow_definition_id: workflow.definition_id as string,
+        workflow_id: workflowId,
+        document_ids: uploadedFiles
+          .filter((f) => f.status === "success")
+          .map((f) => f.id),
+        metadata: {},
+      });
+
+      setIsStarted(true);
+      toast.success("Workflow started successfully");
+    } catch (error) {
+      console.error("Failed to start workflow:", error);
+      toast.error("Failed to start workflow");
+    }
   };
 
   if (isLoadingWorkflow) {
@@ -111,50 +156,62 @@ export default function WorkflowExecutionPage() {
 
   return (
     <div className="flex flex-col p-6">
-      {/* Upper Section - Upload Area */}
-      <div className="space-y-4 w-full flex justify-center items-center flex-col">
-        {/* Welcome Text - Single Line */}
-        <div className="flex items-center gap-2 text-muted-foreground">
-          <IconCircleCheck className="size-5 text-amber-500" />
-          <p className="text-sm">
-            Welcome to the <span className="font-medium text-foreground">{definitionName}</span> workflow. I&apos;ll guide you through this process.
+      <div className="space-y-4 w-full flex justify-center items-center flex-col mb-8">
+        <div className="flex items-center gap-3 text-muted-foreground">
+          <div className="bg-amber-500/10 p-1.5 rounded-full ring-1 ring-amber-500/10">
+            <Sparkles className="size-4 text-amber-500" />
+          </div>
+          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+            Welcome to the{" "}
+            <span className="font-bold text-zinc-900 dark:text-zinc-100">
+              {definitionName}
+            </span>{" "}
+            workflow. I&apos;ll guide you through this process.
           </p>
         </div>
-
-        {/* Upload Widget */}
-        <FileDropzone
-          onFilesSelect={handleFilesSelect}
-          uploadedFiles={uploadedFiles}
-          isUploading={isAnyUploading}
-          accept={{ "application/pdf": [".pdf"] }}
-          maxFiles={10}
-        />
-
-        {/* Start Button - Only visible after successful upload */}
-        {hasSuccessfulUpload && (
-          <Button
-            disabled={isAnyUploading || isStarting}
-            onClick={handleStartWorkflow}
-          >
-            {isStarting ? (
-              <>
-                <IconLoader2 className="size-4 animate-spin" />
-                Starting...
-              </>
-            ) : (
-              <>
-                <IconPlayerPlay className="size-4" />
-                Start Workflow
-              </>
-            )}
-          </Button>
-        )}
       </div>
 
-      {/* Lower Section - Workflow Execution View (placeholder) */}
-      <div className="mt-8">
-        {/* Real-time workflow execution will be displayed here */}
-      </div>
+      {!isStarted ? (
+        <div className="space-y-6 flex flex-col items-center w-full">
+          <FileDropzone
+            onFilesSelect={handleFilesSelect}
+            uploadedFiles={uploadedFiles}
+            isUploading={isAnyUploading}
+            accept={{ "application/pdf": [".pdf"] }}
+            maxFiles={10}
+          />
+
+          {hasSuccessfulUpload && (
+            <Button
+              disabled={isAnyUploading || executeMutation.isPending}
+              onClick={handleStartWorkflow}
+              className="px-8"
+            >
+              {executeMutation.isPending ? (
+                <>
+                  <IconLoader2 className="size-4 animate-spin mr-2" />
+                  Starting...
+                </>
+              ) : (
+                <>
+                  <IconPlayerPlay className="size-4 mr-2" />
+                  Start Workflow
+                </>
+              )}
+            </Button>
+          )}
+        </div>
+      ) : (
+        /* SSE Timeline Section */
+        <div className="w-full">
+          <WorkflowTimeline
+            definitionName={definitionName}
+            events={events}
+            isConnected={isConnected}
+            isComplete={isComplete}
+          />
+        </div>
+      )}
     </div>
   );
 }

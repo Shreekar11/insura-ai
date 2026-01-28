@@ -1,0 +1,186 @@
+workflow:
+  name: proposal_generation
+  version: v1
+  description: >
+    Generate a client-facing insurance proposal by extracting,
+    normalizing, comparing, and summarizing multiple insurance
+    quote documents and optional expiring policies. Produces
+    coverage comparisons, pricing summaries, risk disclosures,
+    and narrative recommendations.
+  min_documents: 1
+  max_documents: 10
+
+intent:
+  allowed_document_types:
+    - quote
+    - policy
+  policy_roles:
+    - quote
+    - expiring   # optional baseline for deltas
+
+# -------------------------------
+# Phase A: Input / Intent Preflight
+# -------------------------------
+preflight:
+  phase_a:
+    checks:
+      - document_count
+      - document_ownership
+      - allowed_document_types
+      - workflow_enabled
+
+  # Phase B runs AFTER conditional processing
+  phase_b:
+    capability_rules:
+      declarations:
+        min_documents: 1
+      coverages:
+        min_documents: 1
+      premium:
+        min_documents: 1
+    compatibility:
+      validate_insured_match: true
+      validate_lob_match: true
+      validate_term_overlap: false   # quotes may differ in term
+
+# --------------------------------
+# Conditional Document Processing
+# --------------------------------
+document_processing:
+  strategy: intent_driven
+  ensure:
+    table_extraction: true
+    classification: true
+    page_analysis: true
+
+    section_extraction:
+      sections:
+        - declarations
+        - coverages
+        - deductibles
+        - premium
+        - endorsements
+        - exclusions
+        - conditions
+
+    enrichment:
+      entities:
+        - POLICY_NUMBER
+        - INSURED_NAME
+        - CARRIER_NAME
+        - EFFECTIVE_DATE
+        - EXPIRATION_DATE
+        - COVERAGE_TYPE
+        - LIMIT
+        - DEDUCTIBLE
+        - PREMIUM_AMOUNT
+        - ENDORSEMENT
+        - EXCLUSION
+
+    indexing:
+      async: true
+      embeddings:
+        sections:
+          - declarations
+          - coverages
+          - endorsements
+          - exclusions
+          - conditions
+
+# -------------------------------
+# Execution DAG
+# -------------------------------
+execution:
+  steps:
+    - name: quote_normalization
+      uses: product.proposal_generation.quote_normalization
+      inputs:
+        sections:
+          - declarations
+          - coverages
+          - deductibles
+          - premium
+      outputs:
+        - normalized_quotes
+
+    - name: coverage_alignment
+      uses: product.proposal_generation.coverage_alignment
+      inputs:
+        from_steps: [quote_normalization]
+      outputs:
+        - coverage_rows
+
+    - name: delta_analysis
+      uses: product.proposal_generation.delta_analysis
+      inputs:
+        from_steps: [coverage_alignment]
+        compare_against:
+          - expiring   # optional
+      outputs:
+        - coverage_deltas
+        - premium_deltas
+
+    - name: gap_classification
+      uses: product.proposal_generation.gap_classification
+      inputs:
+        from_steps: [coverage_deltas]
+      outputs:
+        - gaps
+        - advantages
+        - concerns
+
+    - name: narrative_generation
+      uses: product.proposal_generation.narrative_generation
+      inputs:
+        structured_inputs:
+          - coverage_deltas
+          - premium_deltas
+          - gaps
+          - advantages
+          - concerns
+      outputs:
+        - executive_summary
+        - recommendations
+        - risk_considerations
+
+    - name: proposal_assembly
+      uses: product.proposal_generation.proposal_assembly
+      inputs:
+        from_steps:
+          - coverage_alignment
+          - narrative_generation
+      outputs:
+        - proposal_document
+
+# -------------------------------
+# Output Contract
+# -------------------------------
+output:
+  schema: ProposalGenerationResult
+  include_provenance: true
+  include_source_snippets: true
+  required_fields:
+    - executive_summary
+    - coverage_comparison_table
+    - pricing_summary
+    - recommendations
+  proposal_scope_field: proposal_scope   # single | multi_quote | renewal
+
+# -------------------------------
+# HITL Configuration
+# -------------------------------
+hitl:
+  enabled: true
+  trigger_conditions:
+    - confidence_below: 0.75
+    - coverage_gaps: true
+    - conflicting_limits: true
+    - premium_variance_pct_above: 30
+
+# -------------------------------
+# Exports
+# -------------------------------
+exports:
+  supported_formats:
+    - pdf
+    - docx

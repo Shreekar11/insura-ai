@@ -49,7 +49,8 @@ async def update_stage_status(
     document_id: str,
     stage_name: str,
     status: str,  # running | completed | failed
-    error_message: Optional[str] = None
+    error_message: Optional[str] = None,
+    stage_metadata: Optional[dict] = None
 ) -> bool:
     """Updates the completion status of a processing stage."""
     async with async_session_maker() as session:
@@ -59,10 +60,39 @@ async def update_stage_status(
             workflow_id=workflow_id,
             stage_name=stage_name,
             status=status,
-            error_message=error_message
+            error_message=error_message,
+            stage_metadata=stage_metadata
         )
         await session.commit()
         return result
+
+
+@ActivityRegistry.register("shared", "emit_workflow_event")
+@activity.defn
+async def emit_workflow_event(
+    workflow_id: str,
+    event_type: str,
+    payload: Optional[dict] = None
+) -> bool:
+    """Emits a granular workflow event for SSE streaming.
+    
+    Args:
+        workflow_id: UUID of the workflow
+        event_type: Type of event (e.g. "workflow:progress")
+        payload: Optional JSON payload
+        
+    Returns:
+        True if the event was persisted successfully
+    """
+    async with async_session_maker() as session:
+        wf_repo = WorkflowRepository(session)
+        await wf_repo.emit_run_event(
+            workflow_id=UUID(workflow_id),
+            event_type=event_type,
+            payload=payload
+        )
+        await session.commit()
+        return True
 
 
 @ActivityRegistry.register("shared", "check_stage_readiness")

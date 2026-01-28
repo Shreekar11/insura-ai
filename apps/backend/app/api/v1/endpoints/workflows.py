@@ -3,12 +3,13 @@ from uuid import UUID
 import json
 
 from fastapi import APIRouter, Depends, HTTPException, status, File, UploadFile, Form, Query, Request
+from fastapi.responses import StreamingResponse
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.core.database import get_async_session as get_session
 from app.services.workflow_service import WorkflowService
 from app.services.user_service import UserService
-from app.core.auth import get_current_user
+from app.core.auth import get_current_user, get_current_user_from_query
 from app.schemas.auth import CurrentUser
 from app.schemas.generated.workflows import (
     ApiResponse,
@@ -24,6 +25,7 @@ from app.schemas.generated.workflows import (
 )
 from app.utils.logging import get_logger
 from app.utils.responses import create_api_response, create_error_detail
+from app.services.sse_manager import SSEManager
 
 LOGGER = get_logger(__name__)
 
@@ -49,34 +51,27 @@ async def get_user_service(
 )
 async def execute_workflow(
     request: Request,
-    workflow_name: Annotated[str, Form()],
-    workflow_definition_id: Annotated[str, Form()],
-    file1: Annotated[UploadFile, File()],
-    file2: Annotated[Optional[UploadFile], File()] = None,
+    payload: WorkflowExecutionRequest,
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
-    metadata_json: Annotated[Optional[str], Form()] = None,
-    workflow_id: Annotated[Optional[str], Form()] = None,
 ) -> ApiResponse:
     """Execute a product-specific workflow (e.g., policy comparison)."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     
     try:
-        metadata = json.loads(metadata_json) if metadata_json else {}
-        files = [file for file in [file1, file2] if file]
-        
         result = await workflow_service.submit_product_workflow(
-            workflow_name=workflow_name,
-            workflow_definition_id=workflow_definition_id,
-            files=files,
+            workflow_name=payload.workflow_name,
+            workflow_definition_id=str(payload.workflow_definition_id),
+            document_ids=payload.document_ids or [],
             user_id=user.id,
-            metadata=metadata,
-            workflow_id=UUID(workflow_id) if workflow_id else None
+            metadata=payload.metadata,
+            workflow_id=payload.workflow_id
         )
         
         data = WorkflowExecutionResponse(
-            workflow_id=result["workflow_id"]
+            workflow_id=result["workflow_id"],
+            stream_url=f"/api/v1/workflows/stream/{result['workflow_id']}"
         )
         
         return create_api_response(
@@ -339,6 +334,28 @@ async def get_extracted_data(
         data=result,
         message="Extracted data retrieved successfully",
         request=request
+    )
+
+
+@router.get(
+    "/stream/{workflow_id}",
+    summary="Stream workflow events via SSE",
+    operation_id="stream_workflow_events",
+)
+async def stream_workflow_events(
+    workflow_id: UUID,
+    user: Annotated[CurrentUser, Depends(get_current_user_from_query)],
+) -> StreamingResponse:
+    """Stream real-time workflow events for a given workflow execution."""
+    sse_manager = SSEManager()
+    return StreamingResponse(
+        sse_manager.stream_workflow_events(workflow_id),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "X-Accel-Buffering": "no",  # Disable proxy buffering (Nginx)
+        },
     )
 
 

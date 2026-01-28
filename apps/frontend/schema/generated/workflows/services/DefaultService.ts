@@ -5,6 +5,7 @@
 import type { ApiResponse } from '../models/ApiResponse';
 import type { WorkflowCreateRequest } from '../models/WorkflowCreateRequest';
 import type { WorkflowDefinitionResponse } from '../models/WorkflowDefinitionResponse';
+import type { WorkflowExecutionRequest } from '../models/WorkflowExecutionRequest';
 import type { WorkflowExecutionResponse } from '../models/WorkflowExecutionResponse';
 import type { WorkflowExtractedDataResponse } from '../models/WorkflowExtractedDataResponse';
 import type { WorkflowExtractRequest } from '../models/WorkflowExtractRequest';
@@ -17,27 +18,20 @@ import { request as __request } from '../core/request';
 export class DefaultService {
     /**
      * Execute workflow
-     * @param formData
+     * @param requestBody
      * @returns any Workflow started
      * @throws ApiError
      */
     public static executeWorkflow(
-        formData?: {
-            workflow_name: string;
-            workflow_definition_id: string;
-            workflow_id?: string;
-            metadata_json?: string;
-            file1: Blob;
-            file2?: Blob;
-        },
+        requestBody: WorkflowExecutionRequest,
     ): CancelablePromise<(ApiResponse & {
         data?: WorkflowExecutionResponse;
     })> {
         return __request(OpenAPI, {
             method: 'POST',
             url: '/api/v1/workflows/execute',
-            formData: formData,
-            mediaType: 'multipart/form-data',
+            body: requestBody,
+            mediaType: 'application/json',
             errors: {
                 400: `Invalid request`,
                 401: `Unauthorized`,
