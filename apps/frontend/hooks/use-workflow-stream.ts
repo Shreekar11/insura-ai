@@ -9,6 +9,7 @@ export interface WorkflowEvent {
     document_id?: string;
     status: string;
     message: string;
+    has_output?: boolean;
     metadata?: any;
   };
 }
