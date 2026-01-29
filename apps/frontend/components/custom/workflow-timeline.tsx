@@ -153,7 +153,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
     <>
     <div className="w-full max-w-2xl mx-auto">
       <Collapsible defaultOpen>
-        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-sm overflow-hidden">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
           <CollapsibleTrigger asChild>
             <button className="w-full group flex items-center justify-between gap-4 px-5 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
               <div className="flex items-center gap-4 relative z-10 shrink-0">
@@ -229,7 +229,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                             )}
                           </div>
 
-                          <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded-xl transition-colors">
+                          <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded transition-colors">
                             <span className={cn(
                               "text-[13px] transition-colors duration-300",
                               isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-300 dark:text-blue-200 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
@@ -241,7 +241,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                               <Button 
                                 variant="ghost" 
                                 size="sm" 
-                                className="h-7 px-2.5 text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 rounded-lg group/btn shadow-none"
+                                className="h-7 px-2.5 text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 rounded group/btn shadow-none"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (step.workflowId && step.docId) {

@@ -80,7 +80,7 @@ function StatCard({ label, value, icon, color }: { label: string, value: number,
     <div className="flex flex-col gap-1 p-4 rounded-2xl border border-border bg-card shadow-sm hover:shadow-md transition-all duration-300">
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-muted-foreground uppercase">{label}</span>
-        <div className={`p-1.5 rounded-lg ${colorMap[color]}`}>
+        <div className={`p-1.5 rounded ${colorMap[color]}`}>
           {icon}
         </div>
       </div>

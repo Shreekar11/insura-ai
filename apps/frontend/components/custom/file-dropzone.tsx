@@ -65,7 +65,7 @@ export function FileDropzone({
       <div
         {...getRootProps()}
         className={cn(
-          "relative cursor-pointer rounded-lg border border-dashed p-6 transition-all duration-150",
+          "relative cursor-pointer rounded border border-dashed p-6 transition-all duration-150",
           "flex flex-col items-center justify-center gap-3",
           "bg-background hover:bg-muted/30",
           isDragActive && !isDragReject && "border-primary bg-primary/5",

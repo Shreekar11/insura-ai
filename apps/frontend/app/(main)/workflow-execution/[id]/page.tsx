@@ -14,6 +14,7 @@ import { Sparkles } from "lucide-react";
 import { useWorkflowStream } from "@/hooks/use-workflow-stream";
 import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
+import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 
 export default function WorkflowExecutionPage() {
   const { id } = useParams();
@@ -34,8 +35,14 @@ export default function WorkflowExecutionPage() {
     isStarted ? workflowId : null,
   );
 
+  const { setActiveWorkflowDefinitionId } = useActiveWorkflow();
+
   // Sync existing documents to local state and rehydrate isStarted
   useEffect(() => {
+    if (workflow?.definition_id) {
+      setActiveWorkflowDefinitionId(workflow.definition_id);
+    }
+    
     if (workflow?.status && workflow.status !== "draft") {
       setIsStarted(true);
     }
@@ -55,7 +62,7 @@ export default function WorkflowExecutionPage() {
         return [...prev, ...newFiles];
       });
     }
-  }, [existingDocuments, workflow]);
+  }, [existingDocuments, workflow, setActiveWorkflowDefinitionId]);
 
   const handleFilesSelect = useCallback(
     async (files: File[]) => {

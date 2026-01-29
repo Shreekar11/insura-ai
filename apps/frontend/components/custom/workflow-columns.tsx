@@ -94,7 +94,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
       return (
         <Badge
           variant="outline"
-          className={`${config.color} gap-1.5 px-2 py-0.5 font-medium`}
+          className={`${config.color} rounded gap-1.5 px-2 py-0.5 font-medium`}
         >
           {config.icon}
           {config.label}
