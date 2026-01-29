@@ -156,8 +156,8 @@ export default function WorkflowExecutionPage() {
 
   return (
     <div className="flex flex-col p-6">
-      <div className="space-y-4 w-full flex justify-center items-center flex-col mb-8">
-        <div className="flex items-center gap-3 text-muted-foreground">
+      <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
+        <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
           <div className="bg-amber-500/10 p-1.5 rounded-full ring-1 ring-amber-500/10">
             <Sparkles className="size-4 text-amber-500" />
           </div>

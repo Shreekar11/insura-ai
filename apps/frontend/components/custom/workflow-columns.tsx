@@ -10,6 +10,7 @@ import {
   IconCircleXFilled,
   IconDotsVertical,
   IconClock,
+  IconFileText,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
 import {
@@ -77,6 +78,11 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
           icon: <IconClock className="size-3.5" />,
           color: "text-amber-500 bg-amber-500/10 border-amber-500/20",
         },
+        draft: {
+          label: "Draft",
+          icon: <IconFileText className="size-3.5" />,
+          color: "text-gray-500 bg-gray-500/10 border-gray-500/20",
+        }
       };
 
       const config = statusConfig[status.toLowerCase()] || {

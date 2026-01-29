@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useMemo, useRef, useEffect } from "react";
+import React, { useMemo, useRef, useEffect, useState } from "react";
 import { 
   Loader2, 
   ChevronDown,
@@ -18,6 +18,7 @@ import {
 } from "@/components/ui/collapsible";
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
+import { ScrollArea } from "@/components/ui/scroll-area";
 
 interface WorkflowTimelineProps {
   definitionName: string;
@@ -105,10 +106,31 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
     return finalSteps;
   }, [events]);
 
-  // Auto-scroll logic
+  const [showTopBlur, setShowTopBlur] = useState(false);
+  const [showBottomBlur, setShowBottomBlur] = useState(false);
+
   useEffect(() => {
+    const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
+    
+    const handleScroll = () => {
+      if (scrollContainer) {
+        const { scrollTop, scrollHeight, clientHeight } = scrollContainer as HTMLElement;
+        setShowTopBlur(scrollTop > 10);
+        setShowBottomBlur(scrollTop + clientHeight < scrollHeight);
+      }
+    };
+
     if (scrollRef.current) {
-      scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
+      const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      if (viewport) {
+        viewport.scrollTop = viewport.scrollHeight;
+        setTimeout(handleScroll, 100);
+      }
+    }
+
+    if (scrollContainer) {
+      scrollContainer.addEventListener("scroll", handleScroll);
+      return () => scrollContainer.removeEventListener("scroll", handleScroll);
     }
   }, [steps]);
 
@@ -118,11 +140,11 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
   const latestMessage = latestStep?.message || (isComplete ? "Workflow finished" : "Initializing...");
 
   return (
-    <div className="w-full max-w-2xl mx-auto mb-8">
+    <div className="w-full max-w-2xl mx-auto">
       <Collapsible defaultOpen>
-        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-3xl shadow-sm overflow-hidden">
+        <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-sm overflow-hidden">
           <CollapsibleTrigger asChild>
-            <button className="w-full group flex items-center justify-between gap-4 px-6 py-5 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
+            <button className="w-full group flex items-center justify-between gap-4 px-5 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
               <div className="flex items-center gap-4 relative z-10 shrink-0">
                 <div className="relative">
                   {isComplete ? (
@@ -158,9 +180,9 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
           <CollapsibleContent>
             <div className="px-6 pb-8 pt-2">
               <div className="relative">
-                <div 
+                <ScrollArea 
                   ref={scrollRef}
-                  className="relative flex flex-col gap-6 max-h-[450px] overflow-y-auto pr-2 scrollbar-none"
+                  className="relative flex flex-col gap-1 max-h-[450px] h-72"
                 >
                   <div className="absolute left-[11px] top-3 bottom-3 w-[1.5px] bg-zinc-100 dark:bg-zinc-800" />
 
@@ -186,8 +208,8 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                                 <Check className="size-3 text-zinc-500 stroke-[3]" />
                               </div>
                             ) : isRunning ? (
-                              <div className="size-6 rounded-full bg-blue-50 dark:bg-blue-900/20 border border-blue-100 dark:border-blue-800 flex items-center justify-center shadow-sm">
-                                <Loader2 className="size-3 text-blue-500 animate-spin stroke-[3]" />
+                              <div className="size-6 rounded-full bg-blue-50 dark:bg-blue-400/20 border border-blue-100 dark:border-blue-400 flex items-center justify-center shadow-sm">
+                                <Loader2 className="size-3 text-blue-300 animate-spin stroke-[3]" />
                               </div>
                             ) : (
                               <div className="size-5 rounded-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-sm">
@@ -199,7 +221,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                           <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded-xl transition-colors">
                             <span className={cn(
                               "text-[13px] transition-colors duration-300",
-                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-600 dark:text-blue-400 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
+                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-300 dark:text-blue-200 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
                             )}>
                               {step.message}
                             </span>
@@ -219,7 +241,23 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                       );
                     })}
                   </AnimatePresence>
-                </div>
+                </ScrollArea>
+
+                {/* Top Blur Overlay */}
+                <div 
+                  className={cn(
+                    "absolute top-0 left-0 right-0 h-10 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-b from-white via-white/80 to-transparent dark:from-zinc-950 dark:via-zinc-950/80 dark:to-transparent",
+                    showTopBlur ? "opacity-100" : "opacity-0"
+                  )} 
+                />
+
+                {/* Bottom Blur Overlay */}
+                <div 
+                  className={cn(
+                    "absolute bottom-0 left-0 right-0 h-10 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-zinc-950 dark:via-zinc-950/80 dark:to-transparent",
+                    showBottomBlur ? "opacity-100" : "opacity-0"
+                  )} 
+                />
               </div>
             </div>
           </CollapsibleContent>
