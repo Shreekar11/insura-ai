@@ -116,6 +116,7 @@ export function DataTable<TData, TValue>({
   paginationState,
   onPaginationChange,
   workflowDefinitionId,
+  total,
 }: {
   title?: string;
   data: TData[];
@@ -133,6 +134,7 @@ export function DataTable<TData, TValue>({
     pageSize: number;
   }) => void;
   workflowDefinitionId?: string;
+  total?: number;
 }) {
   const [data, setData] = React.useState(() => initialData);
   const [rowSelection, setRowSelection] = React.useState({});
@@ -338,11 +340,7 @@ export function DataTable<TData, TValue>({
             </TableBody>
           </Table>
         </div>
-        <div className="flex items-center justify-between px-4">
-          <div className="text-muted-foreground hidden flex-1 text-sm lg:flex">
-            {table.getFilteredSelectedRowModel().rows.length} of{" "}
-            {table.getFilteredRowModel().rows.length} row(s) selected.
-          </div>
+        <div className="flex items-center justify-end px-4">
           <div className="flex w-full items-center gap-8 lg:w-fit">
             <div className="hidden items-center gap-2 lg:flex">
               <Label htmlFor="rows-per-page" className="text-sm font-medium">
@@ -360,11 +358,18 @@ export function DataTable<TData, TValue>({
                   />
                 </SelectTrigger>
                 <SelectContent side="top">
-                  {[10, 20, 30, 40, 50].map((pageSize) => (
+                  {[10, 20, 30, 40, 50, 100]
+                    .filter(size => total === undefined || size <= total || size === 10)
+                    .concat(total !== undefined && total > 0 && ![10, 20, 30, 40, 50, 100].includes(total) ? [total] : [])
+                    .sort((a, b) => a - b)
+                    .map((pageSize) => (
                     <SelectItem key={pageSize} value={`${pageSize}`}>
                       {pageSize}
                     </SelectItem>
                   ))}
+                  {total !== undefined && total > 100 && (
+                    <SelectItem value="100">100 (Max)</SelectItem>
+                  )}
                 </SelectContent>
               </Select>
             </div>

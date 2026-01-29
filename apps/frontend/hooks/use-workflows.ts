@@ -37,12 +37,19 @@ export const useWorkflows = (limit: number = 10, offset: number = 0) => {
   });
 };
 
-export const useWorkflowsByDefinitionId = (workflowDefinitionId: string) => {
+export const useWorkflowsByDefinitionId = (
+  workflowDefinitionId: string,
+  limit: number = 10,
+  offset: number = 0,
+) => {
   return useQuery({
-    queryKey: ["workflows", workflowDefinitionId],
+    queryKey: ["workflows", workflowDefinitionId, limit, offset],
     queryFn: async () => {
-      const response =
-        await DefaultService.getAllWorkflows(workflowDefinitionId);
+      const response = await DefaultService.getAllWorkflows(
+        workflowDefinitionId,
+        limit,
+        offset
+      );
       if (!response?.status) {
         throw new Error("Failed to fetch workflows");
       }

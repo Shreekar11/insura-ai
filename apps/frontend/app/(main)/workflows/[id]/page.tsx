@@ -27,6 +27,8 @@ export default function WorkflowExecutionPage() {
 
   const { data, isLoading, error, refetch } = useWorkflowsByDefinitionId(
     workflowDefinitionId as string,
+    pagination.pageSize,
+    pagination.pageIndex * pagination.pageSize
   );
 
   const workflowsResult = data || { workflows: [], total: 0 };
@@ -91,6 +93,7 @@ export default function WorkflowExecutionPage() {
       paginationState={pagination}
       onPaginationChange={setPagination}
       workflowDefinitionId={workflowDefinitionId as string}
+      total={workflowsResult.total}
     />
   );
 }

@@ -186,6 +186,7 @@ class WorkflowService(BaseService):
         """
         return await self.execute(
             action="create_workflow",
+            user_id=user_id,
             workflow_definition_id=workflow_definition_id,
             workflow_name=workflow_name
         )
@@ -242,9 +243,8 @@ class WorkflowService(BaseService):
                 raise ValidationError("workflow_definition_id is required")
             if not kwargs.get("user_id"):
                 raise ValidationError("user_id is required")
-
-            if not kwargs.get("user_id"):
-                raise ValidationError("user_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
         elif action == "update_workflow":
             if not kwargs.get("workflow_id"):
                 raise ValidationError("workflow_id is required")
@@ -924,15 +924,23 @@ class WorkflowService(BaseService):
             } for d in definitions
         ]
 
-    async def get_all_workflows(self, workflow_definition_id: UUID, user_id: UUID) -> List[Dict[str, Any]]:
+    async def get_all_workflows(
+        self, 
+        workflow_definition_id: UUID, 
+        user_id: UUID, 
+        limit: int = 50, 
+        offset: int = 0
+    ) -> Dict[str, Any]:
         """Get all workflows for a workflow definition with enhanced data.
         
         Args:
             workflow_definition_id: Workflow definition ID
             user_id: User ID
+            limit: Max records to return
+            offset: Records to skip
             
         Returns:
-            List of workflows with enhanced data
+            Dict containing total count and list of workflows with enhanced data
         """
         filters = {
             "workflow_definition_id": workflow_definition_id,
@@ -941,14 +949,21 @@ class WorkflowService(BaseService):
         
         # Use existing enhanced fetching logic
         workflows = await self.wf_repo.get_all_with_relationships(
+            skip=offset,
+            limit=limit,
             filters=filters,
             include_documents=True,
             include_stages=True,
             include_events=True
         )
+
+        total = await self.wf_repo.count(filters=filters)
         
         if not workflows:
-            return []
+            return {
+                "total": total,
+                "workflows": []
+            }
             
         workflow_items = []
         for wf in workflows:
@@ -960,7 +975,10 @@ class WorkflowService(BaseService):
             )
             workflow_items.append(item)
             
-        return workflow_items
+        return {
+            "total": total,
+            "workflows": workflow_items
+        }
 
     async def fetch_definition_by_id(self, definition_id) -> Dict[str, Any]:
         """Get workflow definition by id"""

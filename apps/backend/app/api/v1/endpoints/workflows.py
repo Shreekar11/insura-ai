@@ -109,6 +109,8 @@ async def create_workflow(
 ) -> ApiResponse:
     """Create a draft workflow instance."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
+
+    LOGGER.info(f"Creating workflow for user: {user.id}")
     
     result = await workflow_service.execute_create_workflow(
         workflow_definition_id=create_req.workflow_definition_id,
@@ -186,6 +188,8 @@ async def list_workflows(
 async def get_all_workflows(
     request: Request,
     workflow_definition_id: UUID,
+    limit: int = Query(10, ge=1, le=100),
+    offset: int = Query(0, ge=0),
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     user_service: Annotated[UserService, Depends(get_user_service)] = None,
     workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
@@ -193,11 +197,16 @@ async def get_all_workflows(
     """Retrieve details of a specific workflow execution."""
     user = await user_service.get_or_create_user_from_jwt(current_user)
     
-    wf = await workflow_service.get_all_workflows(workflow_definition_id, user.id)
+    result = await workflow_service.get_all_workflows(
+        workflow_definition_id=workflow_definition_id, 
+        user_id=user.id,
+        limit=limit,
+        offset=offset
+    )
     
     data = WorkflowListResponse(
-        total=len(wf),
-        workflows=wf,
+        total=result["total"],
+        workflows=result["workflows"],
     )
         
     return create_api_response(

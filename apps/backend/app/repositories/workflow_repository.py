@@ -105,7 +105,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
                 if hasattr(Workflow, key):
                     query = query.where(getattr(Workflow, key) == value)
         
-        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc(), Workflow.id.desc())
         
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -138,7 +138,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
                 if hasattr(Workflow, key):
                     query = query.where(getattr(Workflow, key) == value)
                     
-        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc(), Workflow.id.desc())
         
         result = await self.session.execute(query)
         return result.scalars().all()

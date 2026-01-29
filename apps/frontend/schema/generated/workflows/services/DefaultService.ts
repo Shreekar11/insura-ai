@@ -139,11 +139,15 @@ export class DefaultService {
     /**
      * Get all workflows for a workflow definition
      * @param workflowDefinitionId
+     * @param limit
+     * @param offset
      * @returns any List of workflows
      * @throws ApiError
      */
     public static getAllWorkflows(
         workflowDefinitionId: string,
+        limit: number = 10,
+        offset?: number,
     ): CancelablePromise<(ApiResponse & {
         data?: WorkflowListResponse;
     })> {
@@ -152,6 +156,10 @@ export class DefaultService {
             url: '/api/v1/workflows/all/{workflow_definition_id}',
             path: {
                 'workflow_definition_id': workflowDefinitionId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
             },
             errors: {
                 401: `Unauthorized`,
