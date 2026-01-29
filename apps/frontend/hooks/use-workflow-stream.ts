@@ -7,6 +7,7 @@ export interface WorkflowEvent {
   data: {
     stage_name: string;
     document_id?: string;
+    workflow_id?: string;
     status: string;
     message: string;
     has_output?: boolean;

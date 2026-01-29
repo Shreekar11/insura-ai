@@ -6,6 +6,7 @@ from typing import Optional
 from app.core.database import async_session_maker
 from app.repositories.stages_repository import StagesRepository
 from app.repositories.workflow_repository import WorkflowRepository
+from app.services.sse_messages import format_stage_message
 from app.utils.logging import get_logger
 from app.temporal.core.activity_registry import ActivityRegistry
 
@@ -63,6 +64,24 @@ async def update_stage_status(
             error_message=error_message,
             stage_metadata=stage_metadata
         )
+
+        # Persist a granular event so historical runs/completed streams can show the timeline + output
+        wf_repo = WorkflowRepository(session)
+        payload = {
+            "stage_name": stage_name,
+            "status": status,
+            "document_id": document_id,
+            "workflow_id": workflow_id,
+            "message": format_stage_message(stage_name, status, stage_metadata),
+            "has_output": stage_name == "extracted" and status == "completed",
+            "metadata": stage_metadata
+        }
+        await wf_repo.emit_run_event(
+            workflow_id=UUID(workflow_id),
+            event_type="workflow:progress",
+            payload=payload
+        )
+
         await session.commit()
         return result
 

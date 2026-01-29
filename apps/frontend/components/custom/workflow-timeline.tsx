@@ -19,6 +19,7 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
+import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
 
 interface WorkflowTimelineProps {
   definitionName: string;
@@ -33,6 +34,7 @@ interface WorkflowStep {
   status: "pending" | "running" | "completed" | "failed";
   timestamp: string;
   docId?: string;
+  workflowId?: string;
   hasOutput?: boolean;
 }
 
@@ -79,6 +81,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
         status,
         timestamp,
         docId,
+        workflowId: data?.workflow_id || event.workflow_id,
         hasOutput
       });
     });
@@ -108,6 +111,13 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
 
   const [showTopBlur, setShowTopBlur] = useState(false);
   const [showBottomBlur, setShowBottomBlur] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedOutput, setSelectedOutput] = useState<{ workflowId: string; documentId: string } | null>(null);
+
+  const handleViewOutput = (workflowId: string, documentId: string) => {
+    setSelectedOutput({ workflowId, documentId });
+    setSidebarOpen(true);
+  };
 
   useEffect(() => {
     const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
@@ -140,6 +150,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
   const latestMessage = latestStep?.message || (isComplete ? "Workflow finished" : "Initializing...");
 
   return (
+    <>
     <div className="w-full max-w-2xl mx-auto">
       <Collapsible defaultOpen>
         <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded-sm overflow-hidden">
@@ -182,7 +193,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
               <div className="relative">
                 <ScrollArea 
                   ref={scrollRef}
-                  className="relative flex flex-col gap-1 max-h-[450px] h-72"
+                  className="relative flex flex-col gap-1 max-h-[250px]"
                 >
                   <div className="absolute left-[11px] top-3 bottom-3 w-[1.5px] bg-zinc-100 dark:bg-zinc-800" />
 
@@ -231,6 +242,12 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                                 variant="ghost" 
                                 size="sm" 
                                 className="h-7 px-2.5 text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 rounded-lg group/btn shadow-none"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (step.workflowId && step.docId) {
+                                    handleViewOutput(step.workflowId, step.docId);
+                                  }
+                                }}
                               >
                                 View Output
                                 <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
@@ -264,5 +281,13 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
         </div>
       </Collapsible>
     </div>
+
+    <ExtractionOutputSidebar
+      open={sidebarOpen}
+      onOpenChange={setSidebarOpen}
+      workflowId={selectedOutput?.workflowId ?? null}
+      documentId={selectedOutput?.documentId ?? null}
+    />
+    </>
   );
 }

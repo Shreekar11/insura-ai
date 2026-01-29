@@ -169,8 +169,10 @@ class SSEManager:
             data={
                 "stage_name": stage.stage_name,
                 "document_id": str(stage.document_id),
+                "workflow_id": str(workflow_id),
                 "status": stage.status,
                 "message": message,
+                "has_output": stage.stage_name == "extracted" and stage.status == "completed",
                 "metadata": stage.stage_metadata
             }
         )
