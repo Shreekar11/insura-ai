@@ -159,12 +159,12 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
               <div className="flex items-center gap-4 relative z-10 shrink-0">
                 <div className="relative">
                   {isComplete ? (
-                    <div className="bg-amber-500/10 p-2.5 rounded-full">
-                      <Sparkles className="size-5 text-amber-500" />
+                    <div className="bg-blue-700/10 p-2.5 rounded-full">
+                      <Sparkles className="size-5 text-blue-700/80" />
                     </div>
                   ) : (
-                    <div className="bg-amber-500/5 p-2.5 rounded-full ring-1 ring-amber-500/10">
-                      <Loader2 className="size-5 text-amber-500 animate-spin" />
+                    <div className="bg-blue-700/10 p-2.5 rounded-full ring-1 ring-blue-700/20">
+                      <Loader2 className="size-5 text-blue-700/80 animate-spin" />
                     </div>
                   )}
                 </div>
@@ -219,8 +219,8 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                                 <Check className="size-3 text-zinc-500 stroke-[3]" />
                               </div>
                             ) : isRunning ? (
-                              <div className="size-6 rounded-full bg-blue-50 dark:bg-blue-400/20 border border-blue-100 dark:border-blue-400 flex items-center justify-center shadow-sm">
-                                <Loader2 className="size-3 text-blue-300 animate-spin stroke-[3]" />
+                              <div className="size-6 rounded-full bg-blue-700/10 dark:bg-blue-400/20 ring-blue-700/20 dark:border-blue-400 flex items-center justify-center shadow-sm">
+                                <Loader2 className="size-3 text-blue-700/80 animate-spin stroke-[3]" />
                               </div>
                             ) : (
                               <div className="size-5 rounded-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-sm">
@@ -232,7 +232,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                           <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded transition-colors">
                             <span className={cn(
                               "text-[13px] transition-colors duration-300",
-                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-300 dark:text-blue-200 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
+                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-700/80 dark:text-blue-700/80 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
                             )}>
                               {step.message}
                             </span>

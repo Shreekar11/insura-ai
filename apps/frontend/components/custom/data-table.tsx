@@ -80,7 +80,7 @@ function ClickableRow<TData>({ row }: { row: Row<TData> }) {
     <TableRow
       data-state={row.getIsSelected() && "selected"}
       onClick={handleRowClick}
-      className="cursor-pointer hover:bg-muted/50 transition-colors hover:bg-[#F3F2F0]"
+      className="cursor-pointer hover:bg-muted transition-colors"
     >
       {row.getVisibleCells().map((cell: any) => (
         <TableCell key={cell.id}>
@@ -260,7 +260,7 @@ export function DataTable<TData, TValue>({
             </DropdownMenu>
             {onAddClick && (
               <Button
-                className="h-8 gap-1 rounded"
+                className="h-8 gap-1 rounded bg-blue-700/90 text-white hover:bg-blue-700/80"
                 size="sm"
                 onClick={() => onAddClick(workflowDefinitionId || "")}
               >
@@ -274,7 +274,7 @@ export function DataTable<TData, TValue>({
 
       <div className="mx-4 lg:mx-6 overflow-hidden rounded-md border shadow-sm">
         <Table>
-          <TableHeader className="bg-[#F3F2F0]">
+          <TableHeader className="bg-muted">
             {table.getHeaderGroups().map((headerGroup: any) => (
               <TableRow key={headerGroup.id} className="hover:bg-transparent">
                 {headerGroup.headers.map((header: any) => {
