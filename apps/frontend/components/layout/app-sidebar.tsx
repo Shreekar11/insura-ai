@@ -46,13 +46,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   return (
     <Sidebar collapsible="icon" {...props}>
-      <SidebarHeader className="bg-[#EDEDEE] group-data-[collapsible=icon]:hidden">
+      <SidebarHeader className="bg-[#EDEDEE]">
         <div className="flex items-start justify-between">
           <SidebarMenuButton
             size="lg"
-            className="hover:bg-transparent data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            className="hover:bg-transparent rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
-            <div className="bg-blue-700/90 text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center rounded">
+            <div className="bg-blue-700/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
               <GalleryVerticalEnd className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -60,7 +60,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
               <span className="truncate text-xs text-gray-600">AI-insurance workspace</span>
             </div>
           </SidebarMenuButton>
-          <SidebarTrigger className="h-8 w-8 hover:bg-[#DBDCDE] hover:rounded text-[#2B2C36]" />
+          <SidebarTrigger className="group-data-[collapsible=icon]:hidden h-8 w-8 hover:bg-[#DBDCDE] hover:rounded text-[#2B2C36]" />
         </div>
       </SidebarHeader>
       <SidebarContent className="bg-[#EDEDEE]">
