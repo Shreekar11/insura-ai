@@ -38,12 +38,20 @@ def format_stage_message(stage_name: str, status: str, metadata: Optional[Dict] 
     template = templates[stage_name].get(status, f"{stage_name.capitalize()} stage {status}")
     
     try:
-        # Specialized formatting for classification
+        # Use a safe formatter that ignores missing keys
+        class SafeFormatter(dict):
+            def __missing__(self, key):
+                return "{" + key + "}"
+
+        # Specialized formatting for classification might need document_profile extraction
         if stage_name == "classified" and status == "completed":
-            doc_type = metadata.get("document_profile", {}).get("document_type", "unknown")
-            return template.replace("{document_name}", str(metadata.get("document_name", "document"))) \
-                           .replace("{document_type}", str(doc_type))
-            
-        return template.format(**metadata)
+            metadata = metadata.copy()
+            if "document_type" not in metadata:
+                metadata["document_type"] = metadata.get("document_profile", {}).get("document_type", "unknown")
+            if "document_name" not in metadata:
+                metadata["document_name"] = "document"
+
+        # Apply formatting using SafeFormatter
+        return template.format_map(SafeFormatter(**metadata))
     except Exception:
         return template
