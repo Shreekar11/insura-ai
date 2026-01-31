@@ -368,6 +368,20 @@ class PageClassifier:
         r"covered\s+auto\s+designation\s+symbols?",
         r"description\s+of\s+covered\s+auto\s+designation\s+symbols",
     ]
+    # ACORD Certificate of Insurance hard override patterns
+    # These patterns are HIGHLY specific to ACORD certificates and should
+    # immediately classify the page as CERTIFICATE_OF_INSURANCE
+    ACORD_CERTIFICATE_OVERRIDE_PATTERNS: List[str] = [
+        r"this\s+certificate\s+is\s+issued\s+as\s+a\s+matter\s+of\s+information",
+        r"acord\s+2[45]",  # ACORD 24 (property) or ACORD 25 (liability)
+        r"certificate\s+of\s+liability\s+insurance",
+        r"certificate\s+of\s+property\s+insurance",
+    ]
+    # Endorsement header hard override patterns
+    # The standard ISO endorsement header should strongly indicate endorsement classification
+    ENDORSEMENT_HEADER_OVERRIDE_PATTERNS: List[str] = [
+        r"this\s+endorsement\s+changes\s+the\s+policy\.?\s*please\s+read\s+it\s+carefully",
+    ]
     # Regex for modifier detection in endorsements (to be deprecated in favor of specific mappings)
     MODIFIER_PATTERNS = {
         "adds_coverage": [r"adds\s+coverage", r"additional\s+coverage", r"extension\s+of\s+coverage"],
@@ -515,20 +529,111 @@ class PageClassifier:
             _page_classifier_instance = cls(confidence_threshold)
         return _page_classifier_instance
     
+    def _is_acord_certificate(self, text: str) -> bool:
+        """Check if text contains ACORD certificate indicators.
+
+        ACORD certificates have very distinctive language that is unambiguous.
+        This method provides a hard override before general pattern matching.
+
+        Args:
+            text: Lowercase text to check
+
+        Returns:
+            True if this is an ACORD certificate
+        """
+        for pattern in self.ACORD_CERTIFICATE_OVERRIDE_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+        return False
+
+    def _has_strong_endorsement_header(self, text: str) -> bool:
+        """Check if text contains strong endorsement header indicators.
+
+        The standard ISO endorsement header should strongly indicate endorsement
+        classification, overriding other potentially matching patterns.
+
+        Args:
+            text: Lowercase text to check
+
+        Returns:
+            True if this has a strong endorsement header
+        """
+        for pattern in self.ENDORSEMENT_HEADER_OVERRIDE_PATTERNS:
+            if re.search(pattern, text, re.IGNORECASE):
+                return True
+        return False
+
     def classify(self, signals: PageSignals, doc_type: DocumentType = DocumentType.UNKNOWN) -> PageClassification:
         """Classify a page based on its signals.
-        
+
         Args:
             signals: PageSignals extracted from the page
             doc_type: Overall document type context (optional)
-            
+
         Returns:
             PageClassification with type, confidence, and processing decision
         """
         # Combine top lines into searchable text
         top_text = ' '.join(signals.top_lines).lower()
         individual_lines = [line.lower() for line in signals.top_lines]
-        
+
+        # Also check full text for hard overrides if available
+        full_text = ' '.join(signals.all_lines).lower() if signals.all_lines else top_text
+
+        # HARD OVERRIDE 1: ACORD Certificate Detection
+        # Check FIRST before any other pattern matching - ACORD certificates have
+        # very distinctive language and should NEVER be classified as conditions/coverages
+        if self._is_acord_certificate(full_text):
+            logger.debug(f"Page {signals.page_number}: ACORD certificate hard override triggered")
+            return PageClassification(
+                page_number=signals.page_number,
+                page_type=PageType.CERTIFICATE_OF_INSURANCE,
+                confidence=0.98,
+                should_process=False,  # Certificates are metadata only - no extraction
+                reasoning="ACORD certificate detected: 'THIS CERTIFICATE IS ISSUED AS A MATTER OF INFORMATION' - informational only",
+                semantic_role=SemanticRole.INFORMATIONAL_ONLY,
+                coverage_effects=[],
+                exclusion_effects=[],
+                sections=[
+                    SectionSpan(
+                        section_type=PageType.CERTIFICATE_OF_INSURANCE,
+                        confidence=0.98,
+                        span=TextSpan(start_line=1, end_line=len(signals.all_lines) if signals.all_lines else 1),
+                        reasoning="ACORD certificate - atomic informational segment",
+                        semantic_role=SemanticRole.INFORMATIONAL_ONLY,
+                        coverage_effects=[],
+                        exclusion_effects=[]
+                    )
+                ]
+            )
+
+        # HARD OVERRIDE 2: Endorsement Header Detection
+        # Standard ISO endorsement header should strongly indicate endorsement classification
+        if self._has_strong_endorsement_header(full_text):
+            logger.debug(f"Page {signals.page_number}: Endorsement header hard override triggered")
+            role, cov_effects, excl_effects = self._detect_semantic_intent(full_text)
+            return PageClassification(
+                page_number=signals.page_number,
+                page_type=PageType.ENDORSEMENT,
+                confidence=0.95,
+                should_process=True,
+                reasoning="Endorsement header detected: 'THIS ENDORSEMENT CHANGES THE POLICY. PLEASE READ IT CAREFULLY.'",
+                semantic_role=role if role else SemanticRole.COVERAGE_MODIFIER,
+                coverage_effects=cov_effects,
+                exclusion_effects=excl_effects,
+                sections=[
+                    SectionSpan(
+                        section_type=PageType.ENDORSEMENT,
+                        confidence=0.95,
+                        span=TextSpan(start_line=1, end_line=len(signals.all_lines) if signals.all_lines else 1),
+                        reasoning="Atomic endorsement segment",
+                        semantic_role=role if role else SemanticRole.COVERAGE_MODIFIER,
+                        coverage_effects=cov_effects,
+                        exclusion_effects=excl_effects
+                    )
+                ]
+            )
+
         # Pass 1: Pattern Matching
         page_type, base_confidence = self._match_patterns(top_text, doc_type=doc_type)
         
@@ -648,10 +753,13 @@ class PageClassifier:
                         self.endorsement_tracker.start_endorsement(signals)
 
             # Special handling for Certificate of Insurance
+            # Certificates are informational only - they do NOT modify coverage and
+            # should NOT be sent to extraction pipelines
             if classification.page_type == PageType.CERTIFICATE_OF_INSURANCE:
                 classification.semantic_role = SemanticRole.INFORMATIONAL_ONLY
                 classification.coverage_effects = []
                 classification.exclusion_effects = []
+                classification.should_process = False  # Metadata only - no extraction
 
             classifications.append(classification)
 

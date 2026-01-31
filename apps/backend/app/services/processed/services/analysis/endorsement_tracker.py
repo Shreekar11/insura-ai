@@ -1,13 +1,29 @@
 """Tracks endorsement boundaries across pages for continuation detection.
 
-IMPORTANT: Based on real document analysis, form numbers (like CA T3 53 02 15) are
-often NOT extractable from markdown content - they're in footers/headers. Instead,
-this tracker relies on:
+SIGNAL PRIORITY ORDER (based on reliability):
 
-1. Mid-sentence continuation (page starts lowercase/mid-phrase)
-2. Alphabetic section sequence (A, B, C -> D, E, F)
-3. Explicit continuation text ("CONTINUED ON", "CONTINUATION OF")
-4. Endorsement context window (pages after endorsement header without new header)
+1. FORM NUMBER MATCH (0.95 confidence) - MOST RELIABLE
+   - When form numbers are available (from footer extraction), matching form numbers
+     definitively link multi-page endorsements
+   - Example: Pages 5-8 all have "CA T3 53 02 15" -> same endorsement
+
+2. EXPLICIT CONTINUATION TEXT (0.90 confidence)
+   - "CONTINUATION OF FORM IL T4 05" explicitly marks continuation
+
+3. MID-SENTENCE START (0.85 confidence)
+   - Page starts with lowercase letter -> continues previous page's sentence
+
+4. SECTION SEQUENCE (0.80 confidence)
+   - A, B, C -> D, E, F alphabetic continuation
+
+5. CONSECUTIVE PAGE + NO NEW HEADER (0.30 confidence)
+   - Weak signal, only additive
+
+6. SAME POLICY NUMBER (0.15 confidence)
+   - Very weak signal, only additive
+
+NOTE: Form numbers can now be extracted via the FooterExtractor service which uses
+Docling and pypdfium2 to read form numbers from PDF footers.
 """
 
 from dataclasses import dataclass, field
@@ -63,6 +79,7 @@ class EndorsementContext:
     endorsement_id: str  # Unique ID (form number if available, else page-based)
     start_page: int
     policy_number: Optional[str] = None
+    form_number: Optional[str] = None  # Form number from footer extraction
     expected_pages: Optional[int] = None  # From "Page X of Y"
     last_section_labels: List[str] = field(default_factory=list)  # Section labels on last page
     pages_seen: List[int] = field(default_factory=list)
@@ -70,12 +87,13 @@ class EndorsementContext:
     def is_continuation_candidate(self, signals: PageSignals) -> Tuple[bool, float, str]:
         """Determine if a page is likely a continuation of this endorsement.
 
-        PRIORITY ORDER (based on real data reliability):
-        1. Mid-sentence start (0.85 confidence) - MOST RELIABLE
-        2. Section sequence continuation (0.80 confidence)
-        3. Explicit continuation text (0.90 confidence)
-        4. Consecutive page + no new header (0.50 confidence)
-        5. Same policy number (0.30 confidence) - WEAK signal
+        PRIORITY ORDER (based on reliability):
+        1. FORM NUMBER MATCH (0.95 confidence) - MOST RELIABLE
+        2. EXPLICIT CONTINUATION TEXT (0.90 confidence)
+        3. MID-SENTENCE START (0.85 confidence)
+        4. SECTION SEQUENCE (0.80 confidence)
+        5. CONSECUTIVE PAGE + NO NEW HEADER (0.30 confidence)
+        6. SAME POLICY NUMBER (0.15 confidence) - WEAK signal
 
         Returns:
             Tuple of (is_continuation, confidence, reasoning)
@@ -85,22 +103,37 @@ class EndorsementContext:
         reasons = []
 
         # NEGATIVE: New endorsement header = new endorsement, NOT continuation
-        # UNLESS it's an explicit continuation form
-        if signals.has_endorsement_header and not signals.explicit_continuation:
-            return (False, 0.0, "New endorsement header detected - not a continuation")
+        # UNLESS it's an explicit continuation form OR same form number
+        if signals.has_endorsement_header:
+            # Check if form number matches - same form number = continuation
+            if signals.form_number and self.form_number and signals.form_number == self.form_number:
+                # Same form number overrides new header detection
+                pass
+            elif not signals.explicit_continuation:
+                return (False, 0.0, "New endorsement header detected - not a continuation")
 
-        # 1. EXPLICIT CONTINUATION TEXT (HIGHEST PRIORITY)
+        # 1. FORM NUMBER MATCH (HIGHEST PRIORITY - most reliable)
+        # When form numbers are available from footer extraction, matching form numbers
+        # definitively link multi-page endorsements
+        if signals.form_number and self.form_number:
+            if signals.form_number == self.form_number:
+                confidence += 0.95
+                reasons.append(f"Same form number: {signals.form_number}")
+                # Form number match is so strong that we can return early with high confidence
+                return (True, min(confidence, 1.0), "; ".join(reasons))
+
+        # 2. EXPLICIT CONTINUATION TEXT (VERY HIGH PRIORITY)
         if signals.explicit_continuation:
             confidence += 0.90
             reasons.append(f"Explicit continuation: {signals.explicit_continuation}")
 
-        # 2. MID-SENTENCE START (VERY HIGH PRIORITY - most reliable from real data)
+        # 3. MID-SENTENCE START (HIGH PRIORITY - reliable from real data)
         if signals.starts_mid_sentence:
             confidence += 0.85
             first_words = signals.first_line_text[:50] if signals.first_line_text else ""
             reasons.append(f"Mid-sentence start: '{first_words}...'")
 
-        # 3. SECTION SEQUENCE CONTINUATION (HIGH PRIORITY)
+        # 4. SECTION SEQUENCE CONTINUATION (HIGH PRIORITY)
         if self.last_section_labels and signals.section_labels:
             is_seq, seq_reason = is_sequence_continuation(
                 self.last_section_labels, signals.section_labels
@@ -109,12 +142,12 @@ class EndorsementContext:
                 confidence += 0.80
                 reasons.append(seq_reason)
 
-        # 4. CONSECUTIVE PAGE + NO NEW HEADER (MEDIUM PRIORITY)
+        # 5. CONSECUTIVE PAGE + NO NEW HEADER (MEDIUM PRIORITY)
         if self.pages_seen and page_num == self.pages_seen[-1] + 1:
             confidence += 0.30
             reasons.append("Consecutive page, no new endorsement header")
 
-        # 5. SAME POLICY NUMBER (WEAK SIGNAL - only additive)
+        # 6. SAME POLICY NUMBER (WEAK SIGNAL - only additive)
         if signals.policy_number and self.policy_number:
             if signals.policy_number == self.policy_number:
                 confidence += 0.15
@@ -168,18 +201,22 @@ class EndorsementTracker:
             self.completed_endorsements.append(self.active_context)
 
         page_num = signals.page_number
+        # Use form number as the endorsement ID if available - this enables
+        # form number-based continuation tracking
         endorsement_id = signals.form_number or f"ENDORSEMENT_PAGE_{page_num}"
 
         self.active_context = EndorsementContext(
             endorsement_id=endorsement_id,
             start_page=page_num,
             policy_number=signals.policy_number,
+            form_number=signals.form_number,  # Store form number for continuation matching
             last_section_labels=signals.section_labels.copy() if signals.section_labels else [],
             pages_seen=[page_num],
         )
 
         LOGGER.debug(
             f"Started tracking endorsement {endorsement_id} at page {page_num}"
+            f"{' (form: ' + signals.form_number + ')' if signals.form_number else ''}"
         )
 
         return self.active_context
@@ -210,6 +247,15 @@ class EndorsementTracker:
             # Update policy number if found
             if signals.policy_number and not self.active_context.policy_number:
                 self.active_context.policy_number = signals.policy_number
+            # Update form number if found (improves future continuation detection)
+            if signals.form_number and not self.active_context.form_number:
+                self.active_context.form_number = signals.form_number
+                # Also update the endorsement_id if it was generated from page number
+                if self.active_context.endorsement_id.startswith("ENDORSEMENT_PAGE_"):
+                    self.active_context.endorsement_id = signals.form_number
+                    LOGGER.debug(
+                        f"Updated endorsement ID to {signals.form_number} from page {signals.page_number}"
+                    )
 
             LOGGER.debug(
                 f"Page {signals.page_number} is continuation of {self.active_context.endorsement_id}: {reason}"
