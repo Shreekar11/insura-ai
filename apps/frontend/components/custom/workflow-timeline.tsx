@@ -54,15 +54,25 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
       
       let stepKey = "";
 
-      if (event_type.startsWith("stage:")) {
+      // Logic to unify events into stable steps
+      if (stageName === "processed") {
+        stepKey = `${docId}:processed`;
+      } else if (stageName === "classified") {
+        stepKey = `${docId}:classified`;
+      } else if (stageName === "extracted") {
+        stepKey = `${docId}:extracted`;
+      } else if (stageName === "enriched") {
+        stepKey = `${docId}:enriched`;
+      } else if (stageName === "summarized") {
+        stepKey = `${docId}:summarized`;
+      } else if (stageName) {
         stepKey = `${docId}:${stageName}`;
       } else if (event_type === "workflow:progress") {
-        // Unique key for progress events to keep them distinct but identifiable by doc
-        // We use the first few words of the message to identify the intent (e.g., "Reading document")
-        const intent = message?.split(' ').slice(0, 2).join('_');
-        stepKey = docId ? `${docId}:progress:${intent}` : `global:progress:${intent}`;
-      } else {
         return;
+      } else if (event_type.startsWith("workflow:")) {
+        return;
+      } else {
+        stepKey = docId ? `${docId}:${event_type}` : `global:${event_type}`;
       }
 
       const status = event_type === "stage:completed" || event_type === "workflow:completed" 
@@ -88,26 +98,24 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
     
     const finalSteps: WorkflowStep[] = orderedKeys.map(key => ({ ...stepMap.get(key)! }));
     
+    // Pass 2: Clean up statuses based on sequence
     for (let i = 0; i < finalSteps.length; i++) {
         const step = finalSteps[i];
         if (!step) continue;
         
         const isLast = i === finalSteps.length - 1;
 
-        if (step.id.includes(':progress:')) {
-            const hasLaterStep = finalSteps.slice(i + 1).some(s => s && s.docId === step.docId && !s.id.includes(':progress:'));
-            if (hasLaterStep && step.status === 'running') {
+        // Auto-complete previous steps for the same document
+        if (step.status === 'running') {
+            const hasLaterDocStep = finalSteps.slice(i + 1).some(s => s && s.docId === step.docId);
+            if (hasLaterDocStep || (isComplete && isLast)) {
                 step.status = 'completed';
             }
-        }
-
-        if (step.status === 'running' && !isLast) {
-            step.status = 'completed';
         }
     }
 
     return finalSteps;
-  }, [events]);
+  }, [events, isComplete]);
 
   const [showTopBlur, setShowTopBlur] = useState(false);
   const [showBottomBlur, setShowBottomBlur] = useState(false);

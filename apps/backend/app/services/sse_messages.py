@@ -11,9 +11,9 @@ def format_stage_message(stage_name: str, status: str, metadata: Optional[Dict] 
             "failed": "Failed to process {document_name}"
         },
         "classified": {
-            "running": "Classifying document...",
-            "completed": "Classified document.",
-            "failed": "Failed to classify document."
+            "running": "Classifying {document_name}",
+            "completed": "Classified {document_name} as {document_type}",
+            "failed": "Failed to classify {document_name}"
         },
         "extracted": {
             "running": "Extracting sections from {document_name}",
@@ -41,8 +41,9 @@ def format_stage_message(stage_name: str, status: str, metadata: Optional[Dict] 
         # Specialized formatting for classification
         if stage_name == "classified" and status == "completed":
             doc_type = metadata.get("document_profile", {}).get("document_type", "unknown")
-            return template.format(document_type=doc_type)
+            return template.replace("{document_name}", str(metadata.get("document_name", "document"))) \
+                           .replace("{document_type}", str(doc_type))
             
         return template.format(**metadata)
-    except KeyError:
+    except Exception:
         return template

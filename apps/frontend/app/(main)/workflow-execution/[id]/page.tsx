@@ -188,7 +188,7 @@ export default function WorkflowExecutionPage() {
             maxFiles={10}
           />
         
-          <div className="flex items-end justify-end w-full">
+          <div className="flex items-center justify-start w-full">
           {hasSuccessfulUpload && (
             <Button
               disabled={isAnyUploading || executeMutation.isPending}
