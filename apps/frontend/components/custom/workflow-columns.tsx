@@ -30,7 +30,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
     cell: ({ row }) => {
       const name = row.getValue("workflow_name") as string;
       return (
-        <div className="flex flex-col gap-0.5">
+        <div className="flex flex-col gap-0.5 w-[150px] truncate">
           <span className="font-medium text-foreground">{name}</span>
         </div>
       );
@@ -163,7 +163,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
               <IconDotsVertical className="size-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[160px]">
+          <DropdownMenuContent align="end" className="w-[160px] z-50">
             <DropdownMenuLabel>Actions</DropdownMenuLabel>
             <DropdownMenuItem
               onClick={() => navigator.clipboard.writeText(row.original.id!)}
@@ -171,8 +171,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
               Copy Workflow ID
             </DropdownMenuItem>
             <DropdownMenuSeparator />
-            <DropdownMenuItem>View details</DropdownMenuItem>
-            <DropdownMenuItem className="text-red-600">
+            <DropdownMenuItem className="!text-red-600">
               Cancel Workflow
             </DropdownMenuItem>
           </DropdownMenuContent>

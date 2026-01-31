@@ -24,7 +24,7 @@ export function useWorkflowStream(workflowId: string | null) {
   const connect = useCallback(() => {
     if (!workflowId) return;
 
-    const token = typeof window !== "undefined" ? localStorage.getItem("token") : null;
+    const token = typeof window !== "undefined" ? localStorage.getItem("access_token") : null;
     if (!token) {
       setError("Authentication token missing");
       return;

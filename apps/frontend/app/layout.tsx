@@ -13,6 +13,9 @@ export const metadata: Metadata = {
   description: "InsuraAI is an AI-workspace for insurance operations",
 };
 
+import { AuthProvider } from "@/contexts/auth-context";
+import { QueryProvider } from "@/components/providers/query-provider";
+
 export default function RootLayout({
   children,
 }: Readonly<{
@@ -23,7 +26,11 @@ export default function RootLayout({
       <body
         className={`${everett.className} antialiased`}
       >
-        {children}
+        <QueryProvider>
+          <AuthProvider>
+            {children}
+          </AuthProvider>
+        </QueryProvider>
       </body>
     </html>
   );

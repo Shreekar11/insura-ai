@@ -54,15 +54,25 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
       
       let stepKey = "";
 
-      if (event_type.startsWith("stage:")) {
+      // Logic to unify events into stable steps
+      if (stageName === "processed") {
+        stepKey = `${docId}:processed`;
+      } else if (stageName === "classified") {
+        stepKey = `${docId}:classified`;
+      } else if (stageName === "extracted") {
+        stepKey = `${docId}:extracted`;
+      } else if (stageName === "enriched") {
+        stepKey = `${docId}:enriched`;
+      } else if (stageName === "summarized") {
+        stepKey = `${docId}:summarized`;
+      } else if (stageName) {
         stepKey = `${docId}:${stageName}`;
       } else if (event_type === "workflow:progress") {
-        // Unique key for progress events to keep them distinct but identifiable by doc
-        // We use the first few words of the message to identify the intent (e.g., "Reading document")
-        const intent = message?.split(' ').slice(0, 2).join('_');
-        stepKey = docId ? `${docId}:progress:${intent}` : `global:progress:${intent}`;
-      } else {
         return;
+      } else if (event_type.startsWith("workflow:")) {
+        return;
+      } else {
+        stepKey = docId ? `${docId}:${event_type}` : `global:${event_type}`;
       }
 
       const status = event_type === "stage:completed" || event_type === "workflow:completed" 
@@ -88,26 +98,24 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
     
     const finalSteps: WorkflowStep[] = orderedKeys.map(key => ({ ...stepMap.get(key)! }));
     
+    // Pass 2: Clean up statuses based on sequence
     for (let i = 0; i < finalSteps.length; i++) {
         const step = finalSteps[i];
         if (!step) continue;
         
         const isLast = i === finalSteps.length - 1;
 
-        if (step.id.includes(':progress:')) {
-            const hasLaterStep = finalSteps.slice(i + 1).some(s => s && s.docId === step.docId && !s.id.includes(':progress:'));
-            if (hasLaterStep && step.status === 'running') {
+        // Auto-complete previous steps for the same document
+        if (step.status === 'running') {
+            const hasLaterDocStep = finalSteps.slice(i + 1).some(s => s && s.docId === step.docId);
+            if (hasLaterDocStep || (isComplete && isLast)) {
                 step.status = 'completed';
             }
-        }
-
-        if (step.status === 'running' && !isLast) {
-            step.status = 'completed';
         }
     }
 
     return finalSteps;
-  }, [events]);
+  }, [events, isComplete]);
 
   const [showTopBlur, setShowTopBlur] = useState(false);
   const [showBottomBlur, setShowBottomBlur] = useState(false);
@@ -157,18 +165,6 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
           <CollapsibleTrigger asChild>
             <button className="w-full group flex items-center justify-between gap-4 px-5 py-3 hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 transition-colors">
               <div className="flex items-center gap-4 relative z-10 shrink-0">
-                <div className="relative">
-                  {isComplete ? (
-                    <div className="bg-amber-500/10 p-2.5 rounded-full">
-                      <Sparkles className="size-5 text-amber-500" />
-                    </div>
-                  ) : (
-                    <div className="bg-amber-500/5 p-2.5 rounded-full ring-1 ring-amber-500/10">
-                      <Loader2 className="size-5 text-amber-500 animate-spin" />
-                    </div>
-                  )}
-                </div>
-                
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight text-left">
                     {isComplete ? `${definitionName} Successfully Executed` : `${definitionName} Running`}
@@ -219,8 +215,8 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                                 <Check className="size-3 text-zinc-500 stroke-[3]" />
                               </div>
                             ) : isRunning ? (
-                              <div className="size-6 rounded-full bg-blue-50 dark:bg-blue-400/20 border border-blue-100 dark:border-blue-400 flex items-center justify-center shadow-sm">
-                                <Loader2 className="size-3 text-blue-300 animate-spin stroke-[3]" />
+                              <div className="size-6 rounded-full bg-[#0232D4]/10 dark:bg-blue-400/20 ring-[#0232D4]/20 dark:border-blue-400 flex items-center justify-center shadow-sm">
+                                <Loader2 className="size-3 text-[#0232D4]/80 animate-spin stroke-[3]" />
                               </div>
                             ) : (
                               <div className="size-5 rounded-full bg-zinc-50 dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 flex items-center justify-center shadow-sm">
@@ -232,7 +228,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                           <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded transition-colors">
                             <span className={cn(
                               "text-[13px] transition-colors duration-300",
-                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-blue-300 dark:text-blue-200 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
+                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-[#1D3DCE]/80 dark:text-[#1D3DCE]/80 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
                             )}>
                               {step.message}
                             </span>
