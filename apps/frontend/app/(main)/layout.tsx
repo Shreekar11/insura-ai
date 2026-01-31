@@ -2,29 +2,25 @@
 
 import { AppSidebar } from "@/components/layout/app-sidebar";
 import { DynamicBreadcrumb } from "@/components/layout/dynamic-breadcrumb";
-import { Separator } from "@/components/ui/separator";
 import {
   SidebarInset,
   SidebarTrigger,
   SidebarProvider,
   useSidebar,
 } from "@/components/ui/sidebar";
-import { QueryProvider } from "@/components/providers/query-provider";
 import { ActiveWorkflowProvider } from "@/contexts/active-workflow-context";
 
-export default function DashboardLayout({
+export default function MainLayout({
   children,
 }: {
   children: React.ReactNode;
 }) {
   return (
-    <QueryProvider>
-      <ActiveWorkflowProvider>
-        <SidebarProvider>
-          <LayoutContent>{children}</LayoutContent>
-        </SidebarProvider>
-      </ActiveWorkflowProvider>
-    </QueryProvider>
+    <ActiveWorkflowProvider>
+      <SidebarProvider>
+        <LayoutContent>{children}</LayoutContent>
+      </SidebarProvider>
+    </ActiveWorkflowProvider>
   );
 }
 

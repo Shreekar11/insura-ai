@@ -165,8 +165,8 @@ export default function WorkflowExecutionPage() {
     <div className="flex flex-col p-6">
       <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
         <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
-          <div className="bg-blue-700/10 p-1.5 rounded-full ring-1 ring-blue-700/20">
-            <Sparkles className="size-4 text-blue-700/80" />
+          <div className="bg-[#0232D4]/10 p-1.5 rounded-full ring-1 ring-[#0232D4]/20">
+            <Sparkles className="size-4 text-[#0232D4]/80" />
           </div>
           <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
             Welcome to the{" "}
@@ -193,7 +193,7 @@ export default function WorkflowExecutionPage() {
             <Button
               disabled={isAnyUploading || executeMutation.isPending}
               onClick={handleStartWorkflow}
-              className="px-8 rounded bg-blue-700/90 text-white hover:bg-blue-700/80"
+              className="px-8 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
             >
               {executeMutation.isPending ? (
                 <>

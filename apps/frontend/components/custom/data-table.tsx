@@ -260,7 +260,7 @@ export function DataTable<TData, TValue>({
             </DropdownMenu>
             {onAddClick && (
               <Button
-                className="h-8 gap-1 rounded bg-blue-700/90 text-white hover:bg-blue-700/80"
+                className="h-8 gap-1 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
                 size="sm"
                 onClick={() => onAddClick(workflowDefinitionId || "")}
               >

@@ -52,7 +52,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             size="lg"
             className="hover:bg-transparent rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
-            <div className="bg-blue-700/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
+            <div className="bg-[#0232D4]/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
               <GalleryVerticalEnd className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
@@ -111,7 +111,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="bg-[#EDEDEE]">
-        <NavUser user={data.user} />
+        <NavUser />
       </SidebarFooter>
       <SidebarRail />
     </Sidebar>
