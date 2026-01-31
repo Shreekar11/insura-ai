@@ -2,6 +2,9 @@
 
 This classifier uses keyword patterns and structural heuristics to classify
 pages into insurance-specific types without requiring ML models.
+
+Includes endorsement continuation detection for cross-page tracking via
+the EndorsementTracker class.
 """
 
 import re
@@ -17,6 +20,10 @@ from app.models.page_analysis_models import (
     SemanticRole,
     CoverageEffect,
     ExclusionEffect
+)
+from app.services.processed.services.analysis.endorsement_tracker import (
+    EndorsementTracker,
+    EndorsementContext
 )
 from app.utils.logging import get_logger
 
@@ -481,12 +488,13 @@ class PageClassifier:
     
     def __init__(self, confidence_threshold: float = 0.7):
         """Initialize page classifier.
-        
+
         Args:
             confidence_threshold: Minimum confidence to classify (0.0 to 1.0)
                 Pages below this threshold are marked as UNKNOWN
         """
         self.confidence_threshold = confidence_threshold
+        self.endorsement_tracker = EndorsementTracker()
         logger.info(
             f"Initialized PageClassifier with threshold {confidence_threshold}"
         )
@@ -577,9 +585,131 @@ class PageClassifier:
             f"Page {signals.page_number} classified as {page_type} "
             f"(confidence: {confidence:.2f}, process: {should_process})"
         )
-        
+
         return classification
-    
+
+    def classify_batch(
+        self,
+        page_signals_list: List[PageSignals],
+        doc_type: DocumentType = DocumentType.UNKNOWN
+    ) -> List[PageClassification]:
+        """Classify a batch of pages with endorsement continuation awareness.
+
+        This method should be used instead of individual classify() calls
+        when processing multi-page documents to enable continuation detection.
+
+        IMPORTANT: Semantic role classification is ONLY applied for POLICY_BUNDLE
+        documents. For base POLICY documents (ISO format), pages are treated as
+        authoritative sections without semantic projection.
+
+        Args:
+            page_signals_list: List of PageSignals for all pages
+            doc_type: Document type context (POLICY, POLICY_BUNDLE, etc.)
+
+        Returns:
+            List of PageClassification with continuation tracking
+        """
+        self.endorsement_tracker.reset()
+        classifications = []
+
+        # Determine if semantic roles should be applied
+        # Only apply semantic classification for POLICY_BUNDLE documents
+        apply_semantic_roles = doc_type == DocumentType.POLICY_BUNDLE
+
+        for signals in page_signals_list:
+            # First, check for endorsement continuation (only for POLICY_BUNDLE)
+            if apply_semantic_roles:
+                is_continuation, ctx, cont_conf, cont_reason = \
+                    self.endorsement_tracker.check_continuation(signals)
+            else:
+                is_continuation = False
+                ctx = None
+                cont_conf = 0.0
+                cont_reason = "Semantic roles disabled for base policy"
+
+            if is_continuation and ctx is not None:
+                # This is an endorsement continuation
+                classification = self._create_continuation_classification(
+                    signals, ctx, cont_conf, cont_reason
+                )
+            else:
+                # Standard classification
+                classification = self.classify(signals, doc_type)
+
+                # Strip semantic roles for base POLICY documents (except endorsement pages)
+                if doc_type == DocumentType.POLICY and classification.page_type != PageType.ENDORSEMENT:
+                    classification.semantic_role = None
+                    classification.coverage_effects = []
+                    classification.exclusion_effects = []
+
+                # If this is a new endorsement and we're tracking, start tracking
+                if apply_semantic_roles and classification.page_type == PageType.ENDORSEMENT:
+                    if signals.has_endorsement_header or not self.endorsement_tracker.active_context:
+                        self.endorsement_tracker.start_endorsement(signals)
+
+            # Special handling for Certificate of Insurance
+            if classification.page_type == PageType.CERTIFICATE_OF_INSURANCE:
+                classification.semantic_role = SemanticRole.INFORMATIONAL_ONLY
+                classification.coverage_effects = []
+                classification.exclusion_effects = []
+
+            classifications.append(classification)
+
+        logger.info(
+            f"Batch classified {len(classifications)} pages, "
+            f"endorsement summary: {self.endorsement_tracker.get_endorsement_summary()}"
+        )
+
+        return classifications
+
+    def _create_continuation_classification(
+        self,
+        signals: PageSignals,
+        ctx: EndorsementContext,
+        confidence: float,
+        reasoning: str
+    ) -> PageClassification:
+        """Create classification for an endorsement continuation page.
+
+        Args:
+            signals: PageSignals for the page
+            ctx: EndorsementContext from the tracker
+            confidence: Continuation confidence score
+            reasoning: Reasoning string for the continuation
+
+        Returns:
+            PageClassification marked as continuation
+        """
+        # Detect semantic role within the continuation
+        full_text = ' '.join(signals.all_lines).lower() if signals.all_lines else ''
+        role, cov_effects, excl_effects = self._detect_semantic_intent(full_text)
+
+        return PageClassification(
+            page_number=signals.page_number,
+            page_type=PageType.ENDORSEMENT,
+            confidence=confidence,
+            should_process=True,  # CRITICAL: Always process endorsement pages
+            reasoning=f"Endorsement continuation of {ctx.endorsement_id}: {reasoning}",
+            sections=[
+                SectionSpan(
+                    section_type=PageType.ENDORSEMENT,
+                    confidence=confidence,
+                    span=TextSpan(start_line=1, end_line=len(signals.all_lines) if signals.all_lines else 1),
+                    reasoning=f"Continuation of {ctx.endorsement_id}",
+                    semantic_role=role,
+                    coverage_effects=cov_effects,
+                    exclusion_effects=excl_effects,
+                )
+            ],
+            semantic_role=role,
+            coverage_effects=cov_effects,
+            exclusion_effects=excl_effects,
+            # Continuation tracking fields
+            is_continuation=True,
+            parent_endorsement_id=ctx.endorsement_id,
+            endorsement_page_sequence=len(ctx.pages_seen),
+        )
+
     def _match_patterns(self, text: str, doc_type: DocumentType = DocumentType.UNKNOWN) -> Tuple[PageType, float]:
         """Match text against keyword patterns.
         
@@ -737,7 +867,7 @@ class PageClassifier:
             confidence = min(confidence + 0.15, 1.0)
         
         # Heuristic 3: Font size boost for headers
-        if signals.max_font_size > 18:
+        if signals.max_font_size and signals.max_font_size > 18:
             confidence = min(confidence + 0.10, 1.0)
             
         # Heuristic 4: Table boost for SOV and Loss Run

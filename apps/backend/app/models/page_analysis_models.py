@@ -97,6 +97,7 @@ class SemanticRole(str, Enum):
     LIMITS = "limits"
     INSURED_DEFINITION = "insured_definition"
     DEFINITIONS = "definitions"
+    INFORMATIONAL_ONLY = "informational_only"  # For certificates - does not modify coverage
     UNKNOWN = "unknown"
 
 
@@ -117,13 +118,13 @@ class ExclusionEffect(str, Enum):
 
 class PageSignals(BaseModel):
     """Signals extracted from a single page.
-    
+
     These signals are extracted without full OCR to enable fast page classification.
     """
-    
+
     page_number: int = Field(..., description="1-indexed page number")
     top_lines: List[str] = Field(
-        ..., 
+        ...,
         description="First few lines of the page or detected headings"
     )
     all_lines: List[str] = Field(
@@ -131,26 +132,60 @@ class PageSignals(BaseModel):
         description="All lines of text for multi-section span detection"
     )
     text_density: float = Field(
-        ..., 
-        ge=0.0, 
+        ...,
+        ge=0.0,
         le=1.0,
         description="Ratio of text to page area (0.0 = empty, 1.0 = full)"
     )
     has_tables: bool = Field(
-        ..., 
+        ...,
         description="Whether the page contains table structures"
     )
     max_font_size: Optional[float] = Field(
-        None, 
+        None,
         description="Largest font size on page (indicates headers)"
     )
     page_hash: str = Field(
-        ..., 
+        ...,
         description="Hash of page content for duplicate detection"
     )
     additional_metadata: Dict[str, Any] = Field(
         default_factory=dict,
         description="Additional structural metadata from Docling or other sources"
+    )
+
+    # Endorsement continuation detection signals
+    policy_number: Optional[str] = Field(
+        None,
+        description="Extracted policy number (e.g., 'BA-9M627065')"
+    )
+    form_number: Optional[str] = Field(
+        None,
+        description="Extracted form number (e.g., 'CA T4 52 02 16') - often unavailable"
+    )
+    has_endorsement_header: bool = Field(
+        False,
+        description="Whether page contains 'THIS ENDORSEMENT CHANGES THE POLICY' or similar"
+    )
+    starts_mid_sentence: bool = Field(
+        False,
+        description="Whether first line starts with lowercase letter (mid-sentence continuation)"
+    )
+    first_line_text: Optional[str] = Field(
+        None,
+        description="Raw first non-empty line for continuation analysis"
+    )
+    section_labels: List[str] = Field(
+        default_factory=list,
+        description="Detected section labels like 'A', 'B', 'D', '1', '2'"
+    )
+    last_section_label: Optional[str] = Field(
+        None,
+        description="Last section label on this page for sequence detection"
+    )
+    explicit_continuation: Optional[str] = Field(
+        None,
+        description="Explicit continuation text like 'CONTINUED ON' or 'CONTINUATION OF'"
     )
     
     model_config = ConfigDict(
@@ -198,25 +233,25 @@ class SectionSpan(BaseModel):
 
 class PageClassification(BaseModel):
     """Classification result for a single page."""
-    
+
     page_number: int = Field(..., description="1-indexed page number")
     page_type: PageType = Field(..., description="Classified page type")
     confidence: float = Field(
-        ..., 
-        ge=0.0, 
+        ...,
+        ge=0.0,
         le=1.0,
         description="Classification confidence score"
     )
     should_process: bool = Field(
-        ..., 
+        ...,
         description="Whether this page should undergo full OCR and extraction"
     )
     duplicate_of: Optional[int] = Field(
-        None, 
+        None,
         description="Page number this is a duplicate of (if applicable)"
     )
     reasoning: Optional[str] = Field(
-        None, 
+        None,
         description="Human-readable explanation of classification"
     )
     sections: List[SectionSpan] = Field(
@@ -231,6 +266,20 @@ class PageClassification(BaseModel):
     )
     exclusion_effects: List[ExclusionEffect] = Field(
         default_factory=list, description="Exclusion effects detected on this page"
+    )
+
+    # Endorsement continuation tracking
+    is_continuation: bool = Field(
+        False,
+        description="Whether this page is a continuation of a previous endorsement"
+    )
+    parent_endorsement_id: Optional[str] = Field(
+        None,
+        description="ID of parent endorsement (form number or generated ID)"
+    )
+    endorsement_page_sequence: Optional[int] = Field(
+        None,
+        description="Position in endorsement sequence (e.g., 2 for page 2 of 3)"
     )
     
     model_config = ConfigDict(
