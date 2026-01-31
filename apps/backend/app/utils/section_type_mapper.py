@@ -97,6 +97,12 @@ class SectionTypeMapper:
         SectionType.DEDUCTIBLES: PageType.DEDUCTIBLES,
         SectionType.PREMIUM: PageType.PREMIUM,
         SectionType.COVERAGES_CONTEXT: PageType.COVERAGES_CONTEXT,
+        # Granular coverage types - ensure round-trip mapping works
+        SectionType.COVERAGE_GRANT: PageType.COVERAGE_GRANT,
+        SectionType.COVERAGE_EXTENSION: PageType.COVERAGE_EXTENSION,
+        SectionType.LIMITS: PageType.LIMITS,
+        SectionType.INSURED_DEFINITION: PageType.INSURED_DEFINITION,
+        SectionType.CERTIFICATE_OF_INSURANCE: PageType.CERTIFICATE_OF_INSURANCE,
         SectionType.UNKNOWN: PageType.UNKNOWN,
     }
     

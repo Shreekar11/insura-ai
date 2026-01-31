@@ -29,7 +29,7 @@ Docling and pypdfium2 to read form numbers from PDF footers.
 from dataclasses import dataclass, field
 from typing import List, Optional, Tuple
 
-from app.models.page_analysis_models import PageSignals, PageType, SemanticRole
+from app.models.page_analysis_models import PageSignals
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -41,7 +41,11 @@ ALPHA_SEQUENCE = 'ABCDEFGHIJKLMNOPQRSTUVWXYZ'
 def is_sequence_continuation(prev_labels: List[str], curr_labels: List[str]) -> Tuple[bool, str]:
     """Check if current page's section labels continue from previous page.
 
-    Example: Page 5 ends with C, Page 6 starts with D -> continuation
+    Supports both:
+    - Strict sequence: B -> C (consecutive)
+    - Alphabetic progression: B -> G (non-consecutive but progressing)
+
+    Example: Page 5 ends with B, Page 7 starts with G -> continuation (progressing)
 
     Args:
         prev_labels: Section labels from previous page
@@ -57,17 +61,30 @@ def is_sequence_continuation(prev_labels: List[str], curr_labels: List[str]) -> 
     curr_first = curr_labels[0].upper() if curr_labels else None
 
     if prev_last and curr_first:
-        # Check alphabetic sequence
+        # Check alphabetic sequence/progression
         if prev_last in ALPHA_SEQUENCE and curr_first in ALPHA_SEQUENCE:
             prev_idx = ALPHA_SEQUENCE.index(prev_last)
             curr_idx = ALPHA_SEQUENCE.index(curr_first)
+
+            # Strict consecutive sequence (B -> C) - high confidence
             if curr_idx == prev_idx + 1:
                 return (True, f"Section sequence: {prev_last} -> {curr_first}")
 
+            # Alphabetic progression (B -> G) - medium confidence
+            # Current label is later in alphabet than previous (progressing forward)
+            # but not too far (max 10 letters gap to avoid false positives)
+            if curr_idx > prev_idx and (curr_idx - prev_idx) <= 10:
+                return (True, f"Section progression: {prev_last} -> {curr_first}")
+
         # Check numeric sequence
         if prev_last.isdigit() and curr_first.isdigit():
-            if int(curr_first) == int(prev_last) + 1:
+            prev_num = int(prev_last)
+            curr_num = int(curr_first)
+            if curr_num == prev_num + 1:
                 return (True, f"Section sequence: {prev_last} -> {curr_first}")
+            # Numeric progression
+            if curr_num > prev_num and (curr_num - prev_num) <= 10:
+                return (True, f"Section progression: {prev_last} -> {curr_first}")
 
     return (False, "")
 
@@ -92,8 +109,9 @@ class EndorsementContext:
         2. EXPLICIT CONTINUATION TEXT (0.90 confidence)
         3. MID-SENTENCE START (0.85 confidence)
         4. SECTION SEQUENCE (0.80 confidence)
-        5. CONSECUTIVE PAGE + NO NEW HEADER (0.30 confidence)
-        6. SAME POLICY NUMBER (0.15 confidence) - WEAK signal
+        5. CONTENT CONTINUITY (0.70 confidence) - NEW
+        6. CONSECUTIVE PAGE + NO STRONG HEADER (0.50 confidence) - BOOSTED
+        7. SAME POLICY NUMBER (0.15 confidence) - WEAK signal
 
         Returns:
             Tuple of (is_continuation, confidence, reasoning)
@@ -101,6 +119,11 @@ class EndorsementContext:
         page_num = signals.page_number
         confidence = 0.0
         reasons = []
+
+        # Extract metadata signals
+        metadata = signals.additional_metadata or {}
+        has_strong_header = metadata.get("has_strong_header", False)
+        content_continuity = metadata.get("content_continuity", False)
 
         # NEGATIVE: New endorsement header = new endorsement, NOT continuation
         # UNLESS it's an explicit continuation form OR same form number
@@ -142,19 +165,30 @@ class EndorsementContext:
                 confidence += 0.80
                 reasons.append(seq_reason)
 
-        # 5. CONSECUTIVE PAGE + NO NEW HEADER (MEDIUM PRIORITY)
-        if self.pages_seen and page_num == self.pages_seen[-1] + 1:
-            confidence += 0.30
-            reasons.append("Consecutive page, no new endorsement header")
+        # 5. CONTENT CONTINUITY (MEDIUM-HIGH PRIORITY) - NEW
+        if content_continuity:
+            confidence += 0.70
+            reasons.append("Content continuity pattern detected")
 
-        # 6. SAME POLICY NUMBER (WEAK SIGNAL - only additive)
+        # 6. CONSECUTIVE PAGE + NO STRONG HEADER (MEDIUM PRIORITY) - BOOSTED
+        # If this is a consecutive page and doesn't have a strong section header,
+        # it's more likely to be continuation
+        if self.pages_seen and page_num == self.pages_seen[-1] + 1:
+            if not has_strong_header and not signals.has_endorsement_header:
+                confidence += 0.50
+                reasons.append("Consecutive page without strong header")
+            else:
+                confidence += 0.20
+                reasons.append("Consecutive page")
+
+        # 7. SAME POLICY NUMBER (WEAK SIGNAL - only additive)
         if signals.policy_number and self.policy_number:
             if signals.policy_number == self.policy_number:
                 confidence += 0.15
                 reasons.append(f"Same policy number: {self.policy_number}")
 
-        # Threshold for continuation
-        is_continuation = confidence >= 0.40
+        # Threshold for continuation - lowered slightly to catch more continuations
+        is_continuation = confidence >= 0.35
         return (is_continuation, min(confidence, 1.0), "; ".join(reasons) if reasons else "No continuation signals")
 
 

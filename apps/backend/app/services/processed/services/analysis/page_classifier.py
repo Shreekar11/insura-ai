@@ -703,9 +703,9 @@ class PageClassifier:
         This method should be used instead of individual classify() calls
         when processing multi-page documents to enable continuation detection.
 
-        IMPORTANT: Semantic role classification is ONLY applied for POLICY_BUNDLE
-        documents. For base POLICY documents (ISO format), pages are treated as
-        authoritative sections without semantic projection.
+        Endorsement continuation tracking is enabled for ALL document types that
+        contain endorsement pages, not just POLICY_BUNDLE. This ensures multi-page
+        endorsements are properly linked even in policy documents.
 
         Args:
             page_signals_list: List of PageSignals for all pages
@@ -718,19 +718,28 @@ class PageClassifier:
         classifications = []
 
         # Determine if semantic roles should be applied
-        # Only apply semantic classification for POLICY_BUNDLE documents
+        # Apply semantic roles for POLICY_BUNDLE and also track endorsement continuations
+        # for ALL document types that have endorsement pages
         apply_semantic_roles = doc_type == DocumentType.POLICY_BUNDLE
 
+        # Pre-scan to detect if document has endorsement pages
+        # If so, enable continuation tracking regardless of doc_type
+        has_endorsement_pages = any(
+            signals.has_endorsement_header for signals in page_signals_list
+        )
+        enable_continuation_tracking = apply_semantic_roles or has_endorsement_pages
+
         for signals in page_signals_list:
-            # First, check for endorsement continuation (only for POLICY_BUNDLE)
-            if apply_semantic_roles:
+            # First, check for endorsement continuation
+            # Enable for all documents that have endorsement pages
+            if enable_continuation_tracking and self.endorsement_tracker.active_context:
                 is_continuation, ctx, cont_conf, cont_reason = \
                     self.endorsement_tracker.check_continuation(signals)
             else:
                 is_continuation = False
                 ctx = None
                 cont_conf = 0.0
-                cont_reason = "Semantic roles disabled for base policy"
+                cont_reason = "No active endorsement context"
 
             if is_continuation and ctx is not None:
                 # This is an endorsement continuation
@@ -747,8 +756,9 @@ class PageClassifier:
                     classification.coverage_effects = []
                     classification.exclusion_effects = []
 
-                # If this is a new endorsement and we're tracking, start tracking
-                if apply_semantic_roles and classification.page_type == PageType.ENDORSEMENT:
+                # If this is a new endorsement, start tracking
+                # Enable for ALL documents that have endorsement pages
+                if enable_continuation_tracking and classification.page_type == PageType.ENDORSEMENT:
                     if signals.has_endorsement_header or not self.endorsement_tracker.active_context:
                         self.endorsement_tracker.start_endorsement(signals)
 

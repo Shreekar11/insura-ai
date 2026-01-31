@@ -38,11 +38,20 @@ class MarkdownPageAnalyzer:
         r'([A-Z]{2}\s+[A-Z]\d\s+\d{2}\s+\d{2}\s+\d{2})',  # CG D3 16 11 11
     ]
 
-    # Section label patterns (A., B., C., 1., 2., etc.)
+    # Section label patterns - ONLY major section letters (A, B, C, etc.)
+    # Excludes numbered sub-items (1., 2., etc.) to avoid confusion with list items
     SECTION_LABEL_PATTERNS = [
         r'^##?\s*([A-Z])\.?\s+[A-Z]',  # "## A. BROAD FORM" in markdown
         r'^-?\s*([A-Z])\.?\s+[A-Z]',   # "- A. Some text" or "A. Some text"
-        r'^##?\s*(\d+)\.?\s+[A-Z]',    # "## 1. First provision"
+        r'^([A-Z])\.\s+[A-Z]',         # "A. Coverage" without markdown prefix
+    ]
+
+    # Content continuity indicators - suggest page continues previous content
+    CONTENT_CONTINUITY_PATTERNS = [
+        r'^\s*permission',              # Continues from permission phrase
+        r'^\s*operating\s+a',           # Continues operating clause
+        r'^\s*such\s+contract',         # References contract from previous
+        r'^\s*the\s+waiver\s+applies',  # Continues waiver clause
     ]
 
     # Endorsement header patterns
@@ -186,11 +195,17 @@ class MarkdownPageAnalyzer:
         # Check for explicit continuation text
         explicit_continuation = self._extract_explicit_continuation(markdown_content)
 
+        # Detect content continuity (adds to continuation signals)
+        content_continuity = self._detect_content_continuity(markdown_content)
+        has_strong_header = self._has_strong_section_header(markdown_content)
+
         # Build signal metadata
         signal_metadata = {
             "source": "docling" if metadata else "markdown",
             "headings_found": len(headings),
-            "anchor_phrases_found": self._find_anchor_phrases(markdown_content)
+            "anchor_phrases_found": self._find_anchor_phrases(markdown_content),
+            "content_continuity": content_continuity,
+            "has_strong_header": has_strong_header,
         }
 
         # Merge relevant Docling metadata into signals for classification logic
@@ -346,20 +361,26 @@ class MarkdownPageAnalyzer:
         return (any(mid_sentence_indicators), first_line)
 
     def _extract_section_labels(self, text: str) -> Tuple[List[str], Optional[str]]:
-        """Extract section labels (A., B., C., 1., 2., etc.) from page.
+        """Extract section labels (A., B., C., etc.) from page in document order.
 
         Returns:
             Tuple of (all_labels_found, last_label_on_page)
         """
-        labels = []
+        # Extract labels with their positions to maintain document order
+        label_positions = []
         for pattern in self.SECTION_LABEL_PATTERNS:
-            matches = re.findall(pattern, text, re.MULTILINE)
-            labels.extend(matches)
+            for match in re.finditer(pattern, text, re.MULTILINE):
+                label = match.group(1)
+                pos = match.start()
+                label_positions.append((pos, label))
 
-        # Deduplicate while preserving order
+        # Sort by position to maintain document order
+        label_positions.sort(key=lambda x: x[0])
+
+        # Deduplicate while preserving document order
         seen = set()
         unique_labels = []
-        for label in labels:
+        for pos, label in label_positions:
             if label not in seen:
                 seen.add(label)
                 unique_labels.append(label)
@@ -374,3 +395,53 @@ class MarkdownPageAnalyzer:
             if match:
                 return match.group(0)
         return None
+
+    def _detect_content_continuity(self, text: str) -> bool:
+        """Detect if page content suggests it continues from a previous page.
+
+        Looks for patterns that indicate mid-content continuation without
+        a clear section header or endorsement header.
+        """
+        lines = text.split('\n')
+
+        # Find first substantial line (non-empty, non-comment)
+        first_substantial = None
+        for line in lines:
+            stripped = line.strip()
+            if stripped and not stripped.startswith('<!--') and not stripped.startswith('#'):
+                # Remove list markers
+                content = re.sub(r'^[-*•]\s*', '', stripped)
+                if content and len(content) > 10:
+                    first_substantial = content
+                    break
+
+        if not first_substantial:
+            return False
+
+        # Check for content continuity patterns
+        for pattern in self.CONTENT_CONTINUITY_PATTERNS:
+            if re.search(pattern, first_substantial, re.IGNORECASE):
+                return True
+
+        return False
+
+    def _has_strong_section_header(self, text: str) -> bool:
+        """Check if page has a strong standalone section header.
+
+        Strong headers indicate a new section rather than continuation.
+        """
+        strong_header_patterns = [
+            r'^#\s+SECTION\s+[IVX]+',           # "# SECTION II" at page start
+            r'^##?\s+[A-Z]{2,}\s+[A-Z]{2,}',    # "## DECLARATIONS PAGE"
+            r'THIS\s+ENDORSEMENT\s+CHANGES',    # Endorsement header
+            r'^COVERAGE\s+FORM',                 # Coverage form header
+        ]
+
+        # Check only first 5 lines for headers
+        first_lines = '\n'.join(text.split('\n')[:5])
+
+        for pattern in strong_header_patterns:
+            if re.search(pattern, first_lines, re.IGNORECASE | re.MULTILINE):
+                return True
+
+        return False
