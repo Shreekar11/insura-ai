@@ -562,12 +562,21 @@ class HybridChunkingService:
         current_table_count = 0
         
         # Index boundaries by page for fast lookup
+        # Also create a map of page -> covering boundary for continuation page support
         boundaries_by_page = {}
+        boundaries_covering_page = {}  # Maps page number -> boundary that covers it
         if section_boundaries:
             for b in section_boundaries:
                 if b.start_page not in boundaries_by_page:
                     boundaries_by_page[b.start_page] = []
                 boundaries_by_page[b.start_page].append(b)
+
+                # Map all pages in this boundary's range to the boundary
+                # This enables semantic_role inheritance for continuation pages
+                for page_in_range in range(b.start_page, b.end_page + 1):
+                    # Only set if not already set (prefer boundary that starts on this page)
+                    if page_in_range not in boundaries_covering_page:
+                        boundaries_covering_page[page_in_range] = b
 
         for page in pages:
             page_num = page.page_number
@@ -604,7 +613,7 @@ class HybridChunkingService:
                 page_boundaries = boundaries_by_page.get(page_num, [])
                 boundary_section = SectionType.UNKNOWN
                 current_boundary = None
-                
+
                 for b in page_boundaries:
                     # Case 1: Page-level boundary (apply to first paragraph)
                     if b.start_line is None and para_idx == 0:
@@ -615,6 +624,32 @@ class HybridChunkingService:
                         if current_line_estimation >= b.start_line:
                             boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
                             current_boundary = b
+
+                # CONTINUATION PAGE SUPPORT: If no boundary starts on this page but
+                # this page is covered by an existing boundary, inherit semantic context
+                # This ensures multi-page endorsements maintain their semantic_role
+                covering_boundary = boundaries_covering_page.get(page_num)
+                if covering_boundary and not current_boundary and para_idx == 0:
+                    # This is a continuation page - inherit semantic context from covering boundary
+                    # Since this is not a "transition" (same section), we update current state directly
+                    if covering_boundary.semantic_role:
+                        role = covering_boundary.semantic_role
+                        inherited_role = role.value if hasattr(role, 'value') else role
+                        # Update both new_ and current_ to ensure proper propagation
+                        new_semantic_role = inherited_role
+                        current_semantic_role = inherited_role
+                        LOGGER.debug(
+                            f"Inheriting semantic_role '{inherited_role}' from covering boundary "
+                            f"(pages {covering_boundary.start_page}-{covering_boundary.end_page}) for continuation page {page_num}"
+                        )
+                    if covering_boundary.coverage_effects:
+                        inherited_cov_effects = [e.value if hasattr(e, 'value') else e for e in covering_boundary.coverage_effects]
+                        new_coverage_effects = inherited_cov_effects
+                        current_coverage_effects = inherited_cov_effects
+                    if covering_boundary.exclusion_effects:
+                        inherited_excl_effects = [e.value if hasattr(e, 'value') else e for e in covering_boundary.exclusion_effects]
+                        new_exclusion_effects = inherited_excl_effects
+                        current_exclusion_effects = inherited_excl_effects
 
                 # Capture effective section type from boundary if available
                 boundary_effective_type = None
