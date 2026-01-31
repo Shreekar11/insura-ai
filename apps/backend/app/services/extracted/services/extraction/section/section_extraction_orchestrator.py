@@ -44,6 +44,7 @@ from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.step_repository import StepSectionOutputRepository, StepEntityOutputRepository
+from app.services.extracted.services.synthesis import SynthesisOrchestrator
 
 LOGGER = get_logger(__name__)
 
@@ -84,22 +85,28 @@ class SectionExtractionResult:
 @dataclass
 class DocumentExtractionResult:
     """Complete extraction result for a document.
-    
+
     Attributes:
         document_id: Document ID
         section_results: Results per section
         all_entities: Aggregated entities across sections
         total_tokens: Total tokens processed
         total_processing_time_ms: Total processing time
+        effective_coverages: Synthesized coverage-centric output
+        effective_exclusions: Synthesized exclusion-centric output
+        synthesis_metadata: Metadata about synthesis process
     """
     document_id: Optional[UUID] = None
     section_results: List[SectionExtractionResult] = field(default_factory=list)
     all_entities: List[Dict[str, Any]] = field(default_factory=list)
     total_tokens: int = 0
     total_processing_time_ms: int = 0
-    
+    effective_coverages: List[Dict[str, Any]] = field(default_factory=list)
+    effective_exclusions: List[Dict[str, Any]] = field(default_factory=list)
+    synthesis_metadata: Dict[str, Any] = field(default_factory=dict)
+
     def get_section_result(
-        self, 
+        self,
         section_type: SectionType
     ) -> Optional[SectionExtractionResult]:
         """Get result for a specific section."""
@@ -107,7 +114,7 @@ class DocumentExtractionResult:
             if result.section_type == section_type:
                 return result
         return None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -116,6 +123,9 @@ class DocumentExtractionResult:
             "all_entities": self.all_entities,
             "total_tokens": self.total_tokens,
             "total_processing_time_ms": self.total_processing_time_ms,
+            "effective_coverages": self.effective_coverages,
+            "effective_exclusions": self.effective_exclusions,
+            "synthesis_metadata": self.synthesis_metadata,
         }
 
 
@@ -363,10 +373,39 @@ class SectionExtractionOrchestrator:
             total_processing_time_ms=total_time_ms,
         )
 
+        # Run synthesis to produce effective coverages/exclusions
+        if section_results:
+            try:
+                synthesis_orchestrator = SynthesisOrchestrator()
+                synthesis_result = synthesis_orchestrator.synthesize(result.to_dict())
+
+                # Store synthesis result in the DocumentExtractionResult
+                result.effective_coverages = synthesis_result.get("effective_coverages", [])
+                result.effective_exclusions = synthesis_result.get("effective_exclusions", [])
+                result.synthesis_metadata = {
+                    "overall_confidence": synthesis_result.get("overall_confidence", 0.0),
+                    "synthesis_method": synthesis_result.get("synthesis_method", "endorsement_only"),
+                    "source_endorsement_count": synthesis_result.get("source_endorsement_count", 0),
+                }
+
+                LOGGER.info(
+                    "Synthesis completed",
+                    extra={
+                        "effective_coverages": len(result.effective_coverages),
+                        "effective_exclusions": len(result.effective_exclusions),
+                        "confidence": synthesis_result.get("overall_confidence", 0.0),
+                    }
+                )
+            except Exception as e:
+                LOGGER.warning(f"Synthesis failed, continuing without: {e}")
+                result.effective_coverages = []
+                result.effective_exclusions = []
+                result.synthesis_metadata = {"error": str(e)}
+
         # Persist extraction results
         if workflow_id and document_id:
             await self._persist_step_outputs(result, workflow_id)
-        
+
         LOGGER.info(
             "Section extraction completed",
             extra={
@@ -376,7 +415,7 @@ class SectionExtractionOrchestrator:
                 "total_tokens": total_tokens,
             }
         )
-        
+
         return result
     
     async def _persist_step_outputs(
