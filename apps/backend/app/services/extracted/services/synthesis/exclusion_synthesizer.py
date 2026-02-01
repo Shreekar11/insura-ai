@@ -77,12 +77,29 @@ class ExclusionSynthesizer:
                 source_endorsements,
             )
 
+        # Determine synthesis method based on available data
+        has_endorsements = bool(exclusion_modifications or endorsement_data)
+        has_base_exclusions = bool(base_exclusions)
+
         # Build effective exclusions
-        effective_exclusions = self._build_effective_exclusions(
-            exclusion_mods,
-            source_endorsements,
-            base_exclusions,
-        )
+        if has_endorsements:
+            # Build from endorsement modifications
+            effective_exclusions = self._build_effective_exclusions(
+                exclusion_mods,
+                source_endorsements,
+                base_exclusions,
+            )
+            synthesis_method = SynthesisMethod.ENDORSEMENT_ONLY.value
+        elif has_base_exclusions:
+            # Convert base exclusions directly to effective exclusions (no endorsements)
+            effective_exclusions = self._convert_base_to_effective_exclusions(base_exclusions)
+            synthesis_method = SynthesisMethod.BASE_COVERAGE_MERGE.value
+            self.logger.info(
+                f"No endorsements found. Converting {len(base_exclusions)} base exclusions to effective exclusions."
+            )
+        else:
+            effective_exclusions = []
+            synthesis_method = SynthesisMethod.ENDORSEMENT_ONLY.value
 
         # Calculate overall confidence
         if effective_exclusions:
@@ -94,9 +111,90 @@ class ExclusionSynthesizer:
             effective_coverages=[],  # Handled by CoverageSynthesizer
             effective_exclusions=effective_exclusions,
             overall_confidence=overall_confidence,
-            synthesis_method=SynthesisMethod.ENDORSEMENT_ONLY.value,
+            synthesis_method=synthesis_method,
             source_endorsement_count=len(set().union(*source_endorsements.values())) if source_endorsements else 0,
         )
+
+    def _convert_base_to_effective_exclusions(
+        self,
+        base_exclusions: List[Dict[str, Any]],
+    ) -> List[EffectiveExclusion]:
+        """Convert base exclusion data directly to EffectiveExclusion objects.
+
+        This method is used when there are no endorsement modifications,
+        making the base exclusions the effective exclusions.
+
+        Args:
+            base_exclusions: Base exclusion data from EXCLUSIONS section extraction.
+
+        Returns:
+            List of EffectiveExclusion objects.
+        """
+        effective_exclusions = []
+
+        for exclusion in base_exclusions:
+            # Extract exclusion name from various possible field names
+            exclusion_name = (
+                exclusion.get("exclusion_name") or
+                exclusion.get("title") or
+                exclusion.get("name") or
+                "Unknown Exclusion"
+            )
+
+            # Extract description
+            description = exclusion.get("description") or exclusion.get("summary")
+
+            # Extract scope
+            scope = exclusion.get("exclusion_scope") or exclusion.get("scope")
+
+            # Extract impacted coverages
+            impacted_coverages = None
+            if exclusion.get("impacted_coverage"):
+                impacted_coverages = [exclusion.get("impacted_coverage")]
+            elif exclusion.get("impacted_coverages"):
+                impacted_coverages = exclusion.get("impacted_coverages")
+
+            # Extract exceptions/carve-backs
+            carve_backs = None
+            if exclusion.get("exceptions"):
+                exceptions = exclusion.get("exceptions")
+                if isinstance(exceptions, str):
+                    carve_backs = [exceptions]
+                elif isinstance(exceptions, list):
+                    carve_backs = exceptions
+
+            # Get severity
+            severity = exclusion.get("severity", "Material")
+
+            # Get confidence from entity or default
+            confidence = exclusion.get("confidence", 0.95)
+
+            # Get exclusion number/reference
+            exclusion_number = (
+                exclusion.get("exclusion_number") or
+                exclusion.get("reference") or
+                exclusion.get("provision_number")
+            )
+
+            effective_exclusions.append(EffectiveExclusion(
+                exclusion_name=exclusion_name,
+                effective_state="Excluded",  # Base exclusions are in effect
+                scope=scope,
+                carve_backs=carve_backs,
+                conditions=None,
+                impacted_coverages=impacted_coverages,
+                sources=["Base Form"],
+                confidence=confidence,
+                severity=severity,
+                exclusion_number=exclusion_number,
+                description=description,
+                source_form=exclusion.get("source_form"),
+                is_standard_provision=True,
+                is_modified=False,
+                form_section=exclusion.get("form_section"),
+            ))
+
+        return effective_exclusions
 
     def _process_exclusion_modifications(
         self,

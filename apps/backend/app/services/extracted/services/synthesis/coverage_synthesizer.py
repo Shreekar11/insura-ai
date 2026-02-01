@@ -87,12 +87,29 @@ class CoverageSynthesizer:
                 source_endorsements,
             )
 
+        # Determine synthesis method based on available data
+        has_endorsements = bool(endorsement_modifications or endorsement_data)
+        has_base_coverages = bool(base_coverages)
+
         # Build effective coverages
-        effective_coverages = self._build_effective_coverages(
-            coverage_modifications,
-            source_endorsements,
-            base_coverages,
-        )
+        if has_endorsements:
+            # Build from endorsement modifications
+            effective_coverages = self._build_effective_coverages(
+                coverage_modifications,
+                source_endorsements,
+                base_coverages,
+            )
+            synthesis_method = SynthesisMethod.ENDORSEMENT_ONLY.value
+        elif has_base_coverages:
+            # Convert base coverages directly to effective coverages (no endorsements)
+            effective_coverages = self._convert_base_to_effective_coverages(base_coverages)
+            synthesis_method = SynthesisMethod.BASE_COVERAGE_MERGE.value
+            self.logger.info(
+                f"No endorsements found. Converting {len(base_coverages)} base coverages to effective coverages."
+            )
+        else:
+            effective_coverages = []
+            synthesis_method = SynthesisMethod.ENDORSEMENT_ONLY.value
 
         # Calculate overall confidence
         if effective_coverages:
@@ -104,9 +121,79 @@ class CoverageSynthesizer:
             effective_coverages=effective_coverages,
             effective_exclusions=[],  # Handled by ExclusionSynthesizer
             overall_confidence=overall_confidence,
-            synthesis_method=SynthesisMethod.ENDORSEMENT_ONLY.value,
+            synthesis_method=synthesis_method,
             source_endorsement_count=len(set().union(*source_endorsements.values())) if source_endorsements else 0,
         )
+
+    def _convert_base_to_effective_coverages(
+        self,
+        base_coverages: List[Dict[str, Any]],
+    ) -> List[EffectiveCoverage]:
+        """Convert base coverage data directly to EffectiveCoverage objects.
+
+        This method is used when there are no endorsement modifications,
+        making the base coverages the effective coverages.
+
+        Args:
+            base_coverages: Base coverage data from COVERAGES section extraction.
+
+        Returns:
+            List of EffectiveCoverage objects.
+        """
+        effective_coverages = []
+
+        for coverage in base_coverages:
+            # Extract coverage name from various possible field names
+            coverage_name = (
+                coverage.get("coverage_name") or
+                coverage.get("title") or
+                coverage.get("name") or
+                "Unknown Coverage"
+            )
+
+            # Extract coverage type
+            coverage_type = (
+                coverage.get("coverage_type") or
+                coverage.get("coverage_category") or
+                self._infer_coverage_type(coverage_name)
+            )
+
+            # Extract description
+            description = coverage.get("description") or coverage.get("summary")
+
+            # Extract limits and deductibles if present
+            limits = {}
+            if coverage.get("limit_amount"):
+                limits["amount"] = coverage.get("limit_amount")
+            if coverage.get("limits"):
+                limits.update(coverage.get("limits"))
+
+            deductibles = {}
+            if coverage.get("deductible_amount"):
+                deductibles["amount"] = coverage.get("deductible_amount")
+            if coverage.get("deductibles"):
+                deductibles.update(coverage.get("deductibles"))
+
+            # Get confidence from entity or default
+            confidence = coverage.get("confidence", 0.95)
+
+            effective_coverages.append(EffectiveCoverage(
+                coverage_name=coverage_name,
+                coverage_type=coverage_type,
+                effective_terms={},  # No modifications from endorsements
+                detailed_terms=None,
+                limits=limits if limits else None,
+                deductibles=deductibles if deductibles else None,
+                sources=["Base Form"],
+                confidence=confidence,
+                description=description,
+                source_form=coverage.get("source_form"),
+                is_standard_provision=True,
+                is_modified=False,
+                form_section=coverage.get("form_section"),
+            ))
+
+        return effective_coverages
 
     def _process_projection_modifications(
         self,

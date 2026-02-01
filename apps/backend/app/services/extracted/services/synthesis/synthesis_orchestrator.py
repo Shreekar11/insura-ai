@@ -797,11 +797,23 @@ class SynthesisOrchestrator:
 
         overall_confidence = sum(confidences) / len(confidences) if confidences else 0.0
 
+        # Determine synthesis method based on both results
+        # If either is BASE_COVERAGE_MERGE, use that (means no endorsements processed)
+        # If both have endorsements, use ENDORSEMENT_ONLY
+        coverage_method = coverage_result.synthesis_method
+        exclusion_method = exclusion_result.synthesis_method
+
+        if (coverage_method == SynthesisMethod.BASE_COVERAGE_MERGE.value or
+            exclusion_method == SynthesisMethod.BASE_COVERAGE_MERGE.value):
+            synthesis_method = SynthesisMethod.BASE_COVERAGE_MERGE.value
+        else:
+            synthesis_method = SynthesisMethod.ENDORSEMENT_ONLY.value
+
         return {
             "effective_coverages": [c.model_dump() for c in coverage_result.effective_coverages],
             "effective_exclusions": [e.model_dump() for e in exclusion_result.effective_exclusions],
             "overall_confidence": overall_confidence,
-            "synthesis_method": coverage_result.synthesis_method,
+            "synthesis_method": synthesis_method,
             "source_endorsement_count": (
                 coverage_result.source_endorsement_count +
                 exclusion_result.source_endorsement_count
