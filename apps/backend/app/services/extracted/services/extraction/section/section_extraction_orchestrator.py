@@ -211,6 +211,8 @@ class SectionExtractionOrchestrator:
             SectionType.DECLARATIONS: DeclarationsExtractor,
             SectionType.DEFINITIONS: DefinitionsExtractor,
             SectionType.COVERAGES: CoveragesExtractor,
+            SectionType.COVERAGE_GRANT: CoveragesExtractor,  # Coverage grants use CoveragesExtractor
+            SectionType.COVERAGE_EXTENSION: CoveragesExtractor,  # Coverage extensions use CoveragesExtractor
             SectionType.CONDITIONS: ConditionsExtractor,
             SectionType.EXCLUSIONS: ExclusionsExtractor,
             SectionType.ENDORSEMENTS: EndorsementsExtractor,
@@ -262,6 +264,14 @@ class SectionExtractionOrchestrator:
             SectionType.DECLARATIONS: ["declaration", "dec", "policy declarations"],
             SectionType.DEFINITIONS: ["definition", "glossary", "definitions", "policy definitions"],
             SectionType.COVERAGES: ["coverage", "coverages", "insurance coverage"],
+            SectionType.COVERAGE_GRANT: [
+                "coverage_grant", "liability coverage", "physical damage coverage",
+                "covered autos liability", "section ii", "section iii"
+            ],
+            SectionType.COVERAGE_EXTENSION: [
+                "coverage_extension", "coverage extension", "additional coverages",
+                "supplementary payments", "optional coverages"
+            ],
             SectionType.CONDITIONS: ["condition", "policy conditions"],
             SectionType.EXCLUSIONS: ["exclusion", "policy exclusions"],
             SectionType.ENDORSEMENTS: ["endorsement", "endorsement forms"],
@@ -1063,8 +1073,11 @@ class SectionExtractionOrchestrator:
             return self._aggregate_endorsement_projection_results(parsed_results)
 
         # List items to aggregate for specific section types
+        # Coverage-related sections (COVERAGE_GRANT, COVERAGE_EXTENSION) also extract coverages
         list_keys = {
             SectionType.COVERAGES: "coverages",
+            SectionType.COVERAGE_GRANT: "coverages",  # Coverage grants extract to coverages
+            SectionType.COVERAGE_EXTENSION: "coverages",  # Coverage extensions extract to coverages
             SectionType.CONDITIONS: "conditions",
             SectionType.EXCLUSIONS: "exclusions",
             SectionType.ENDORSEMENTS: "endorsements",

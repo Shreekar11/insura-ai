@@ -369,6 +369,9 @@ class SynthesisOrchestrator:
     ) -> Optional[List[Dict[str, Any]]]:
         """Extract base section data (coverages or exclusions).
 
+        For coverages, this method also checks coverage_grant and coverage_extension
+        sections since they contain coverage data extracted by CoveragesExtractor.
+
         Args:
             extraction_result: The extraction result dict.
             section_type: "coverages" or "exclusions"
@@ -377,13 +380,24 @@ class SynthesisOrchestrator:
             List of section items or None.
         """
         section_results = extraction_result.get("section_results", [])
+        all_items = []
+
+        # Determine which section types to check
+        if section_type == "coverages":
+            # Coverage data can come from coverages, coverage_grant, or coverage_extension sections
+            matching_section_types = {"coverages", "coverage_grant", "coverage_extension"}
+        else:
+            matching_section_types = {section_type}
 
         for section in section_results:
-            if section.get("section_type") == section_type:
+            if section.get("section_type") in matching_section_types:
                 extracted_data = section.get("extracted_data", {})
-                return extracted_data.get(section_type, [])
+                # coverages, coverage_grant, coverage_extension all extract to "coverages" key
+                items = extracted_data.get(section_type, [])
+                if items:
+                    all_items.extend(items)
 
-        return None
+        return all_items if all_items else None
 
     def _detect_base_form_from_extraction(
         self,
