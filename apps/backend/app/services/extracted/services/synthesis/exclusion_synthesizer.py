@@ -254,10 +254,30 @@ class ExclusionSynthesizer:
         """
         endorsements = endorsement_data.get("endorsements", [])
 
-        # Keywords that suggest exclusion-related modifications
-        exclusion_keywords = [
-            "waiver", "subrogation", "exclusion", "except", "limitation",
-            "restriction", "carve", "delete", "remove", "narrow"
+        # Enhanced keywords for exclusion-related modifications
+        # Primary keywords that strongly indicate exclusion modifications
+        primary_exclusion_keywords = [
+            "waiver", "subrogation", "exclusion", "limitation",
+            "restriction", "carve", "delete", "remove", "narrow",
+            "transfer of rights", "recovery against others",
+        ]
+
+        # Secondary keywords that may indicate exclusion modifications
+        secondary_exclusion_keywords = [
+            "except", "unless", "provided that", "subject to",
+            "applicable to", "does not apply", "not covered",
+            "prohibited", "void", "suspended", "limited to",
+        ]
+
+        # Double-negative patterns that narrow/remove exclusions
+        # These phrases often indicate the exclusion is being carved back
+        narrowing_patterns = [
+            "does not apply to",
+            "shall not apply",
+            "exclusion does not apply",
+            "not applicable to",
+            "is not excluded",
+            "exception to exclusion",
         ]
 
         for endorsement in endorsements:
@@ -273,24 +293,51 @@ class ExclusionSynthesizer:
 
             # Determine if this endorsement affects exclusions
             name_lower = endorsement_name.lower()
+
+            # Check for primary keywords
+            has_primary_keyword = any(
+                keyword in name_lower for keyword in primary_exclusion_keywords
+            )
+
+            # Check for secondary keywords
+            has_secondary_keyword = any(
+                keyword in name_lower for keyword in secondary_exclusion_keywords
+            )
+
+            # Check for restrictive endorsement types
+            is_restrictive_type = endorsement_type in ("Restrict", "Delete")
+
+            # Check for double-negative patterns
+            has_narrowing_pattern = any(
+                pattern in name_lower for pattern in narrowing_patterns
+            )
+
+            # Determine if exclusion-related
             is_exclusion_related = (
-                endorsement_type in ("Restrict", "Delete") or
-                any(keyword in name_lower for keyword in exclusion_keywords)
+                has_primary_keyword or
+                is_restrictive_type or
+                (has_secondary_keyword and endorsement_type in ("Modify", "Restrict"))
             )
 
             if not is_exclusion_related:
                 continue
 
-            # Determine effect category based on endorsement type and name
+            # Determine effect category based on endorsement type, name, and patterns
             effect_category = self._infer_exclusion_effect_category(
-                endorsement_type, endorsement_name
+                endorsement_type, endorsement_name, has_narrowing_pattern
             )
+
+            # Infer severity from materiality or endorsement characteristics
+            severity = self._infer_severity(materiality, endorsement_type, name_lower)
 
             # Generate exclusion name based on endorsement
             exclusion_name = self._generate_exclusion_name(
                 endorsement_name, impacted_coverage
             )
             exclusion_key = self._normalize_exclusion_name(exclusion_name)
+
+            # Extract any condition hints from the endorsement name
+            condition_hints = self._extract_condition_hints(name_lower)
 
             exclusion_mods[exclusion_key].append({
                 "effect": endorsement_type,
@@ -299,7 +346,9 @@ class ExclusionSynthesizer:
                 "impacted_coverage": impacted_coverage,
                 "endorsement_name": endorsement_name,
                 "materiality": materiality,
+                "severity": severity,
                 "source": endorsement_ref,
+                "exception_conditions": condition_hints,
             })
             source_endorsements[exclusion_key].add(endorsement_ref)
 
@@ -309,37 +358,134 @@ class ExclusionSynthesizer:
                 f"from basic endorsement data"
             )
 
+    def _infer_severity(
+        self, materiality: Optional[str], endorsement_type: str, name_lower: str
+    ) -> str:
+        """Infer severity from materiality, endorsement type, and name.
+
+        Args:
+            materiality: The materiality field from endorsement.
+            endorsement_type: Endorsement type (Add, Modify, Restrict, Delete).
+            name_lower: Lowercase endorsement name.
+
+        Returns:
+            Severity string (Critical, Major, Material, Minor).
+        """
+        # Use materiality if available
+        if materiality:
+            materiality_lower = materiality.lower()
+            if materiality_lower in ("high", "critical"):
+                return "Critical"
+            elif materiality_lower == "medium":
+                return "Major"
+            elif materiality_lower == "low":
+                return "Minor"
+
+        # Infer from endorsement characteristics
+        # Restrictive changes that affect liability are typically more severe
+        if endorsement_type in ("Restrict", "Delete"):
+            if any(term in name_lower for term in ["liability", "bodily injury", "property damage"]):
+                return "Critical"
+            return "Major"
+
+        # Waivers that affect subrogation are typically material
+        if "waiver" in name_lower or "subrogation" in name_lower:
+            return "Material"
+
+        # Default to Material
+        return "Material"
+
+    def _extract_condition_hints(self, name_lower: str) -> Optional[str]:
+        """Extract condition hints from endorsement name.
+
+        Args:
+            name_lower: Lowercase endorsement name.
+
+        Returns:
+            Condition hint string or None.
+        """
+        # Look for conditional phrases
+        conditional_patterns = [
+            ("required by contract", "When required by written contract"),
+            ("written contract", "Subject to written contract requirement"),
+            ("scheduled", "For scheduled parties only"),
+            ("blanket", "Blanket coverage for all qualifying parties"),
+            ("designated", "For designated parties only"),
+            ("per project", "Applied on a per-project basis"),
+            ("per location", "Applied on a per-location basis"),
+        ]
+
+        for pattern, description in conditional_patterns:
+            if pattern in name_lower:
+                return description
+
+        return None
+
     def _infer_exclusion_effect_category(
-        self, endorsement_type: str, endorsement_name: str
+        self,
+        endorsement_type: str,
+        endorsement_name: str,
+        has_narrowing_pattern: bool = False,
     ) -> str:
         """Infer exclusion effect category from endorsement data.
 
         Args:
             endorsement_type: Endorsement type (Add, Modify, Restrict, Delete).
             endorsement_name: Endorsement name.
+            has_narrowing_pattern: Whether the name contains double-negative patterns.
 
         Returns:
             Effect category string.
         """
         name_lower = endorsement_name.lower()
 
+        # Double-negative patterns strongly indicate narrowing
+        # e.g., "does not apply to" means the exclusion is being carved back
+        if has_narrowing_pattern:
+            return "narrows_exclusion"
+
         # Waivers typically narrow/remove exclusions
+        # Waiver of subrogation = insurer waives right to recover from third parties
         if "waiver" in name_lower:
             return "narrows_exclusion"
 
-        # Carve-backs narrow exclusions
-        if "carve" in name_lower or "except" in name_lower:
+        # Transfer of rights waivers narrow subrogation exclusions
+        if "transfer of rights" in name_lower or "recovery against others" in name_lower:
             return "narrows_exclusion"
 
-        # Deletions remove exclusions
+        # Carve-backs and exceptions narrow exclusions
+        if any(term in name_lower for term in ["carve", "except", "exception"]):
+            return "narrows_exclusion"
+
+        # "Does not apply" phrases indicate narrowing (exclusion doesn't apply)
+        if "does not apply" in name_lower or "shall not apply" in name_lower:
+            return "narrows_exclusion"
+
+        # "Not excluded" or similar phrases indicate removal of exclusion
+        if "not excluded" in name_lower or "is covered" in name_lower:
+            return "removes_exclusion"
+
+        # Deletions remove exclusions entirely
         if endorsement_type == "Delete" or "delete" in name_lower or "remove" in name_lower:
             return "removes_exclusion"
 
-        # Restrictions introduce or maintain exclusions
+        # Extension endorsements often narrow exclusions to expand coverage
+        if "extension" in name_lower and endorsement_type == "Add":
+            return "narrows_exclusion"
+
+        # Restrictions introduce or strengthen exclusions
         if endorsement_type == "Restrict":
             return "introduces_exclusion"
 
-        # Default to introducing exclusion
+        # Limitation endorsements typically introduce new exclusions
+        if "limitation" in name_lower or "limit" in name_lower:
+            return "introduces_exclusion"
+
+        # Prohibited or void language introduces exclusions
+        if "prohibited" in name_lower or "void" in name_lower:
+            return "introduces_exclusion"
+
+        # Default to introducing exclusion for unrecognized patterns
         return "introduces_exclusion"
 
     def _generate_exclusion_name(
@@ -356,15 +502,53 @@ class ExclusionSynthesizer:
         """
         name_lower = endorsement_name.lower()
 
-        # Try to extract specific exclusion name from endorsement
-        if "waiver" in name_lower and "subrogation" in name_lower:
-            if impacted_coverage:
-                return f"Waiver of Subrogation - {impacted_coverage}"
-            return "Waiver of Subrogation"
+        # Map common endorsement patterns to standard exclusion names
+        exclusion_name_patterns = [
+            # Subrogation/Transfer of Rights patterns
+            (["waiver", "subrogation"], "Waiver of Subrogation"),
+            (["transfer of rights", "recovery against others"], "Transfer of Rights of Recovery Against Others"),
+            (["waiver of right to recover"], "Waiver of Right to Recover"),
 
+            # Additional Insured patterns
+            (["additional insured", "blanket"], "Additional Insured Coverage"),
+            (["additional insured", "primary"], "Additional Insured - Primary & Non-Contributory"),
+
+            # Notice patterns
+            (["notice of cancellation"], "Notice of Cancellation"),
+            (["material change"], "Material Change Notice"),
+
+            # Auto coverage patterns
+            (["hired auto"], "Hired Auto Coverage"),
+            (["non-owned auto"], "Non-Owned Auto Coverage"),
+            (["short term hired"], "Short Term Hired Auto"),
+
+            # Workers Comp patterns
+            (["alternate employer"], "Alternate Employer Coverage"),
+            (["voluntary compensation"], "Voluntary Compensation"),
+        ]
+
+        # Check for pattern matches
+        for patterns, standard_name in exclusion_name_patterns:
+            if all(pattern in name_lower for pattern in patterns):
+                if impacted_coverage:
+                    return f"{standard_name} - {impacted_coverage}"
+                return standard_name
+
+        # If endorsement name contains "exclusion", extract or use it directly
         if "exclusion" in name_lower:
-            # Use endorsement name directly if it mentions exclusion
             return endorsement_name
+
+        # If endorsement name contains "waiver", standardize it
+        if "waiver" in name_lower:
+            clean_name = endorsement_name.replace("ENDORSEMENT", "").strip()
+            if impacted_coverage:
+                return f"{clean_name} - {impacted_coverage}"
+            return clean_name
+
+        # For extension endorsements, name based on what's being extended
+        if "extension" in name_lower:
+            clean_name = endorsement_name.replace("Extension", "Coverage Extension").replace("EXTENSION", "Coverage Extension")
+            return clean_name
 
         # Generate name from coverage + endorsement context
         if impacted_coverage:
@@ -402,6 +586,7 @@ class ExclusionSynthesizer:
             conditions = []
             impacted_coverages = set()
             severity = None
+            verbatim_fragments = []
 
             for mod in modifications:
                 # Carve-backs come from narrowing exclusions
@@ -409,6 +594,14 @@ class ExclusionSynthesizer:
                     exception = mod.get("exception_conditions")
                     if exception:
                         carve_backs.append(exception)
+                    # If no exception_conditions, generate from endorsement name
+                    elif mod.get("endorsement_name"):
+                        carve_back_desc = self._generate_carve_back_description(
+                            mod.get("endorsement_name"),
+                            mod.get("impacted_coverage"),
+                        )
+                        if carve_back_desc:
+                            carve_backs.append(carve_back_desc)
 
                 # General conditions
                 if mod.get("exception_conditions") and mod.get("effect_category") != "narrows_exclusion":
@@ -424,6 +617,10 @@ class ExclusionSynthesizer:
                     if severity is None or self._severity_rank(mod_severity) > self._severity_rank(severity):
                         severity = mod_severity
 
+                # Collect verbatim language for description
+                if mod.get("verbatim_language"):
+                    verbatim_fragments.append(mod.get("verbatim_language"))
+
             # Calculate confidence
             confidence = self._calculate_confidence(modifications)
 
@@ -434,19 +631,106 @@ class ExclusionSynthesizer:
                     scope = mod.get("exclusion_scope")
                     break
 
+            # Generate description from state and modifications
+            description = self._generate_exclusion_description(
+                exclusion_name,
+                effective_state,
+                modifications,
+                verbatim_fragments,
+            )
+
+            # Deduplicate carve-backs
+            unique_carve_backs = list(dict.fromkeys(carve_backs)) if carve_backs else None
+
             effective_exclusions.append(EffectiveExclusion(
                 exclusion_name=exclusion_name,
                 effective_state=effective_state,
                 scope=scope,
-                carve_backs=carve_backs if carve_backs else None,
+                carve_backs=unique_carve_backs,
                 conditions=conditions if conditions else None,
                 impacted_coverages=list(impacted_coverages) if impacted_coverages else None,
                 sources=list(source_endorsements.get(exclusion_name, [])),
                 confidence=confidence,
                 severity=severity,
+                description=description,
+                is_modified=True,  # These are all from endorsement modifications
+                is_standard_provision=False,
             ))
 
         return effective_exclusions
+
+    def _generate_carve_back_description(
+        self, endorsement_name: str, impacted_coverage: Optional[str]
+    ) -> Optional[str]:
+        """Generate carve-back description from endorsement information.
+
+        Args:
+            endorsement_name: Endorsement name.
+            impacted_coverage: Coverage affected by the endorsement.
+
+        Returns:
+            Carve-back description or None.
+        """
+        name_lower = endorsement_name.lower()
+
+        # Common carve-back patterns
+        if "waiver" in name_lower and "subrogation" in name_lower:
+            if impacted_coverage:
+                return f"Waiver of subrogation rights for {impacted_coverage} when required by written contract"
+            return "Waiver of subrogation rights when required by written contract"
+
+        if "transfer of rights" in name_lower:
+            return "Transfer of recovery rights waived for designated parties"
+
+        if "additional insured" in name_lower:
+            if "blanket" in name_lower:
+                return "Blanket additional insured status for parties required by written contract"
+            return "Additional insured status granted per endorsement terms"
+
+        if "primary" in name_lower and "non-contributory" in name_lower:
+            return "Coverage is primary and non-contributory when required by written contract"
+
+        if "hired auto" in name_lower:
+            return "Coverage extended to hired autos per endorsement terms"
+
+        return None
+
+    def _generate_exclusion_description(
+        self,
+        exclusion_name: str,
+        effective_state: str,
+        modifications: List[Dict[str, Any]],
+        verbatim_fragments: List[str],
+    ) -> str:
+        """Generate human-readable description for the effective exclusion.
+
+        Args:
+            exclusion_name: The exclusion name.
+            effective_state: The effective state (Excluded, Partially Excluded, Removed).
+            modifications: List of modifications for this exclusion.
+            verbatim_fragments: Verbatim language from endorsements.
+
+        Returns:
+            Human-readable description.
+        """
+        # If we have verbatim language, use the first fragment
+        if verbatim_fragments:
+            return verbatim_fragments[0][:500]  # Limit length
+
+        # Generate based on state and modifications
+        if effective_state == "Removed":
+            return f"{exclusion_name} has been removed by endorsement."
+
+        if effective_state == "Partially Excluded":
+            # Get the first narrowing modification's source
+            for mod in modifications:
+                if mod.get("effect_category") == "narrows_exclusion":
+                    source = mod.get("source", "endorsement")
+                    return f"{exclusion_name} has been narrowed by {source}, with exceptions that restore coverage."
+            return f"{exclusion_name} has been partially carved back by endorsement modifications."
+
+        # Default for Excluded state
+        return f"{exclusion_name} applies as modified by endorsements."
 
     def _normalize_exclusion_name(self, exclusion_name: str) -> str:
         """Normalize exclusion name for grouping.
@@ -498,6 +782,8 @@ class ExclusionSynthesizer:
             Numeric rank (higher = more severe).
         """
         ranks = {
+            "Critical": 5,
+            "Major": 4,
             "Material": 3,
             "Minor": 2,
             "Administrative": 1,
