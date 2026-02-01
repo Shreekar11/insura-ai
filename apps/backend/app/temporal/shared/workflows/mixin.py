@@ -108,20 +108,10 @@ class DocumentProcessingMixin:
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
 
         doc_label = document_name or document_id
-        await workflow.execute_activity(
-            "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": f"Reading document {doc_label}", "document_id": document_id}],
-            start_to_close_timeout=timedelta(seconds=10),
-        )
 
         await workflow.execute_activity(
             "update_stage_status",
             args=[workflow_id, document_id, "processed", "running", None, {"document_name": document_name}],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[workflow_id, document_id, "classified", "running", None, {"document_name": document_name}],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -136,6 +126,18 @@ class DocumentProcessingMixin:
                 maximum_interval=timedelta(seconds=60),
                 backoff_coefficient=2.0,
             ),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[workflow_id, document_id, "processed", "completed", None, {"document_name": document_name}],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[workflow_id, document_id, "classified", "running", None, {"document_name": document_name}],
+            start_to_close_timeout=timedelta(seconds=30),
         )
         ocr_output = validate_workflow_output(
             {
@@ -249,11 +251,6 @@ class DocumentProcessingMixin:
             "document_name": document_name,
         }
 
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[workflow_id, document_id, "processed", "completed", None, processed_metadata],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
         await workflow.execute_activity(
             "update_stage_status",
             args=[workflow_id, document_id, "classified", "completed", None, processed_metadata],
