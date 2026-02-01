@@ -102,32 +102,46 @@ async def perform_hybrid_chunking(
             if target_sections:
                 activity.logger.info(f"[Phase 3: Hybrid Chunking] Filtering for sections: {target_sections}")
                 normalized_targets = [s.lower().replace(" ", "_").strip() for s in target_sections]
-                
+
                 if page_section_map:
                     # Filter section map
                     filtered_map = {
                         str(p): s for p, s in page_section_map.items()
-                        if any(st.lower().replace(" ", "_").strip() in normalized_targets 
+                        if any(st.lower().replace(" ", "_").strip() in normalized_targets
                                for st in s.split(","))
                     }
                     target_page_nums = {int(p) for p in filtered_map.keys()}
-                    
+
                     # Filter pages
                     original_count = len(pages)
-                    pages = [p for p in pages if p.page_number in target_page_nums]
-                    page_section_map = filtered_map
-                    
-                    # Also filter boundaries if present
-                    if boundaries:
-                        boundaries = [
-                            b for b in boundaries 
-                            if b.section_type.value.lower().replace(" ", "_").strip() in normalized_targets
-                        ]
-                    
-                    activity.logger.info(
-                        f"[Phase 3: Hybrid Chunking] Filtered pages: {original_count} -> {len(pages)} "
-                        f"based on target sections"
-                    )
+                    filtered_pages = [p for p in pages if p.page_number in target_page_nums]
+
+                    # Check if filtering would result in empty pages
+                    if not filtered_pages:
+                        # Skip filtering - process all pages with a warning
+                        activity.logger.warning(
+                            f"[Phase 3: Hybrid Chunking] Filtering would result in 0 pages. "
+                            f"Skipping filter and processing all {original_count} pages. "
+                            f"Document may not contain expected section types: {target_sections}. "
+                            f"Available section types in page_section_map: {set(page_section_map.values())}"
+                        )
+                        # Don't update pages or page_section_map - use original values
+                    else:
+                        # Apply filtering
+                        pages = filtered_pages
+                        page_section_map = filtered_map
+
+                        # Also filter boundaries if present
+                        if boundaries:
+                            boundaries = [
+                                b for b in boundaries
+                                if b.section_type.value.lower().replace(" ", "_").strip() in normalized_targets
+                            ]
+
+                        activity.logger.info(
+                            f"[Phase 3: Hybrid Chunking] Filtered pages: {original_count} -> {len(pages)} "
+                            f"based on target sections"
+                        )
 
             activity.logger.info(
                 f"[Phase 3: Hybrid Chunking] Retrieved {len(pages)} pages for chunking",

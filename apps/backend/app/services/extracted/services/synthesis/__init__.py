@@ -13,7 +13,7 @@ The pipeline handles:
 - Base policy forms (CA 00 01, CG 00 01, etc.) with standard provisions
 - Endorsement packages that modify base policy terms
 - Merging base form provisions with endorsement modifications
-- Generating FurtherAI-compatible output format
+- Generating output format
 """
 
 from app.services.extracted.services.synthesis.coverage_synthesizer import CoverageSynthesizer
