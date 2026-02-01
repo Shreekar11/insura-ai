@@ -111,6 +111,7 @@ class SynthesisOrchestrator:
         # Run exclusion synthesis
         exclusion_result = self.exclusion_synthesizer.synthesize_exclusions(
             exclusion_modifications=exclusion_modifications,
+            endorsement_data=endorsement_data,
             base_exclusions=base_exclusions,
         )
 

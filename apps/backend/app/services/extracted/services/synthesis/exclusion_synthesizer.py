@@ -1,6 +1,6 @@
 """Exclusion Synthesizer - transforms endorsement modifications into effective exclusions.
 
-This service implements the FurtherAI-style exclusion-centric output by:
+This service implements the exclusion-centric output by:
 1. Grouping endorsement modifications by impacted exclusion
 2. Determining effective state (Excluded, Partially Excluded, Carved Back, Removed)
 3. Tracking carve-backs and conditions
@@ -41,12 +41,16 @@ class ExclusionSynthesizer:
     def synthesize_exclusions(
         self,
         exclusion_modifications: Optional[Dict[str, Any]] = None,
+        endorsement_data: Optional[Dict[str, Any]] = None,
         base_exclusions: Optional[List[Dict[str, Any]]] = None,
     ) -> SynthesisResult:
         """Synthesize effective exclusions from endorsement data.
 
         Args:
             exclusion_modifications: Output from EndorsementExclusionProjectionExtractor.
+            endorsement_data: Output from basic EndorsementsExtractor.
+                Contains endorsement_name, endorsement_type, impacted_coverage.
+                Used as fallback when exclusion_modifications is not available.
             base_exclusions: Optional base exclusion data from EXCLUSIONS section.
 
         Returns:
@@ -56,10 +60,19 @@ class ExclusionSynthesizer:
         exclusion_mods: Dict[str, List[Dict[str, Any]]] = defaultdict(list)
         source_endorsements: Dict[str, set] = defaultdict(set)
 
-        # Process exclusion projection modifications
+        # Process exclusion projection modifications (preferred source)
         if exclusion_modifications:
             self._process_exclusion_modifications(
                 exclusion_modifications,
+                exclusion_mods,
+                source_endorsements,
+            )
+
+        # Process basic endorsement data as fallback
+        # This extracts exclusion effects from endorsements with restrictive types
+        if endorsement_data and not exclusion_modifications:
+            self._process_basic_endorsements(
+                endorsement_data,
                 exclusion_mods,
                 source_endorsements,
             )
@@ -123,6 +136,143 @@ class ExclusionSynthesizer:
                     "source": endorsement_ref,
                 })
                 source_endorsements[exclusion_key].add(endorsement_ref)
+
+    def _process_basic_endorsements(
+        self,
+        endorsement_data: Dict[str, Any],
+        exclusion_mods: Dict[str, List[Dict[str, Any]]],
+        source_endorsements: Dict[str, set],
+    ) -> None:
+        """Process basic endorsement extraction data for exclusion effects.
+
+        This method extracts exclusion-related information from endorsements
+        that have restrictive effects (type = "Restrict", "Delete") or
+        endorsement names that suggest exclusion modifications (e.g., "waiver").
+
+        Args:
+            endorsement_data: Basic endorsements extraction output.
+            exclusion_mods: Dict to populate with exclusion modifications.
+            source_endorsements: Dict to populate with source endorsement references.
+        """
+        endorsements = endorsement_data.get("endorsements", [])
+
+        # Keywords that suggest exclusion-related modifications
+        exclusion_keywords = [
+            "waiver", "subrogation", "exclusion", "except", "limitation",
+            "restriction", "carve", "delete", "remove", "narrow"
+        ]
+
+        for endorsement in endorsements:
+            endorsement_name = endorsement.get("endorsement_name", "")
+            endorsement_type = endorsement.get("endorsement_type", "")
+            endorsement_ref = (
+                endorsement.get("endorsement_number") or
+                endorsement_name or
+                "Unknown"
+            )
+            impacted_coverage = endorsement.get("impacted_coverage")
+            materiality = endorsement.get("materiality")
+
+            # Determine if this endorsement affects exclusions
+            name_lower = endorsement_name.lower()
+            is_exclusion_related = (
+                endorsement_type in ("Restrict", "Delete") or
+                any(keyword in name_lower for keyword in exclusion_keywords)
+            )
+
+            if not is_exclusion_related:
+                continue
+
+            # Determine effect category based on endorsement type and name
+            effect_category = self._infer_exclusion_effect_category(
+                endorsement_type, endorsement_name
+            )
+
+            # Generate exclusion name based on endorsement
+            exclusion_name = self._generate_exclusion_name(
+                endorsement_name, impacted_coverage
+            )
+            exclusion_key = self._normalize_exclusion_name(exclusion_name)
+
+            exclusion_mods[exclusion_key].append({
+                "effect": endorsement_type,
+                "effect_category": effect_category,
+                "exclusion_scope": None,
+                "impacted_coverage": impacted_coverage,
+                "endorsement_name": endorsement_name,
+                "materiality": materiality,
+                "source": endorsement_ref,
+            })
+            source_endorsements[exclusion_key].add(endorsement_ref)
+
+        if exclusion_mods:
+            self.logger.info(
+                f"Processed {len(exclusion_mods)} exclusion-related endorsements "
+                f"from basic endorsement data"
+            )
+
+    def _infer_exclusion_effect_category(
+        self, endorsement_type: str, endorsement_name: str
+    ) -> str:
+        """Infer exclusion effect category from endorsement data.
+
+        Args:
+            endorsement_type: Endorsement type (Add, Modify, Restrict, Delete).
+            endorsement_name: Endorsement name.
+
+        Returns:
+            Effect category string.
+        """
+        name_lower = endorsement_name.lower()
+
+        # Waivers typically narrow/remove exclusions
+        if "waiver" in name_lower:
+            return "narrows_exclusion"
+
+        # Carve-backs narrow exclusions
+        if "carve" in name_lower or "except" in name_lower:
+            return "narrows_exclusion"
+
+        # Deletions remove exclusions
+        if endorsement_type == "Delete" or "delete" in name_lower or "remove" in name_lower:
+            return "removes_exclusion"
+
+        # Restrictions introduce or maintain exclusions
+        if endorsement_type == "Restrict":
+            return "introduces_exclusion"
+
+        # Default to introducing exclusion
+        return "introduces_exclusion"
+
+    def _generate_exclusion_name(
+        self, endorsement_name: str, impacted_coverage: Optional[str]
+    ) -> str:
+        """Generate exclusion name from endorsement information.
+
+        Args:
+            endorsement_name: Endorsement name.
+            impacted_coverage: Coverage affected by the endorsement.
+
+        Returns:
+            Generated exclusion name.
+        """
+        name_lower = endorsement_name.lower()
+
+        # Try to extract specific exclusion name from endorsement
+        if "waiver" in name_lower and "subrogation" in name_lower:
+            if impacted_coverage:
+                return f"Waiver of Subrogation - {impacted_coverage}"
+            return "Waiver of Subrogation"
+
+        if "exclusion" in name_lower:
+            # Use endorsement name directly if it mentions exclusion
+            return endorsement_name
+
+        # Generate name from coverage + endorsement context
+        if impacted_coverage:
+            return f"{impacted_coverage} - {endorsement_name}"
+
+        return endorsement_name
 
     def _build_effective_exclusions(
         self,

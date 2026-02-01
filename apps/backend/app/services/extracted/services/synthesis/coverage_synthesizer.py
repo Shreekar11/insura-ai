@@ -1,6 +1,6 @@
 """Coverage Synthesizer - transforms endorsement modifications into effective coverages.
 
-This service implements the FurtherAI-style coverage-centric output by:
+This service implements the coverage-centric output by:
 1. Grouping endorsement modifications by impacted coverage
 2. Merging modifications to determine effective terms
 3. Tracking source attribution for each term

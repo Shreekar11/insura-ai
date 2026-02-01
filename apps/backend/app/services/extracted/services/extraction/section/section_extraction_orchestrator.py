@@ -388,11 +388,25 @@ class SectionExtractionOrchestrator:
                     "source_endorsement_count": synthesis_result.get("source_endorsement_count", 0),
                 }
 
+                # Create synthesized section results for coverages and exclusions
+                # This enables coverage-centric output where endorsements
+                # are projected into coverage and exclusion sections
+                synthesized_sections = self._create_synthesized_section_results(
+                    effective_coverages=result.effective_coverages,
+                    effective_exclusions=result.effective_exclusions,
+                    synthesis_confidence=synthesis_result.get("overall_confidence", 0.0),
+                )
+
+                # Add synthesized sections to results
+                for synth_section in synthesized_sections:
+                    result.section_results.append(synth_section)
+
                 LOGGER.info(
                     "Synthesis completed",
                     extra={
                         "effective_coverages": len(result.effective_coverages),
                         "effective_exclusions": len(result.effective_exclusions),
+                        "synthesized_sections": len(synthesized_sections),
                         "confidence": synthesis_result.get("overall_confidence", 0.0),
                     }
                 )
@@ -1249,7 +1263,91 @@ class SectionExtractionOrchestrator:
 
         return list(entity_map.values())
 
-    
+    def _create_synthesized_section_results(
+        self,
+        effective_coverages: List[Dict[str, Any]],
+        effective_exclusions: List[Dict[str, Any]],
+        synthesis_confidence: float,
+    ) -> List[SectionExtractionResult]:
+        """Create synthesized section results from effective coverages and exclusions.
+
+        This method transforms endorsement-centric extraction into coverage-centric
+        and exclusion-centric section results, following the approach
+        where endorsements are projected into coverage and exclusion sections.
+
+        Args:
+            effective_coverages: List of synthesized coverage objects
+            effective_exclusions: List of synthesized exclusion objects
+            synthesis_confidence: Overall confidence from synthesis
+
+        Returns:
+            List of SectionExtractionResult for coverages and exclusions
+        """
+        synthesized_sections = []
+
+        # Create coverages section if we have effective coverages
+        if effective_coverages:
+            # Extract entities from coverages for entity aggregation
+            coverage_entities = []
+            for cov in effective_coverages:
+                entity_id = f"coverage_{cov.get('coverage_name', 'unknown').replace(' ', '_').lower()}"
+                coverage_entities.append({
+                    "id": entity_id,
+                    "type": "Coverage",
+                    "attributes": {
+                        "name": cov.get("coverage_name"),
+                        "coverage_type": cov.get("coverage_type"),
+                    },
+                    "confidence": cov.get("confidence", synthesis_confidence),
+                })
+
+            coverages_result = SectionExtractionResult(
+                section_type=SectionType.COVERAGES,
+                extracted_data={"coverages": effective_coverages},
+                entities=coverage_entities,
+                confidence=synthesis_confidence,
+                token_count=0,  # Synthesized, not directly extracted
+                processing_time_ms=0,
+            )
+            synthesized_sections.append(coverages_result)
+
+            LOGGER.debug(
+                f"Created synthesized coverages section with {len(effective_coverages)} coverages"
+            )
+
+        # Create exclusions section if we have effective exclusions
+        if effective_exclusions:
+            # Extract entities from exclusions for entity aggregation
+            exclusion_entities = []
+            for excl in effective_exclusions:
+                entity_id = f"exclusion_{excl.get('exclusion_name', 'unknown').replace(' ', '_').lower()}"
+                exclusion_entities.append({
+                    "id": entity_id,
+                    "type": "Exclusion",
+                    "attributes": {
+                        "name": excl.get("exclusion_name"),
+                        "effective_state": excl.get("effective_state"),
+                        "severity": excl.get("severity"),
+                    },
+                    "confidence": excl.get("confidence", synthesis_confidence),
+                })
+
+            exclusions_result = SectionExtractionResult(
+                section_type=SectionType.EXCLUSIONS,
+                extracted_data={"exclusions": effective_exclusions},
+                entities=exclusion_entities,
+                confidence=synthesis_confidence,
+                token_count=0,  # Synthesized, not directly extracted
+                processing_time_ms=0,
+            )
+            synthesized_sections.append(exclusions_result)
+
+            LOGGER.debug(
+                f"Created synthesized exclusions section with {len(effective_exclusions)} exclusions"
+            )
+
+        return synthesized_sections
+
     def _extract_section_data(
         self,
         parsed: Dict[str, Any],

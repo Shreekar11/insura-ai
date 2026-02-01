@@ -1,6 +1,6 @@
 """Pydantic schemas for coverage/exclusion synthesis output.
 
-These schemas define the FurtherAI-style coverage-centric and exclusion-centric
+These schemas define the coverage-centric and exclusion-centric
 output format that transforms endorsement modifications into effective terms.
 """
 

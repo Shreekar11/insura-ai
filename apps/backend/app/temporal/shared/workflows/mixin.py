@@ -324,8 +324,18 @@ class DocumentProcessingMixin:
             "DocumentProcessingMixin.extraction"
         )
 
+        # Calculate section_count based on synthesized sections (coverages + exclusions)
+        # This reflects the coverage-centric output model where endorsements are
+        # projected into coverage and exclusion sections
+        effective_coverages = extraction_result.get("effective_coverages", [])
+        effective_exclusions = extraction_result.get("effective_exclusions", [])
+        synthesized_section_count = (
+            (1 if effective_coverages else 0) +
+            (1 if effective_exclusions else 0)
+        )
+
         extraction_metadata = {
-            "section_count": len(extraction_result.get("section_results", [])),
+            "section_count": synthesized_section_count if synthesized_section_count > 0 else len(extraction_result.get("section_results", [])),
             "entity_count": output.get("total_entities", 0),
             "document_name": document_name,
         }
@@ -341,7 +351,7 @@ class DocumentProcessingMixin:
             "status": "completed",
             "workflow_id": workflow_id,
             "document_id": document_id,
-            "sections_extracted": len(extraction_result.get("section_results", [])),
+            "sections_extracted": extraction_metadata["section_count"],
             "entities_found": output.get("total_entities", 0),
         }
 
