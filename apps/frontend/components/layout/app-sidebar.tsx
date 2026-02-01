@@ -21,15 +21,7 @@ import {
 
 import { useWorkflowDefinitions } from "@/hooks/use-workflow-definitions";
 import { usePathname } from "next/navigation";
-
-// This is sample data.
-const data = {
-  user: {
-    name: "shadcn",
-    email: "m@example.com",
-    avatar: "/avatars/shadcn.jpg",
-  },
-};
+import Link from "next/link";
 
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 
@@ -72,10 +64,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 tooltip="Dashboard"
                 className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${pathname === "/dashboard" ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
               >
-                <a href="/dashboard">
+                <Link href="/dashboard">
                   <IconChartBar size={20}/>
                   <span>Dashboard</span>
-                </a>
+                </Link>
               </SidebarMenuButton>
             </SidebarMenuItem>
           </SidebarMenu>
@@ -99,10 +91,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                     asChild
                     tooltip={item.name}
                   >
-                    <a href={`/workflows/${item.id}`}>
+                    <Link href={`/workflows/${item.id}`}>
                       <Icon size={20}/>
                       <span>{item.name}</span>
-                    </a>
+                    </Link>
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               );

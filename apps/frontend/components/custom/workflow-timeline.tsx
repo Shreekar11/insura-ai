@@ -26,6 +26,7 @@ interface WorkflowTimelineProps {
   events: WorkflowEvent[];
   isConnected: boolean;
   isComplete: boolean;
+  onViewOutput: (workflowId: string, documentId: string) => void;
 }
 
 interface WorkflowStep {
@@ -38,7 +39,13 @@ interface WorkflowStep {
   hasOutput?: boolean;
 }
 
-export function WorkflowTimeline({ definitionName, events, isConnected, isComplete }: WorkflowTimelineProps) {
+export function WorkflowTimeline({ 
+  definitionName, 
+  events, 
+  isConnected, 
+  isComplete,
+  onViewOutput 
+}: WorkflowTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
   // Aggregate events into logical steps for in-place updates
@@ -119,13 +126,6 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
 
   const [showTopBlur, setShowTopBlur] = useState(false);
   const [showBottomBlur, setShowBottomBlur] = useState(false);
-  const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedOutput, setSelectedOutput] = useState<{ workflowId: string; documentId: string } | null>(null);
-
-  const handleViewOutput = (workflowId: string, documentId: string) => {
-    setSelectedOutput({ workflowId, documentId });
-    setSidebarOpen(true);
-  };
 
   useEffect(() => {
     const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
@@ -158,7 +158,6 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
   const latestMessage = latestStep?.message || (isComplete ? "Workflow finished" : "Initializing...");
 
   return (
-    <>
     <div className="w-full max-w-2xl mx-auto">
       <Collapsible defaultOpen>
         <div className="bg-white dark:bg-zinc-950 border border-zinc-200 dark:border-zinc-800 rounded overflow-hidden">
@@ -241,7 +240,7 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (step.workflowId && step.docId) {
-                                    handleViewOutput(step.workflowId, step.docId);
+                                    onViewOutput(step.workflowId, step.docId);
                                   }
                                 }}
                               >
@@ -277,13 +276,5 @@ export function WorkflowTimeline({ definitionName, events, isConnected, isComple
         </div>
       </Collapsible>
     </div>
-
-    <ExtractionOutputSidebar
-      open={sidebarOpen}
-      onOpenChange={setSidebarOpen}
-      workflowId={selectedOutput?.workflowId ?? null}
-      documentId={selectedOutput?.documentId ?? null}
-    />
-    </>
   );
 }

@@ -16,6 +16,14 @@ import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 
+import {
+  ResizableHandle,
+  ResizablePanel,
+  ResizablePanelGroup,
+} from "@/components/ui/resizable";
+import { PageHeader } from "@/components/layout/page-header";
+import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
+
 export default function WorkflowExecutionPage() {
   const { id } = useParams();
   const workflowId = id as string;
@@ -29,6 +37,10 @@ export default function WorkflowExecutionPage() {
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isStarted, setIsStarted] = useState(false);
+  
+  // Sidebar states
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [selectedOutput, setSelectedOutput] = useState<{ workflowId: string; documentId: string } | null>(null);
 
   // SSE Stream
   const { events, isConnected, isComplete } = useWorkflowStream(
@@ -51,12 +63,12 @@ export default function WorkflowExecutionPage() {
       setUploadedFiles((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
         const newFiles = existingDocuments.documents
-          .filter((doc) => !existingIds.has(doc.id))
-          .map((doc) => ({
-            id: doc.id,
-            name: doc.document_name || "Untitled",
-            status: "success" as const,
-          }));
+            .filter((doc) => !existingIds.has(doc.id))
+            .map((doc) => ({
+              id: doc.id,
+              name: doc.document_name || "Untitled",
+              status: "success" as const,
+            }));
 
         if (newFiles.length === 0) return prev;
         return [...prev, ...newFiles];
@@ -161,66 +173,102 @@ export default function WorkflowExecutionPage() {
 
   const definitionName = workflow?.definition_name || "Document Processing";
 
-  return (
-    <div className="flex flex-col p-6">
-      <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
-        <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
-          <div className="bg-[#0232D4]/10 p-1.5 rounded-full ring-1 ring-[#0232D4]/20">
-            <Sparkles className="size-4 text-[#0232D4]/80" />
-          </div>
-          <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
-            Welcome to the{" "}
-            <span className="font-bold text-zinc-900 dark:text-zinc-100">
-              {definitionName}
-            </span>{" "}
-            workflow. I&apos;ll guide you through this process.
-          </p>
-        </div>
-      </div>
+  const handleViewOutput = (wId: string, dId: string) => {
+    setSelectedOutput({ workflowId: wId, documentId: dId });
+    setSidebarOpen(true);
+  };
 
-      {!isStarted ? (
-        <div className="space-y-6 flex flex-col items-center w-full max-w-2xl mx-auto">
-          <FileDropzone
-            onFilesSelect={handleFilesSelect}
-            uploadedFiles={uploadedFiles}
-            isUploading={isAnyUploading}
-            accept={{ "application/pdf": [".pdf"] }}
-            maxFiles={10}
-          />
-        
-          <div className="flex items-center justify-start w-full">
-          {hasSuccessfulUpload && (
-            <Button
-              disabled={isAnyUploading || executeMutation.isPending}
-              onClick={handleStartWorkflow}
-              className="px-8 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
-            >
-              {executeMutation.isPending ? (
-                <>
-                  <IconLoader2 className="size-4 animate-spin mr-2" />
-                  Starting...
-                </>
+  return (
+    <ResizablePanelGroup 
+      direction="horizontal" 
+      className="h-svh max-h-svh overflow-hidden"
+      key={sidebarOpen ? "sidebar-open" : "sidebar-closed"}
+    >
+      <ResizablePanel defaultSize={sidebarOpen ? 60 : 100} className="overflow-hidden">
+        <div className="flex flex-col h-full">
+          <div className="shrink-0">
+            <PageHeader />
+          </div>
+          
+          <div className="flex-1 overflow-y-auto">
+            <div className="p-6">
+              <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
+                <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
+                  <div className="bg-[#0232D4]/10 p-1.5 rounded-full ring-1 ring-[#0232D4]/20">
+                    <Sparkles className="size-4 text-[#0232D4]/80" />
+                  </div>
+                  <p className="text-sm font-medium text-zinc-600 dark:text-zinc-400">
+                    Welcome to the{" "}
+                    <span className="font-bold text-zinc-900 dark:text-zinc-100">
+                      {definitionName}
+                    </span>{" "}
+                    workflow. I&apos;ll guide you through this process.
+                  </p>
+                </div>
+              </div>
+
+              {!isStarted ? (
+                <div className="space-y-6 flex flex-col items-center w-full max-w-2xl mx-auto">
+                  <FileDropzone
+                    onFilesSelect={handleFilesSelect}
+                    uploadedFiles={uploadedFiles}
+                    isUploading={isAnyUploading}
+                    accept={{ "application/pdf": [".pdf"] }}
+                    maxFiles={10}
+                  />
+                
+                  <div className="flex items-center justify-start w-full">
+                  {hasSuccessfulUpload && (
+                    <Button
+                      disabled={isAnyUploading || executeMutation.isPending}
+                      onClick={handleStartWorkflow}
+                      className="px-8 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
+                    >
+                      {executeMutation.isPending ? (
+                        <>
+                          <IconLoader2 className="size-4 animate-spin mr-2" />
+                          Starting...
+                        </>
+                      ) : (
+                        <>
+                          <IconPlayerPlay className="size-4 mr-2" />
+                          Start Workflow
+                        </>
+                      )}
+                    </Button>
+                  )}
+                </div>
+                </div>
               ) : (
-                <>
-                  <IconPlayerPlay className="size-4 mr-2" />
-                  Start Workflow
-                </>
+                /* SSE Timeline Section */
+                <div className="w-full">
+                  <WorkflowTimeline
+                    definitionName={definitionName}
+                    events={events}
+                    isConnected={isConnected}
+                    isComplete={isComplete}
+                    onViewOutput={handleViewOutput}
+                  />
+                </div>
               )}
-            </Button>
-          )}
+            </div>
+          </div>
         </div>
-        </div>
-      ) : (
-        /* SSE Timeline Section */
-        <div className="w-full">
-          <WorkflowTimeline
-            definitionName={definitionName}
-            events={events}
-            isConnected={isConnected}
-            isComplete={isComplete}
-          />
-        </div>
+      </ResizablePanel>
+
+      {sidebarOpen && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={50} className="overflow-hidden">
+            <ExtractionOutputSidebar
+              open={sidebarOpen}
+              onOpenChange={setSidebarOpen}
+              workflowId={selectedOutput?.workflowId ?? null}
+              documentId={selectedOutput?.documentId ?? null}
+            />
+          </ResizablePanel>
+        </>
       )}
-    </div>
+    </ResizablePanelGroup>
   );
 }
