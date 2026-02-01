@@ -82,9 +82,9 @@ export function WorkflowTimeline({
         stepKey = docId ? `${docId}:${event_type}` : `global:${event_type}`;
       }
 
-      const status = event_type === "stage:completed" || event_type === "workflow:completed" 
+      const status = (event_type === "stage:completed" || event_type === "workflow:completed" || (event_type === "workflow:progress" && data?.status === "completed"))
         ? "completed" 
-        : (event_type === "stage:failed" || event_type === "workflow:failed" ? "failed" : "running");
+        : (event_type === "stage:failed" || event_type === "workflow:failed" || (event_type === "workflow:progress" && data?.status === "failed") ? "failed" : "running");
 
       const hasOutput = !!data?.has_output;
 

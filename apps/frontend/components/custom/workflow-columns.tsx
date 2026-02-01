@@ -30,7 +30,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
     cell: ({ row }) => {
       const name = row.getValue("workflow_name") as string;
       return (
-        <div className="flex flex-col gap-0.5 w-[150px] truncate">
+        <div className="flex flex-col gap-0.5 w-[150px]">
           <span className="font-medium text-foreground">{name}</span>
         </div>
       );

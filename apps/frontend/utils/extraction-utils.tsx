@@ -125,13 +125,14 @@ export function groupEntitiesByType(entities: Entity[]): Map<string, Entity[]> {
 }
 
 /**
- * Mapping functions for structured data
+ * Mapping functions for Entity data (from 'entities' array)
+ * Entities usually have fields within an 'attributes' object.
  */
-export function mapRawToCoverage(item: any): CoverageData {
-  const fields = item.fields?.attributes || item;
+export function mapEntityToCoverage(entity: any): CoverageData {
+  const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    name: fields.coverage_name || fields.title || "Unknown Coverage",
-    type: fields.coverage_type || fields.type,
+    name: fields.name || fields.coverage_name || "Unknown Coverage",
+    type: fields.type || fields.coverage_type,
     description: fields.description || fields.what_it_covers,
     limit: formatValue(fields.limit_amount || fields.limit),
     deductible: formatValue(fields.deductible),
@@ -140,10 +141,10 @@ export function mapRawToCoverage(item: any): CoverageData {
   };
 }
 
-export function mapRawToExclusion(item: any): ExclusionData {
-  const fields = item.fields?.attributes || item;
+export function mapEntityToExclusion(entity: any): ExclusionData {
+  const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.title || "Unknown Exclusion",
+    title: fields.name || fields.title || fields.exclusion_name || "Unknown Exclusion",
     affects: fields.impacted_coverage || fields.affects,
     scope: fields.exclusion_scope || fields.scope,
     severity: fields.severity,
@@ -152,10 +153,10 @@ export function mapRawToExclusion(item: any): ExclusionData {
   };
 }
 
-export function mapRawToCondition(item: any): ConditionData {
-  const fields = item.fields?.attributes || item;
+export function mapEntityToCondition(entity: any): ConditionData {
+  const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.title || "Unknown Condition",
+    title: fields.name || fields.title || fields.condition_name || "Unknown Condition",
     whenApplies: fields.applies_to || fields.when_it_applies,
     requirement: Array.isArray(fields.requirements) ? fields.requirements.join("; ") : fields.requirements,
     consequence: Array.isArray(fields.consequences) ? fields.consequences.join("; ") : fields.consequences,
@@ -163,14 +164,81 @@ export function mapRawToCondition(item: any): ConditionData {
   };
 }
 
-export function mapRawToEndorsement(item: any): EndorsementData {
-  const fields = item.fields?.attributes || item;
+export function mapEntityToEndorsement(entity: any): EndorsementData {
+  const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.title || fields.name || "Unknown Endorsement",
+    title: fields.name || fields.title || fields.endorsement_name || "Unknown Endorsement",
     type: fields.type,
     whatChanged: fields.what_changed || fields.description,
     impactedCoverage: fields.impacted_coverage,
     materiality: fields.materiality,
     source: fields.source || fields.reference
   };
+}
+
+/**
+ * Mapping functions for Section data (from 'extracted_data' object)
+ * Section items are usually flatter and may have different field names.
+ */
+export function mapSectionToCoverage(item: any): CoverageData {
+  return {
+    name: item.coverage_name || item.name || "Unknown Coverage",
+    type: item.coverage_type || item.type,
+    description: item.description || item.what_it_covers,
+    limit: formatValue(item.limit_amount || item.limit || item.limits),
+    deductible: formatValue(item.deductible || item.deductibles),
+    appliesTo: item.applies_to,
+    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+  };
+}
+
+export function mapSectionToExclusion(item: any): ExclusionData {
+  return {
+    title: item.exclusion_name || item.title || "Unknown Exclusion",
+    affects: item.impacted_coverage || item.impacted_coverages?.[0] || item.affects,
+    scope: item.exclusion_scope || item.scope,
+    severity: item.severity,
+    explanation: item.description || item.explanation,
+    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+  };
+}
+
+export function mapSectionToCondition(item: any): ConditionData {
+  return {
+    title: item.condition_name || item.title || "Unknown Condition",
+    whenApplies: item.applies_to || item.when_it_applies,
+    requirement: Array.isArray(item.requirements) ? item.requirements.join("; ") : item.requirement,
+    consequence: Array.isArray(item.consequences) ? item.consequences.join("; ") : item.consequence,
+    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+  };
+}
+
+export function mapSectionToEndorsement(item: any): EndorsementData {
+  return {
+    title: item.endorsement_name || item.title || "Unknown Endorsement",
+    type: item.endorsement_type || item.type,
+    whatChanged: item.what_changed || item.description,
+    impactedCoverage: item.impacted_coverage,
+    materiality: item.materiality,
+    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+  };
+}
+
+/**
+ * Legacy mapping functions - Refactored to use Entity mapping by default
+ */
+export function mapRawToCoverage(item: any): CoverageData {
+  return mapEntityToCoverage(item);
+}
+
+export function mapRawToExclusion(item: any): ExclusionData {
+  return mapEntityToExclusion(item);
+}
+
+export function mapRawToCondition(item: any): ConditionData {
+  return mapEntityToCondition(item);
+}
+
+export function mapRawToEndorsement(item: any): EndorsementData {
+  return mapEntityToEndorsement(item);
 }

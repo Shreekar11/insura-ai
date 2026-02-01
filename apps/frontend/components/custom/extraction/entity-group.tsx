@@ -24,16 +24,16 @@ export function EntityGroup({ type, entities }: { type: string; entities: Entity
     switch (lowerType) {
       case "coverage":
       case "coverages":
-        return <CoverageTable items={entities} />;
+        return <CoverageTable items={entities} isEntity={true} />;
       case "exclusion":
       case "exclusions":
-        return <ExclusionTable items={entities} />;
+        return <ExclusionTable items={entities} isEntity={true} />;
       case "condition":
       case "conditions":
-        return <ConditionTable items={entities} />;
+        return <ConditionTable items={entities} isEntity={true} />;
       case "endorsement":
       case "endorsements":
-        return <EndorsementTable items={entities} />;
+        return <EndorsementTable items={entities} isEntity={true} />;
       default:
         return (
           <div className="space-y-3">

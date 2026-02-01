@@ -4,10 +4,14 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { MinimalTableHeader } from "./common";
 import { 
-  mapRawToCoverage, 
-  mapRawToExclusion, 
-  mapRawToCondition, 
-  mapRawToEndorsement,
+  mapEntityToCoverage,
+  mapSectionToCoverage,
+  mapEntityToExclusion,
+  mapSectionToExclusion,
+  mapEntityToCondition,
+  mapSectionToCondition,
+  mapEntityToEndorsement,
+  mapSectionToEndorsement,
   normalizeFieldLabel,
   formatValue,
   getSeverityBadgeStyle
@@ -17,8 +21,8 @@ import { Entity } from "@/types/extraction";
 /**
  * Specialized Table Components - Simplified view showing item + description
  */
-export function CoverageTable({ items }: { items: any[] }) {
-  const data = items.map(mapRawToCoverage);
+export function CoverageTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+  const data = items.map(isEntity ? mapEntityToCoverage : mapSectionToCoverage);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
@@ -45,8 +49,8 @@ export function CoverageTable({ items }: { items: any[] }) {
   );
 }
 
-export function ExclusionTable({ items }: { items: any[] }) {
-  const data = items.map(mapRawToExclusion);
+export function ExclusionTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+  const data = items.map(isEntity ? mapEntityToExclusion : mapSectionToExclusion);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
@@ -73,8 +77,8 @@ export function ExclusionTable({ items }: { items: any[] }) {
   );
 }
 
-export function ConditionTable({ items }: { items: any[] }) {
-  const data = items.map(mapRawToCondition);
+export function ConditionTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+  const data = items.map(isEntity ? mapEntityToCondition : mapSectionToCondition);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
@@ -101,8 +105,8 @@ export function ConditionTable({ items }: { items: any[] }) {
   );
 }
 
-export function EndorsementTable({ items }: { items: any[] }) {
-  const data = items.map(mapRawToEndorsement);
+export function EndorsementTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+  const data = items.map(isEntity ? mapEntityToEndorsement : mapSectionToEndorsement);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
