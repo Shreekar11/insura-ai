@@ -27,6 +27,7 @@ interface WorkflowTimelineProps {
   isConnected: boolean;
   isComplete: boolean;
   onViewOutput: (workflowId: string, documentId: string) => void;
+  onViewComparison?: (workflowId: string) => void;
 }
 
 interface WorkflowStep {
@@ -37,14 +38,16 @@ interface WorkflowStep {
   docId?: string;
   workflowId?: string;
   hasOutput?: boolean;
+  hasComparison?: boolean;
 }
 
-export function WorkflowTimeline({ 
-  definitionName, 
-  events, 
-  isConnected, 
+export function WorkflowTimeline({
+  definitionName,
+  events,
+  isConnected,
   isComplete,
-  onViewOutput 
+  onViewOutput,
+  onViewComparison
 }: WorkflowTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -62,7 +65,9 @@ export function WorkflowTimeline({
       let stepKey = "";
 
       // Logic to unify events into stable steps
-      if (stageName === "processed") {
+      if (event_type === "comparison:completed") {
+        stepKey = `global:comparison`;
+      } else if (stageName === "processed") {
         stepKey = `${docId}:processed`;
       } else if (stageName === "classified") {
         stepKey = `${docId}:classified`;
@@ -87,6 +92,7 @@ export function WorkflowTimeline({
         : (event_type === "stage:failed" || event_type === "workflow:failed" || (event_type === "workflow:progress" && data?.status === "failed") ? "failed" : "running");
 
       const hasOutput = !!data?.has_output;
+      const hasComparison = !!data?.has_comparison || event_type === "comparison:completed";
 
       if (!stepMap.has(stepKey)) {
         orderedKeys.push(stepKey);
@@ -99,7 +105,8 @@ export function WorkflowTimeline({
         timestamp,
         docId,
         workflowId: data?.workflow_id || event.workflow_id,
-        hasOutput
+        hasOutput,
+        hasComparison
       });
     });
     
@@ -233,9 +240,9 @@ export function WorkflowTimeline({
                             </span>
                             
                             {isCompleted && step.hasOutput && (
-                              <Button 
-                                variant="ghost" 
-                                size="sm" 
+                              <Button
+                                variant="ghost"
+                                size="sm"
                                 className="h-7 px-2.5 text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 rounded group/btn shadow-none"
                                 onClick={(e) => {
                                   e.stopPropagation();
@@ -245,6 +252,22 @@ export function WorkflowTimeline({
                                 }}
                               >
                                 View Output
+                                <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
+                              </Button>
+                            )}
+                            {isCompleted && step.hasComparison && onViewComparison && (
+                              <Button
+                                variant="ghost"
+                                size="sm"
+                                className="h-7 px-2.5 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 rounded group/btn shadow-none"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  if (step.workflowId) {
+                                    onViewComparison(step.workflowId);
+                                  }
+                                }}
+                              >
+                                View Comparison
                                 <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
                               </Button>
                             )}

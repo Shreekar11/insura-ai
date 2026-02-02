@@ -1,6 +1,6 @@
 """Main orchestration service for Policy Comparison workflow."""
 
-from typing import Optional
+from typing import Optional, Dict, Any
 from uuid import UUID
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -8,11 +8,14 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from app.services.product.policy_comparison.preflight_validator import PreflightValidator
 from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
 from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
+from app.services.product.policy_comparison.entity_comparison_service import EntityComparisonService
 from app.repositories.workflow_output_repository import WorkflowOutputRepository
+from app.repositories.workflow_repository import WorkflowRepository
 from app.schemas.product.policy_comparison import (
     PolicyComparisonResult,
     ComparisonSummary,
     ComparisonChange,
+    EntityComparisonResult,
 )
 from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
 from app.temporal.product.policy_comparison.configs.policy_comparison import (
@@ -42,8 +45,10 @@ class PolicyComparisonService:
         self.preflight_validator = PreflightValidator(session)
         self.section_alignment_service = SectionAlignmentService(session)
         self.detailed_comparison_service = DetailedComparisonService(session)
+        self.entity_comparison_service = EntityComparisonService(session)
         self.reasoning_service = PolicyComparisonReasoningService()
         self.output_repo = WorkflowOutputRepository(session)
+        self.workflow_repo = WorkflowRepository(session)
 
     async def execute_comparison(
         self,
@@ -242,3 +247,97 @@ class PolicyComparisonService:
             return "NEEDS_REVIEW"
 
         return "COMPLETED"
+
+    async def execute_entity_comparison(
+        self,
+        workflow_id: UUID,
+        doc1_id: UUID,
+        doc2_id: UUID,
+        doc1_data: Dict[str, Any],
+        doc2_data: Dict[str, Any],
+    ) -> EntityComparisonResult:
+        """Execute entity-level comparison between two documents.
+
+        This method performs semantic entity matching for coverages and exclusions,
+        and emits a comparison:completed SSE event when done.
+
+        Args:
+            workflow_id: UUID of the workflow execution
+            doc1_id: UUID of document 1 (base/expiring)
+            doc2_id: UUID of document 2 (endorsement/renewal)
+            doc1_data: Extracted data from document 1
+            doc2_data: Extracted data from document 2
+
+        Returns:
+            EntityComparisonResult with all entity comparisons
+        """
+        LOGGER.info(
+            f"Starting entity comparison for workflow {workflow_id}",
+            extra={
+                "workflow_id": str(workflow_id),
+                "doc1_id": str(doc1_id),
+                "doc2_id": str(doc2_id),
+            }
+        )
+
+        # Execute entity comparison
+        result = await self.entity_comparison_service.compare_entities(
+            workflow_id=workflow_id,
+            doc1_id=doc1_id,
+            doc2_id=doc2_id,
+            doc1_data=doc1_data,
+            doc2_data=doc2_data,
+        )
+
+        # Emit comparison:completed event
+        await self._emit_comparison_completed_event(workflow_id, result)
+
+        LOGGER.info(
+            f"Entity comparison completed for workflow {workflow_id}",
+            extra={
+                "total_comparisons": len(result.comparisons),
+                "coverage_matches": result.summary.coverage_matches,
+                "exclusion_matches": result.summary.exclusion_matches,
+            }
+        )
+
+        return result
+
+    async def _emit_comparison_completed_event(
+        self,
+        workflow_id: UUID,
+        result: EntityComparisonResult,
+    ) -> None:
+        """Emit a comparison:completed SSE event.
+
+        Args:
+            workflow_id: Workflow ID
+            result: Entity comparison result
+        """
+        event_payload = {
+            "stage_name": "entity_comparison",
+            "status": "completed",
+            "message": "Entity comparison completed successfully",
+            "has_comparison": True,
+            "comparison_summary": {
+                "coverage_matches": result.summary.coverage_matches,
+                "coverage_partial_matches": result.summary.coverage_partial_matches,
+                "coverages_added": result.summary.coverages_added,
+                "coverages_removed": result.summary.coverages_removed,
+                "exclusion_matches": result.summary.exclusion_matches,
+                "exclusion_partial_matches": result.summary.exclusion_partial_matches,
+                "exclusions_added": result.summary.exclusions_added,
+                "exclusions_removed": result.summary.exclusions_removed,
+            },
+            "overall_confidence": float(result.overall_confidence),
+            "overall_explanation": result.overall_explanation,
+        }
+
+        await self.workflow_repo.emit_run_event(
+            workflow_id=workflow_id,
+            event_type="comparison:completed",
+            payload=event_payload,
+        )
+
+        await self.session.commit()
+        LOGGER.debug(f"Emitted comparison:completed event for workflow {workflow_id}")

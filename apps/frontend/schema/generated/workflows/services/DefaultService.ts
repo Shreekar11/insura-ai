@@ -3,6 +3,7 @@
 /* tslint:disable */
 /* eslint-disable */
 import type { ApiResponse } from '../models/ApiResponse';
+import type { EntityComparisonResponse } from '../models/EntityComparisonResponse';
 import type { WorkflowCreateRequest } from '../models/WorkflowCreateRequest';
 import type { WorkflowDefinitionResponse } from '../models/WorkflowDefinitionResponse';
 import type { WorkflowExecutionRequest } from '../models/WorkflowExecutionRequest';
@@ -256,6 +257,54 @@ export class DefaultService {
             errors: {
                 401: `Unauthorized`,
                 404: `Workflow or document not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get entity comparison results
+     * @param workflowId
+     * @returns any Entity comparison results
+     * @throws ApiError
+     */
+    public static getEntityComparison(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: EntityComparisonResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/comparison',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Comparison results not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Execute entity comparison
+     * @param workflowId
+     * @returns any Comparison executed
+     * @throws ApiError
+     */
+    public static executeEntityComparison(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: EntityComparisonResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/{workflow_id}/comparison',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                400: `Comparison failed`,
+                401: `Unauthorized`,
                 500: `Internal server error`,
             },
         });
