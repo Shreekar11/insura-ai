@@ -562,28 +562,74 @@ class SectionExtractionOrchestrator:
         # Determine if we should use a projection extractor based on semantic role
         # Check first chunk's metadata for semantic role if available
         extractor_key = super_chunk.section_type.value
-        
+
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
-            from app.models.page_analysis_models import SemanticRole
-            
+
+            # Normalize semantic role to string for reliable comparison
+            semantic_role_str = (
+                metadata.semantic_role.value
+                if hasattr(metadata.semantic_role, 'value')
+                else str(metadata.semantic_role) if metadata.semantic_role else None
+            )
+
+            # Check if this is an endorsement-based chunk (either by original_section_type or section_type)
+            is_endorsement_source = (
+                metadata.original_section_type == SectionType.ENDORSEMENTS or
+                metadata.section_type == SectionType.ENDORSEMENTS
+            )
+
+            # Determine routing based on semantic role and effects
+            # Priority: semantic_role > coverage_effects/exclusion_effects
+
             # Check for Endorsement Coverage Projection
-            if (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                metadata.effective_section_type == SectionType.COVERAGES and
-                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
-                extractor_key = "endorsement_coverage_projection"
-                LOGGER.info(
-                    f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}"
-                )
-            
+            is_coverage_modifier = (
+                semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
+                (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
+            )
+
             # Check for Endorsement Exclusion Projection
-            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                  metadata.effective_section_type == SectionType.EXCLUSIONS and
-                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
-                extractor_key = "endorsement_exclusion_projection"
-                LOGGER.info(
-                    f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}"
-                )
+            is_exclusion_modifier = (
+                semantic_role_str in (SemanticRole.EXCLUSION_MODIFIER.value, "exclusion_modifier") or
+                (metadata.exclusion_effects and any(e for e in metadata.exclusion_effects))
+            )
+
+            # Handle "both" semantic role - prioritize coverage projection but log both
+            is_both_modifier = semantic_role_str in (SemanticRole.BOTH.value, "both")
+
+            if is_endorsement_source:
+                if is_both_modifier:
+                    # For "both" role, choose based on effective_section_type or default to coverage
+                    if metadata.effective_section_type == SectionType.EXCLUSIONS:
+                        extractor_key = "endorsement_exclusion_projection"
+                        LOGGER.info(
+                            f"Routing to EndorsementExclusionProjectionExtractor for BOTH modifier "
+                            f"(effective_type=exclusions) on pages {super_chunk.page_range}"
+                        )
+                    else:
+                        extractor_key = "endorsement_coverage_projection"
+                        LOGGER.info(
+                            f"Routing to EndorsementCoverageProjectionExtractor for BOTH modifier "
+                            f"on pages {super_chunk.page_range}"
+                        )
+                elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
+                    extractor_key = "endorsement_coverage_projection"
+                    LOGGER.info(
+                        f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, coverage_effects={metadata.coverage_effects}"
+                    )
+                elif is_exclusion_modifier and metadata.effective_section_type == SectionType.EXCLUSIONS:
+                    extractor_key = "endorsement_exclusion_projection"
+                    LOGGER.info(
+                        f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, exclusion_effects={metadata.exclusion_effects}"
+                    )
+                else:
+                    # Endorsement without semantic projection - use standard endorsement extractor
+                    LOGGER.info(
+                        f"Using standard EndorsementsExtractor for pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, effective_type={metadata.effective_section_type}"
+                    )
         
         # Get section-specific extractor from factory
         extractor = self.factory.get_extractor(extractor_key)
@@ -843,16 +889,51 @@ class SectionExtractionOrchestrator:
         is_endorsement_projection = False
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
-            if (metadata.original_section_type == SectionType.ENDORSEMENTS and
-                metadata.effective_section_type == SectionType.COVERAGES and
-                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
-                extractor_key = "endorsement_coverage_projection"
-                is_endorsement_projection = True
-            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and
-                  metadata.effective_section_type == SectionType.EXCLUSIONS and
-                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
-                extractor_key = "endorsement_exclusion_projection"
-                is_endorsement_projection = True
+
+            # Normalize semantic role to string for reliable comparison
+            semantic_role_str = (
+                metadata.semantic_role.value
+                if hasattr(metadata.semantic_role, 'value')
+                else str(metadata.semantic_role) if metadata.semantic_role else None
+            )
+
+            # Check if this is an endorsement-based chunk
+            is_endorsement_source = (
+                metadata.original_section_type == SectionType.ENDORSEMENTS or
+                metadata.section_type == SectionType.ENDORSEMENTS
+            )
+
+            # Determine routing based on semantic role and effects
+            is_coverage_modifier = (
+                semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
+                (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
+            )
+            is_exclusion_modifier = (
+                semantic_role_str in (SemanticRole.EXCLUSION_MODIFIER.value, "exclusion_modifier") or
+                (metadata.exclusion_effects and any(e for e in metadata.exclusion_effects))
+            )
+            is_both_modifier = semantic_role_str in (SemanticRole.BOTH.value, "both")
+
+            if is_endorsement_source:
+                if is_both_modifier:
+                    if metadata.effective_section_type == SectionType.EXCLUSIONS:
+                        extractor_key = "endorsement_exclusion_projection"
+                        is_endorsement_projection = True
+                    else:
+                        extractor_key = "endorsement_coverage_projection"
+                        is_endorsement_projection = True
+                elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
+                    extractor_key = "endorsement_coverage_projection"
+                    is_endorsement_projection = True
+                elif is_exclusion_modifier and metadata.effective_section_type == SectionType.EXCLUSIONS:
+                    extractor_key = "endorsement_exclusion_projection"
+                    is_endorsement_projection = True
+
+            LOGGER.info(
+                f"Batched extraction routing: extractor_key={extractor_key}, "
+                f"is_endorsement_projection={is_endorsement_projection}, "
+                f"semantic_role={semantic_role_str}, pages={super_chunk.page_range}"
+            )
 
         extractor = self.factory.get_extractor(extractor_key) or self.factory.get_extractor("default")
 
