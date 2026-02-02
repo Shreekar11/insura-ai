@@ -4,6 +4,7 @@ This service implements the coverage-centric output by:
 1. Grouping endorsement modifications by impacted coverage
 2. Merging modifications to determine effective terms
 3. Tracking source attribution for each term
+4. Generating canonical IDs for semantic matching across documents
 """
 
 from typing import Dict, List, Any, Optional
@@ -14,6 +15,16 @@ from app.schemas.product.synthesis_models import (
     EffectiveTerm,
     SynthesisResult,
     SynthesisMethod,
+)
+from app.services.extracted.services.synthesis.coverage_taxonomy import (
+    generate_canonical_id,
+    get_coverage_category,
+    CoverageCategory,
+)
+from app.services.extracted.services.synthesis.attribute_normalizer import (
+    normalize_coverage_attributes,
+    extract_entity_name,
+    extract_entity_description,
 )
 from app.utils.logging import get_logger
 
@@ -143,41 +154,48 @@ class CoverageSynthesizer:
         effective_coverages = []
 
         for coverage in base_coverages:
-            # Extract coverage name from various possible field names
-            coverage_name = (
-                coverage.get("coverage_name") or
-                coverage.get("title") or
-                coverage.get("name") or
-                "Unknown Coverage"
-            )
+            # Normalize attributes to standard schema
+            normalized = normalize_coverage_attributes(coverage)
+
+            # Extract coverage name using normalizer utility
+            coverage_name = extract_entity_name(coverage, "coverage") or normalized.get("coverage_name", "Unknown Coverage")
 
             # Extract coverage type
             coverage_type = (
-                coverage.get("coverage_type") or
-                coverage.get("coverage_category") or
+                normalized.get("coverage_type") or
+                normalized.get("coverage_category") or
                 self._infer_coverage_type(coverage_name)
             )
 
-            # Extract description
-            description = coverage.get("description") or coverage.get("summary")
+            # Extract description using normalizer utility
+            description = extract_entity_description(coverage) or normalized.get("description")
 
-            # Extract limits and deductibles if present
+            # Extract limits and deductibles if present (use normalized attributes)
             limits = {}
-            if coverage.get("limit_amount"):
-                limits["amount"] = coverage.get("limit_amount")
-            if coverage.get("limits"):
-                limits.update(coverage.get("limits"))
+            if normalized.get("limit_amount"):
+                limits["amount"] = normalized.get("limit_amount")
+            if normalized.get("limits"):
+                limits.update(normalized.get("limits"))
 
             deductibles = {}
-            if coverage.get("deductible_amount"):
-                deductibles["amount"] = coverage.get("deductible_amount")
-            if coverage.get("deductibles"):
-                deductibles.update(coverage.get("deductibles"))
+            if normalized.get("deductible_amount"):
+                deductibles["amount"] = normalized.get("deductible_amount")
+            if normalized.get("deductibles"):
+                deductibles.update(normalized.get("deductibles"))
 
             # Get confidence from entity or default
-            confidence = coverage.get("confidence", 0.95)
+            confidence = normalized.get("confidence", coverage.get("confidence", 0.95))
+
+            # Generate canonical ID for semantic matching
+            category = get_coverage_category(coverage_name)
+            canonical_id = generate_canonical_id(
+                entity_name=coverage_name,
+                entity_type="coverage",
+                category=category,
+            )
 
             effective_coverages.append(EffectiveCoverage(
+                canonical_id=canonical_id,
                 coverage_name=coverage_name,
                 coverage_type=coverage_type,
                 effective_terms={},  # No modifications from endorsements
@@ -359,7 +377,16 @@ class CoverageSynthesizer:
             # Calculate confidence based on data quality
             confidence = self._calculate_confidence(modifications)
 
+            # Generate canonical ID for semantic matching
+            category = get_coverage_category(coverage_name)
+            canonical_id = generate_canonical_id(
+                entity_name=coverage_name,
+                entity_type="coverage",
+                category=category,
+            )
+
             effective_coverages.append(EffectiveCoverage(
+                canonical_id=canonical_id,
                 coverage_name=coverage_name,
                 coverage_type=self._infer_coverage_type(coverage_name),
                 effective_terms=effective_terms,
@@ -368,6 +395,7 @@ class CoverageSynthesizer:
                 deductibles=deductibles if deductibles else None,
                 sources=list(source_endorsements.get(coverage_name, [])),
                 confidence=confidence,
+                is_modified=True,  # Built from endorsement modifications
             ))
 
         return effective_coverages

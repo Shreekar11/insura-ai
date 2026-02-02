@@ -4,6 +4,7 @@ This service implements the exclusion-centric output by:
 1. Grouping endorsement modifications by impacted exclusion
 2. Determining effective state (Excluded, Partially Excluded, Carved Back, Removed)
 3. Tracking carve-backs and conditions
+4. Generating canonical IDs for semantic matching across documents
 """
 
 from typing import Dict, List, Any, Optional
@@ -13,6 +14,16 @@ from app.schemas.product.synthesis_models import (
     EffectiveExclusion,
     SynthesisResult,
     SynthesisMethod,
+)
+from app.services.extracted.services.synthesis.coverage_taxonomy import (
+    generate_canonical_id,
+    get_coverage_category,
+    CoverageCategory,
+)
+from app.services.extracted.services.synthesis.attribute_normalizer import (
+    normalize_exclusion_attributes,
+    extract_entity_name,
+    extract_entity_description,
 )
 from app.utils.logging import get_logger
 
@@ -133,19 +144,17 @@ class ExclusionSynthesizer:
         effective_exclusions = []
 
         for exclusion in base_exclusions:
-            # Extract exclusion name from various possible field names
-            exclusion_name = (
-                exclusion.get("exclusion_name") or
-                exclusion.get("title") or
-                exclusion.get("name") or
-                "Unknown Exclusion"
-            )
+            # Normalize attributes to standard schema
+            normalized = normalize_exclusion_attributes(exclusion)
 
-            # Extract description
-            description = exclusion.get("description") or exclusion.get("summary")
+            # Extract exclusion name using normalizer utility
+            exclusion_name = extract_entity_name(exclusion, "exclusion") or normalized.get("exclusion_name", "Unknown Exclusion")
 
-            # Extract scope
-            scope = exclusion.get("exclusion_scope") or exclusion.get("scope")
+            # Extract description using normalizer utility
+            description = extract_entity_description(exclusion) or normalized.get("description")
+
+            # Extract scope (use normalized attributes)
+            scope = normalized.get("scope") or exclusion.get("exclusion_scope")
 
             # Extract impacted coverages
             impacted_coverages = None
@@ -176,7 +185,19 @@ class ExclusionSynthesizer:
                 exclusion.get("provision_number")
             )
 
+            # Generate canonical ID for semantic matching
+            # Infer category from impacted coverages or exclusion type
+            category = CoverageCategory.UNKNOWN
+            if impacted_coverages:
+                category = get_coverage_category(impacted_coverages[0])
+            canonical_id = generate_canonical_id(
+                entity_name=exclusion_name,
+                entity_type="exclusion",
+                category=category,
+            )
+
             effective_exclusions.append(EffectiveExclusion(
+                canonical_id=canonical_id,
                 exclusion_name=exclusion_name,
                 effective_state="Excluded",  # Base exclusions are in effect
                 scope=scope,
@@ -642,7 +663,18 @@ class ExclusionSynthesizer:
             # Deduplicate carve-backs
             unique_carve_backs = list(dict.fromkeys(carve_backs)) if carve_backs else None
 
+            # Generate canonical ID for semantic matching
+            category = CoverageCategory.UNKNOWN
+            if impacted_coverages:
+                category = get_coverage_category(list(impacted_coverages)[0])
+            canonical_id = generate_canonical_id(
+                entity_name=exclusion_name,
+                entity_type="exclusion",
+                category=category,
+            )
+
             effective_exclusions.append(EffectiveExclusion(
+                canonical_id=canonical_id,
                 exclusion_name=exclusion_name,
                 effective_state=effective_state,
                 scope=scope,

@@ -1,13 +1,22 @@
-"""Main orchestration service for Policy Comparison workflow."""
+"""Main orchestration service for Policy Comparison workflow.
 
+This service provides entity-level comparison for coverages and exclusions,
+matching the comparison display. The entity comparison approach
+compares coverages and exclusions semantically, producing a side-by-side
+comparison table with match status (MATCH, PARTIAL_MATCH, ADDED, REMOVED).
+
+Legacy Note: The field-level comparison methods (execute_comparison,
+finalize_comparison_result) are deprecated and should not be used for new
+implementations. They are retained for backward compatibility with existing
+Temporal workflows.
+"""
+
+import warnings
 from typing import Optional, Dict, Any
 from uuid import UUID
 from decimal import Decimal
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.services.product.policy_comparison.preflight_validator import PreflightValidator
-from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
-from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
 from app.services.product.policy_comparison.entity_comparison_service import EntityComparisonService
 from app.repositories.workflow_output_repository import WorkflowOutputRepository
 from app.repositories.workflow_repository import WorkflowRepository
@@ -17,7 +26,6 @@ from app.schemas.product.policy_comparison import (
     ComparisonChange,
     EntityComparisonResult,
 )
-from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
 from app.temporal.product.policy_comparison.configs.policy_comparison import (
     REQUIRED_SECTIONS,
     WORKFLOW_NAME,
@@ -32,23 +40,41 @@ LOGGER = get_logger(__name__)
 
 class PolicyComparisonService:
     """Main orchestration service for Policy Comparison workflow.
-    
-    Coordinates the entire comparison process:
-    1. Pre-flight validation
-    2. Section alignment
-    3. Numeric diff computation
-    4. Result aggregation and persistence
+
+    Primary Method (Entity Comparison - Used by Frontend):
+        - execute_entity_comparison(): Compares coverages and exclusions at entity level
+        - Returns EntityComparisonResult with match status for each coverage/exclusion
+
+    Deprecated Methods (Field-Level - Legacy Temporal Workflow):
+        - execute_comparison(): Field-level comparison using section alignment
+        - finalize_comparison_result(): Persists field-level comparison results
+        - These methods are retained for backward compatibility only
     """
 
     def __init__(self, session: AsyncSession):
         self.session = session
-        self.preflight_validator = PreflightValidator(session)
-        self.section_alignment_service = SectionAlignmentService(session)
-        self.detailed_comparison_service = DetailedComparisonService(session)
         self.entity_comparison_service = EntityComparisonService(session)
-        self.reasoning_service = PolicyComparisonReasoningService()
         self.output_repo = WorkflowOutputRepository(session)
         self.workflow_repo = WorkflowRepository(session)
+
+        # Lazy-loaded legacy services (only imported when deprecated methods are called)
+        self._preflight_validator = None
+        self._section_alignment_service = None
+        self._detailed_comparison_service = None
+        self._reasoning_service = None
+
+    def _get_legacy_services(self):
+        """Lazy-load legacy services for deprecated methods."""
+        if self._preflight_validator is None:
+            from app.services.product.policy_comparison.preflight_validator import PreflightValidator
+            from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
+            from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
+            from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
+
+            self._preflight_validator = PreflightValidator(self.session)
+            self._section_alignment_service = SectionAlignmentService(self.session)
+            self._detailed_comparison_service = DetailedComparisonService(self.session)
+            self._reasoning_service = PolicyComparisonReasoningService()
 
     async def execute_comparison(
         self,
@@ -56,16 +82,28 @@ class PolicyComparisonService:
         workflow_definition_id: UUID,
         document_ids: list[UUID],
     ) -> dict:
-        """Execute the complete policy comparison workflow.
-        
+        """[DEPRECATED] Execute the complete policy comparison workflow.
+
+        This method uses field-level comparison which is not used by the frontend.
+        Use execute_entity_comparison() instead for coverage/exclusion matching.
+
         Args:
             workflow_id: UUID of the workflow execution
             workflow_definition_id: UUID of the workflow definition
             document_ids: List of exactly 2 document UUIDs to compare
-            
+
         Returns:
             Dictionary with workflow execution results
         """
+        warnings.warn(
+            "execute_comparison() is deprecated. Use execute_entity_comparison() instead.",
+            DeprecationWarning,
+            stacklevel=2
+        )
+
+        # Load legacy services
+        self._get_legacy_services()
+
         LOGGER.info(
             f"Starting policy comparison for workflow {workflow_id}",
             extra={
@@ -75,12 +113,12 @@ class PolicyComparisonService:
         )
 
         # Step 1: Pre-flight validation
-        validation_result = await self.preflight_validator.validate_documents(
+        validation_result = await self._preflight_validator.validate_documents(
             document_ids, workflow_id
         )
 
         # Step 2: Section alignment
-        aligned_sections = await self.section_alignment_service.align_sections(
+        aligned_sections = await self._section_alignment_service.align_sections(
             doc1_id=document_ids[0],
             doc2_id=document_ids[1],
             workflow_id=workflow_id,
@@ -88,13 +126,13 @@ class PolicyComparisonService:
         )
 
         # Step 3: Detailed comparison
-        changes = await self.detailed_comparison_service.compute_comparison(
+        changes = await self._detailed_comparison_service.compute_comparison(
             aligned_sections=aligned_sections
         )
 
         # Step 4: Generate reasoning
-        changes = await self.reasoning_service.enrich_changes_with_reasoning(changes)
-        overall_explanation = await self.reasoning_service.generate_overall_explanation(changes)
+        changes = await self._reasoning_service.enrich_changes_with_reasoning(changes)
+        overall_explanation = await self._reasoning_service.generate_overall_explanation(changes)
 
         # Step 5: Finalize and persist result
         return await self.finalize_comparison_result(
@@ -117,9 +155,10 @@ class PolicyComparisonService:
         overall_explanation: Optional[str] = None,
         validation_result: Optional[dict] = None
     ) -> dict:
-        """Finalize the comparison results and persist them to the database.
-        
-        This method is called by execute_comparison() or independently by Temporal activities.
+        """[DEPRECATED] Finalize the comparison results and persist them to the database.
+
+        This method is used by the deprecated field-level comparison workflow.
+        It is called by execute_comparison() or independently by Temporal activities.
         """
         # Build comparison result
         result = self._build_comparison_result(
