@@ -1039,6 +1039,10 @@
           "file_name": {
             "type": "string"
           },
+          "file_path": {
+            "type": "string",
+            "nullable": true
+          },
           "page_count": {
             "type": "integer",
             "nullable": true
@@ -1136,21 +1140,28 @@
             "type": "string",
             "format": "uuid"
           },
-          "definition_id": {
+          "temporal_workflow_id": {
             "type": "string",
-            "format": "uuid"
+            "nullable": true
           },
           "workflow_name": {
             "type": "string"
           },
+          "definition_id": {
+            "type": "string",
+            "format": "uuid"
+          },
           "definition_name": {
             "type": "string"
           },
-          "key": {
+          "workflow_type": {
             "type": "string"
           },
           "status": {
             "type": "string"
+          },
+          "metrics": {
+            "$ref": "#/components/schemas/WorkflowMetrics"
           },
           "created_at": {
             "type": "string",
@@ -1163,6 +1174,24 @@
           "duration_seconds": {
             "type": "number",
             "nullable": true
+          },
+          "documents": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/DocumentSummary"
+            }
+          },
+          "stages": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/StageMetrics"
+            }
+          },
+          "recent_events": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EventLogItem"
+            }
           }
         }
       },

@@ -8,21 +8,28 @@ export const $WorkflowResponse = {
             type: 'string',
             format: 'uuid',
         },
-        definition_id: {
+        temporal_workflow_id: {
             type: 'string',
-            format: 'uuid',
+            isNullable: true,
         },
         workflow_name: {
             type: 'string',
         },
+        definition_id: {
+            type: 'string',
+            format: 'uuid',
+        },
         definition_name: {
             type: 'string',
         },
-        key: {
+        workflow_type: {
             type: 'string',
         },
         status: {
             type: 'string',
+        },
+        metrics: {
+            type: 'WorkflowMetrics',
         },
         created_at: {
             type: 'string',
@@ -35,6 +42,24 @@ export const $WorkflowResponse = {
         duration_seconds: {
             type: 'number',
             isNullable: true,
+        },
+        documents: {
+            type: 'array',
+            contains: {
+                type: 'DocumentSummary',
+            },
+        },
+        stages: {
+            type: 'array',
+            contains: {
+                type: 'StageMetrics',
+            },
+        },
+        recent_events: {
+            type: 'array',
+            contains: {
+                type: 'EventLogItem',
+            },
         },
     },
 } as const;

@@ -15,6 +15,10 @@ export const $DocumentSummary = {
         file_name: {
             type: 'string',
         },
+        file_path: {
+            type: 'string',
+            isNullable: true,
+        },
         page_count: {
             type: 'number',
             isNullable: true,

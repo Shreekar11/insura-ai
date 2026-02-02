@@ -771,6 +771,7 @@ class WorkflowService(BaseService):
                     "document_name": doc.document_name or doc.file_path.split("/")[-1],
                     "file_name": doc.document_name or doc.file_path.split("/")[-1],
                     "page_count": doc.page_count,
+                    "file_path": doc.file_path,
                     "status": doc.status,
                     "uploaded_at": doc.uploaded_at
                 })
@@ -807,6 +808,7 @@ class WorkflowService(BaseService):
             "id": workflow.id,
             "temporal_workflow_id": workflow.temporal_workflow_id,
             "workflow_name": workflow.workflow_name,
+            "definition_id": workflow.workflow_definition_id,
             "definition_name": workflow.workflow_definition.display_name if workflow.workflow_definition else "Unknown",
             "workflow_type": workflow.workflow_definition.workflow_key if workflow.workflow_definition else "unknown",
             "status": workflow.status,
@@ -883,29 +885,38 @@ class WorkflowService(BaseService):
 
         return None
 
-    async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[WorkflowResponse]:
-        """Get workflow details.
+    async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get workflow details with comprehensive data.
         
         Args:
             workflow_id: Workflow ID
             user_id: User ID
             
         Returns:
-            WorkflowResponse or None
+            Dict containing full workflow details or None
         """
-        wf = await self.wf_repo.get_by_id(workflow_id)
-        if not wf or wf.user_id != user_id:
+        # Fetch with all relationships
+        workflows = await self.wf_repo.get_all_with_relationships(
+            skip=0,
+            limit=1,
+            filters={"id": workflow_id, "user_id": user_id},
+            include_documents=True,
+            include_stages=True,
+            include_events=True
+        )
+        
+        if not workflows:
             return None
             
-        return WorkflowResponse(
-            id=wf.id,
-            definition_id=wf.workflow_definition_id,
-            workflow_name=wf.workflow_name,
-            definition_name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
-            status=wf.status,
-            created_at=wf.created_at,
-            updated_at=wf.updated_at,
-            duration_seconds=self._get_total_duration(wf)
+        wf = workflows[0]
+        
+        # Build enhanced response
+        return await self._build_workflow_list_item(
+            wf,
+            include_documents=True,
+            include_stages=True,
+            include_events=True,
+            events_limit=10
         )
 
     async def list_definitions(self) -> List[Dict[str, Any]]:

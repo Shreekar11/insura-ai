@@ -1,9 +1,10 @@
 "use client";
 
+import * as React from "react";
 import { ColumnDef } from "@tanstack/react-table";
 import { WorkflowListItem } from "@/schema/generated/workflows";
+import { WorkflowDetailsSheet } from "./workflow-details-sheet";
 import { Badge } from "@/components/ui/badge";
-import { Progress } from "@/components/ui/progress";
 import {
   IconCircleCheckFilled,
   IconLoader2,
@@ -82,7 +83,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
           label: "Draft",
           icon: <IconFileText className="size-3.5" />,
           color: "text-gray-500 bg-gray-500/10 border-gray-500/20",
-        }
+        },
       };
 
       const config = statusConfig[status.toLowerCase()] || {
@@ -155,27 +156,54 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
   {
     id: "actions",
     cell: ({ row }) => {
+      const [showDetails, setShowDetails] = React.useState(false);
+      const workflow = row.original;
+
       return (
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <Button variant="ghost" className="size-8 p-0">
-              <span className="sr-only">Open menu</span>
-              <IconDotsVertical className="size-4" />
-            </Button>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-[160px] z-50">
-            <DropdownMenuLabel>Actions</DropdownMenuLabel>
-            <DropdownMenuItem
-              onClick={() => navigator.clipboard.writeText(row.original.id!)}
-            >
-              Copy Workflow ID
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem className="!text-red-600">
-              Cancel Workflow
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
+        <>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button variant="ghost" className="size-8 p-0">
+                <span className="sr-only">Open menu</span>
+                <IconDotsVertical className="size-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-[160px] z-50">
+              <DropdownMenuLabel>Actions</DropdownMenuLabel>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  setShowDetails(true);
+                }}
+              >
+                View details
+              </DropdownMenuItem>
+              <DropdownMenuItem
+                onClick={(e) => {
+                  e.stopPropagation();
+                  navigator.clipboard.writeText(workflow.id!);
+                }}
+              >
+                Copy Workflow ID
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem
+                className="!text-red-600"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  // Cancel logic would go here
+                }}
+              >
+                Cancel Workflow
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+          <WorkflowDetailsSheet
+            workflow={workflow}
+            open={showDetails}
+            onOpenChange={setShowDetails}
+          />
+        </>
       );
     },
   },
