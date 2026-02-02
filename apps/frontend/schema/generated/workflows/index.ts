@@ -9,6 +9,9 @@ export type { OpenAPIConfig } from './core/OpenAPI';
 
 export type { ApiResponse } from './models/ApiResponse';
 export type { DocumentSummary } from './models/DocumentSummary';
+export { EntityComparison } from './models/EntityComparison';
+export type { EntityComparisonResponse } from './models/EntityComparisonResponse';
+export type { EntityComparisonSummary } from './models/EntityComparisonSummary';
 export type { ErrorDetail } from './models/ErrorDetail';
 export type { EventLogItem } from './models/EventLogItem';
 export type { ResponseMeta } from './models/ResponseMeta';
@@ -29,6 +32,9 @@ export type { WorkflowUpdateRequest } from './models/WorkflowUpdateRequest';
 
 export { $ApiResponse } from './schemas/$ApiResponse';
 export { $DocumentSummary } from './schemas/$DocumentSummary';
+export { $EntityComparison } from './schemas/$EntityComparison';
+export { $EntityComparisonResponse } from './schemas/$EntityComparisonResponse';
+export { $EntityComparisonSummary } from './schemas/$EntityComparisonSummary';
 export { $ErrorDetail } from './schemas/$ErrorDetail';
 export { $EventLogItem } from './schemas/$EventLogItem';
 export { $ResponseMeta } from './schemas/$ResponseMeta';

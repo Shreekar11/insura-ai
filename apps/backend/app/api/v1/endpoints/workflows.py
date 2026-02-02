@@ -378,6 +378,80 @@ async def get_extracted_data(
 
 
 @router.get(
+    "/{workflow_id}/comparison",
+    response_model=ApiResponse,
+    summary="Get entity comparison results",
+    operation_id="get_entity_comparison",
+)
+async def get_entity_comparison(
+    request: Request,
+    workflow_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Retrieve entity-level comparison results for a workflow.
+
+    Returns comparison of coverages and exclusions between two policy documents.
+    """
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+
+    result = await workflow_service.get_entity_comparison(workflow_id, user.id)
+    if not result:
+        error_detail = create_error_detail(
+            title="Comparison Results Not Found",
+            status=status.HTTP_404_NOT_FOUND,
+            detail=f"Entity comparison results not found for workflow {workflow_id}",
+            request=request
+        )
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
+
+    return create_api_response(
+        data=result,
+        message="Entity comparison retrieved successfully",
+        request=request
+    )
+
+
+@router.post(
+    "/{workflow_id}/comparison",
+    response_model=ApiResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Execute entity comparison",
+    operation_id="execute_entity_comparison",
+)
+async def execute_entity_comparison(
+    request: Request,
+    workflow_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Execute entity-level comparison for a workflow.
+
+    Compares coverages and exclusions between two policy documents.
+    Emits a comparison:completed SSE event when done.
+    """
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+
+    result = await workflow_service.execute_entity_comparison(workflow_id, user.id)
+    if not result:
+        error_detail = create_error_detail(
+            title="Comparison Failed",
+            status=status.HTTP_400_BAD_REQUEST,
+            detail=f"Failed to execute entity comparison for workflow {workflow_id}",
+            request=request
+        )
+        raise HTTPException(status_code=400, detail=error_detail.model_dump(mode='json'))
+
+    return create_api_response(
+        data=result,
+        message="Entity comparison completed successfully",
+        request=request
+    )
+
+
+@router.get(
     "/stream/{workflow_id}",
     summary="Stream workflow events via SSE",
     operation_id="stream_workflow_events",

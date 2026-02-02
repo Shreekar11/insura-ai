@@ -651,6 +651,140 @@
         ]
       }
     },
+    "/api/v1/workflows/{workflow_id}/comparison": {
+      "get": {
+        "summary": "Get entity comparison results",
+        "operationId": "get_entity_comparison",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Entity comparison results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/EntityComparisonResponse"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "Comparison results not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      },
+      "post": {
+        "summary": "Execute entity comparison",
+        "operationId": "execute_entity_comparison",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Comparison executed",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/EntityComparisonResponse"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "400": {
+            "description": "Comparison failed",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/workflows/extract": {
       "post": {
         "summary": "Start document extraction",
@@ -1137,6 +1271,147 @@
                 }
               }
             }
+          }
+        }
+      },
+      "EntityComparisonResponse": {
+        "type": "object",
+        "properties": {
+          "workflow_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "doc1_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "doc2_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "doc1_name": {
+            "type": "string"
+          },
+          "doc2_name": {
+            "type": "string"
+          },
+          "summary": {
+            "$ref": "#/components/schemas/EntityComparisonSummary"
+          },
+          "comparisons": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/EntityComparison"
+            }
+          },
+          "overall_confidence": {
+            "type": "number"
+          },
+          "overall_explanation": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": {
+            "type": "object"
+          }
+        }
+      },
+      "EntityComparisonSummary": {
+        "type": "object",
+        "properties": {
+          "total_coverages_doc1": {
+            "type": "integer"
+          },
+          "total_coverages_doc2": {
+            "type": "integer"
+          },
+          "total_exclusions_doc1": {
+            "type": "integer"
+          },
+          "total_exclusions_doc2": {
+            "type": "integer"
+          },
+          "coverage_matches": {
+            "type": "integer"
+          },
+          "coverage_partial_matches": {
+            "type": "integer"
+          },
+          "coverages_added": {
+            "type": "integer"
+          },
+          "coverages_removed": {
+            "type": "integer"
+          },
+          "exclusion_matches": {
+            "type": "integer"
+          },
+          "exclusion_partial_matches": {
+            "type": "integer"
+          },
+          "exclusions_added": {
+            "type": "integer"
+          },
+          "exclusions_removed": {
+            "type": "integer"
+          }
+        }
+      },
+      "EntityComparison": {
+        "type": "object",
+        "properties": {
+          "entity_type": {
+            "type": "string",
+            "enum": ["coverage", "exclusion"]
+          },
+          "match_type": {
+            "type": "string",
+            "enum": ["match", "partial_match", "added", "removed", "no_match"]
+          },
+          "doc1_entity": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc1_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doc1_canonical_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "doc2_entity": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc2_name": {
+            "type": "string",
+            "nullable": true
+          },
+          "doc2_canonical_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "confidence": {
+            "type": "number"
+          },
+          "match_method": {
+            "type": "string"
+          },
+          "field_differences": {
+            "type": "array",
+            "items": {
+              "type": "object"
+            },
+            "nullable": true
+          },
+          "reasoning": {
+            "type": "string",
+            "nullable": true
+          },
+          "severity": {
+            "type": "string",
+            "enum": ["low", "medium", "high"]
           }
         }
       },

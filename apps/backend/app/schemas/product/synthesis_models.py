@@ -150,6 +150,10 @@ class EffectiveCoverage(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    canonical_id: Optional[str] = Field(
+        None,
+        description="Canonical identifier for semantic matching across documents (e.g., 'coverage:liability:auto')"
+    )
     coverage_name: str = Field(..., description="Name of the coverage (e.g., 'Business Auto Liability')")
     coverage_type: Optional[str] = Field(None, description="Type: Liability | Property | Auto | Workers Comp")
     effective_terms: Dict[str, str] = Field(
@@ -201,6 +205,10 @@ class EffectiveExclusion(BaseModel):
 
     model_config = ConfigDict(extra="allow")
 
+    canonical_id: Optional[str] = Field(
+        None,
+        description="Canonical identifier for semantic matching across documents (e.g., 'exclusion:pollution')"
+    )
     exclusion_name: str = Field(..., description="Name of the exclusion")
     effective_state: str = Field(
         ...,

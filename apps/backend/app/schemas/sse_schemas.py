@@ -12,6 +12,7 @@ class SSEEventType(str, Enum):
     STAGE_STARTED = "stage:started"
     STAGE_COMPLETED = "stage:completed"
     STAGE_FAILED = "stage:failed"
+    COMPARISON_COMPLETED = "comparison:completed"
     HEARTBEAT = "heartbeat"
 
 class SSEEvent(BaseModel):

@@ -11,6 +11,17 @@ export interface WorkflowEvent {
     status: string;
     message: string;
     has_output?: boolean;
+    has_comparison?: boolean;
+    comparison_summary?: {
+      coverage_matches: number;
+      coverage_partial_matches: number;
+      coverages_added: number;
+      coverages_removed: number;
+      exclusion_matches: number;
+      exclusion_partial_matches: number;
+      exclusions_added: number;
+      exclusions_removed: number;
+    };
     metadata?: any;
   };
 }
@@ -55,7 +66,8 @@ export function useWorkflowStream(workflowId: string | null) {
       "workflow:failed",
       "stage:started",
       "stage:completed",
-      "stage:failed"
+      "stage:failed",
+      "comparison:completed"
     ];
 
     eventTypes.forEach((type) => {

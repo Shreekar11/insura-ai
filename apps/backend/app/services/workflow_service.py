@@ -1035,6 +1035,95 @@ class WorkflowService(BaseService):
             }
         }
 
+    async def get_entity_comparison(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get entity comparison results for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Comparison results or None if not found/access denied
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+
+        # Get the comparison result from workflow output
+        from app.repositories.workflow_output_repository import WorkflowOutputRepository
+        output_repo = WorkflowOutputRepository(self.session)
+        output = await output_repo.get_by_workflow_id(workflow_id)
+
+        if not output or not output.result:
+            return None
+
+        # Check if entity_comparison exists in the result
+        result = output.result
+        if "entity_comparison" in result:
+            return result["entity_comparison"]
+
+        # Alternatively, check in output_metadata
+        if output.output_metadata and "entity_comparison" in output.output_metadata:
+            return output.output_metadata["entity_comparison"]
+
+        return None
+
+    async def execute_entity_comparison(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Execute entity comparison for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Comparison results or None if failed
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+
+        # Get documents in the workflow
+        from app.repositories.workflow_repository import WorkflowDocumentRepository
+        wf_doc_repo = WorkflowDocumentRepository(self.session)
+        workflow_docs = await wf_doc_repo.get_by_workflow_id(workflow_id)
+
+        if len(workflow_docs) < 2:
+            self.logger.error(f"Workflow {workflow_id} has less than 2 documents")
+            return None
+
+        doc1_id = workflow_docs[0].document_id
+        doc2_id = workflow_docs[1].document_id
+
+        # Get extracted data for both documents
+        doc1_data = await self.get_workflow_extraction(workflow_id, doc1_id, user_id)
+        doc2_data = await self.get_workflow_extraction(workflow_id, doc2_id, user_id)
+
+        if not doc1_data or not doc2_data:
+            self.logger.error(f"Missing extraction data for workflow {workflow_id}")
+            return None
+
+        # Execute entity comparison
+        from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
+        comparison_service = PolicyComparisonService(self.session)
+
+        result = await comparison_service.execute_entity_comparison(
+            workflow_id=workflow_id,
+            doc1_id=doc1_id,
+            doc2_id=doc2_id,
+            doc1_data=doc1_data.get("extracted_data", {}),
+            doc2_data=doc2_data.get("extracted_data", {}),
+        )
+
+        return result.model_dump(mode="json")
+
     async def _create_workflow_logic(
         self,
         workflow_definition_id: UUID,
