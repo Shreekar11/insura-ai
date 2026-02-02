@@ -120,6 +120,23 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
             "contextualized_text": hybrid_chunk.contextualized_text,
         }
         
+        # Resolve effective_section_type and semantic_role for persistence
+        effective_section_type_val = None
+        if metadata.effective_section_type:
+            effective_section_type_val = (
+                metadata.effective_section_type.value
+                if hasattr(metadata.effective_section_type, 'value')
+                else str(metadata.effective_section_type)
+            )
+
+        semantic_role_val = None
+        if metadata.semantic_role:
+            semantic_role_val = (
+                metadata.semantic_role.value
+                if hasattr(metadata.semantic_role, 'value')
+                else str(metadata.semantic_role)
+            )
+
         chunk = await self.create(
             document_id=document_id,
             page_number=metadata.page_number,
@@ -129,6 +146,8 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
             token_count=metadata.token_count,
             section_type=metadata.section_type.value if metadata.section_type else None,
             subsection_type=metadata.subsection_type,
+            effective_section_type=effective_section_type_val,
+            semantic_role=semantic_role_val,
             stable_chunk_id=metadata.stable_chunk_id,
             # additional_metadata=additional_metadata,
             created_at=datetime.now(timezone.utc),
@@ -140,6 +159,8 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
                 "document_id": str(document_id),
                 "chunk_id": str(chunk.id),
                 "section_type": metadata.section_type.value if metadata.section_type else None,
+                "effective_section_type": effective_section_type_val,
+                "semantic_role": semantic_role_val,
                 "page_number": metadata.page_number,
             }
         )
@@ -268,46 +289,74 @@ class SectionChunkRepository(BaseRepository[DocumentChunk]):
         
         if not chunks:
             return []
-        
-        # Group by section type
+
+        # Group by effective_section_type (matching super-chunk builder behavior)
+        # This ensures endorsements with effective_section_type=coverages go to coverages super-chunk
         section_groups: Dict[str, List[DocumentChunk]] = {}
-        
+
         for chunk in chunks:
-            section_type = chunk.section_type or "unknown"
-            if section_type not in section_groups:
-                section_groups[section_type] = []
-            section_groups[section_type].append(chunk)
-        
+            # Use effective_section_type for grouping, fall back to section_type
+            effective_type = chunk.effective_section_type or chunk.section_type or "unknown"
+            if effective_type not in section_groups:
+                section_groups[effective_type] = []
+            section_groups[effective_type].append(chunk)
+
+        LOGGER.info(
+            "Grouping chunks by effective_section_type",
+            extra={
+                "document_id": str(document_id),
+                "groups": {k: len(v) for k, v in section_groups.items()},
+            }
+        )
+
         # Build super-chunks
         super_chunks = []
-        
+
         for section_type_str, section_chunks in section_groups.items():
             try:
                 section_type = SectionType(section_type_str)
             except ValueError:
                 section_type = SectionType.UNKNOWN
-            
-            # Convert DocumentChunks to HybridChunks
+
+            # Convert DocumentChunks to HybridChunks with full metadata restoration
             hybrid_chunks = []
             for db_chunk in section_chunks:
+                # Restore effective_section_type
+                effective_section_type = None
+                if db_chunk.effective_section_type:
+                    try:
+                        effective_section_type = SectionType(db_chunk.effective_section_type)
+                    except ValueError:
+                        effective_section_type = None
+
+                # Restore original section_type (structural section)
+                original_section_type = None
+                if db_chunk.section_type:
+                    try:
+                        original_section_type = SectionType(db_chunk.section_type)
+                    except ValueError:
+                        original_section_type = None
+
                 metadata = HybridChunkMetadata(
                     document_id=db_chunk.document_id,
                     page_number=db_chunk.page_number,
-                    section_type=section_type,
+                    section_type=original_section_type or section_type,
+                    effective_section_type=effective_section_type,
                     section_name=db_chunk.section_name,
                     subsection_type=db_chunk.subsection_type,
                     chunk_index=db_chunk.chunk_index,
                     token_count=db_chunk.token_count,
                     stable_chunk_id=db_chunk.stable_chunk_id,
+                    semantic_role=db_chunk.semantic_role,  # Restore semantic_role as string
                 )
-                
+
                 hybrid_chunk = HybridChunk(
                     text=db_chunk.raw_text,
                     metadata=metadata,
                 )
                 hybrid_chunks.append(hybrid_chunk)
-            
-            # Create super-chunk
+
+            # Create super-chunk with effective section type
             super_chunk = SectionSuperChunk(
                 section_type=section_type,
                 section_name=section_type.value.replace("_", " ").title(),

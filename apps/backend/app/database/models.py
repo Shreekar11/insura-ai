@@ -257,6 +257,12 @@ class DocumentChunk(Base):
     subsection_type: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Fine-grained subsection: Named Insured, Limits, etc."
     )
+    effective_section_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Effective section for extraction routing (may differ from section_type for endorsements)"
+    )
+    semantic_role: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Semantic role: coverage_modifier, exclusion_modifier, both, administrative_only, etc."
+    )
     stable_chunk_id: Mapped[str | None] = mapped_column(
         String, unique=True, nullable=True, comment="Deterministic ID: doc_{document_id}_p{page}_c{chunk}"
     )
