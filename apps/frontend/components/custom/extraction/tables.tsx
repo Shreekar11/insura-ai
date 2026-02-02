@@ -24,112 +24,144 @@ import { Entity } from "@/types/extraction";
 /**
  * Specialized Table Components - Simplified view showing item + description
  */
-export function CoverageTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+export function CoverageTable({ items, isEntity = false, onItemClick }: { items: any[]; isEntity?: boolean; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const data = items.map(isEntity ? mapEntityToCoverage : mapSectionToCoverage);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
         <MinimalTableHeader headers={["Coverage", "Description"]} />
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {data.map((row, i) => (
-            <tr key={i} className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10">
-              <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</div>
-                {row.type && (
-                  <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 h-4 text-zinc-500 border-zinc-200 dark:border-zinc-700">
-                    {row.type}
-                  </Badge>
-                )}
-              </td>
-              <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                {row.description || "Provides coverage as defined in the policy."}
-              </td>
-            </tr>
-          ))}
+          {data.map((row, i) => {
+            const rawItem = items[i];
+            const itemId = rawItem?.canonical_id || rawItem?.id || `coverage-${i}`;
+            return (
+              <tr
+                key={i}
+                className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
+                onClick={() => onItemClick?.("effective_section_coverage", itemId)}
+              >
+                <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</div>
+                  {row.type && (
+                    <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 h-4 text-zinc-500 border-zinc-200 dark:border-zinc-700">
+                      {row.type}
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  {row.description || "Provides coverage as defined in the policy."}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-export function ExclusionTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+export function ExclusionTable({ items, isEntity = false, onItemClick }: { items: any[]; isEntity?: boolean; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const data = items.map(isEntity ? mapEntityToExclusion : mapSectionToExclusion);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
         <MinimalTableHeader headers={["Exclusion", "Description"]} />
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {data.map((row, i) => (
-            <tr key={i} className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10">
-              <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
-                {row.severity && (
-                  <Badge variant="outline" className={cn("mt-1 text-[9px] px-1.5 py-0 h-4 uppercase tracking-tighter", getSeverityBadgeStyle(row.severity))}>
-                    {row.severity}
-                  </Badge>
-                )}
-              </td>
-              <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                {row.explanation || "This insurance does not apply to claims related to this exclusion."}
-              </td>
-            </tr>
-          ))}
+          {data.map((row, i) => {
+            const rawItem = items[i];
+            const itemId = rawItem?.canonical_id || rawItem?.id || `exclusion-${i}`;
+            return (
+              <tr
+                key={i}
+                className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
+                onClick={() => onItemClick?.("effective_section_exclusion", itemId)}
+              >
+                <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
+                  {row.severity && (
+                    <Badge variant="outline" className={cn("mt-1 text-[9px] px-1.5 py-0 h-4 uppercase tracking-tighter", getSeverityBadgeStyle(row.severity))}>
+                      {row.severity}
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  {row.explanation || "This insurance does not apply to claims related to this exclusion."}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-export function ConditionTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+export function ConditionTable({ items, isEntity = false, onItemClick }: { items: any[]; isEntity?: boolean; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const data = items.map(isEntity ? mapEntityToCondition : mapSectionToCondition);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
         <MinimalTableHeader headers={["Condition", "Description"]} />
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {data.map((row, i) => (
-            <tr key={i} className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10">
-              <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
-                {row.whenApplies && (
-                  <div className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
-                    Applies to: {row.whenApplies}
-                  </div>
-                )}
-              </td>
-              <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                {row.requirement || "Policy condition as defined in the coverage form."}
-              </td>
-            </tr>
-          ))}
+          {data.map((row, i) => {
+            const rawItem = items[i];
+            const itemId = rawItem?.canonical_id || rawItem?.id || `condition-${i}`;
+            return (
+              <tr
+                key={i}
+                className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
+                onClick={() => onItemClick?.("effective_section_condition", itemId)}
+              >
+                <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
+                  {row.whenApplies && (
+                    <div className="mt-1 text-[10px] text-zinc-500 dark:text-zinc-400">
+                      Applies to: {row.whenApplies}
+                    </div>
+                  )}
+                </td>
+                <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  {row.requirement || "Policy condition as defined in the coverage form."}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
   );
 }
 
-export function EndorsementTable({ items, isEntity = false }: { items: any[]; isEntity?: boolean }) {
+export function EndorsementTable({ items, isEntity = false, onItemClick }: { items: any[]; isEntity?: boolean; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const data = items.map(isEntity ? mapEntityToEndorsement : mapSectionToEndorsement);
   return (
     <div className="overflow-x-auto rounded-md border border-zinc-200 dark:border-zinc-800">
       <table className="w-full text-sm">
         <MinimalTableHeader headers={["Endorsement", "Description"]} />
         <tbody className="divide-y divide-zinc-100 dark:divide-zinc-800">
-          {data.map((row, i) => (
-            <tr key={i} className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10">
-              <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
-                <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
-                {row.type && (
-                  <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 h-4 text-zinc-500 border-zinc-200 dark:border-zinc-700">
-                    {row.type}
-                  </Badge>
-                )}
-              </td>
-              <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
-                {row.whatChanged || (row.impactedCoverage ? `Modifies ${row.impactedCoverage}` : "Endorsement modifying policy terms.")}
-              </td>
-            </tr>
-          ))}
+          {data.map((row, i) => {
+            const rawItem = items[i];
+            const itemId = rawItem?.canonical_id || rawItem?.id || `endorsement-${i}`;
+            return (
+              <tr
+                key={i}
+                className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
+                onClick={() => onItemClick?.("effective_section_endorsement", itemId)}
+              >
+                <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
+                  <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
+                  {row.type && (
+                    <Badge variant="outline" className="mt-1 text-[9px] px-1.5 py-0 h-4 text-zinc-500 border-zinc-200 dark:border-zinc-700">
+                      {row.type}
+                    </Badge>
+                  )}
+                </td>
+                <td className="px-3 py-3 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed">
+                  {row.whatChanged || (row.impactedCoverage ? `Modifies ${row.impactedCoverage}` : "Endorsement modifying policy terms.")}
+                </td>
+              </tr>
+            );
+          })}
         </tbody>
       </table>
     </div>
@@ -140,15 +172,19 @@ export function EndorsementTable({ items, isEntity = false }: { items: any[]; is
  * ModificationTable - Displays endorsement modifications with rich context.
  * Shows effect category, verbatim language, referenced sections, and severity.
  */
-export function ModificationTable({ items }: { items: any[] }) {
+export function ModificationTable({ items, onItemClick }: { items: any[]; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const data = items.map(mapSectionToModification);
   return (
     <div className="space-y-3">
-      {data.map((row, i) => (
-        <div
-          key={i}
-          className="rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950"
-        >
+      {data.map((row, i) => {
+        const rawItem = items[i];
+        const itemId = rawItem?.canonical_id || rawItem?.id || `modification-${i}`;
+        return (
+          <div
+            key={i}
+            className="rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950 cursor-pointer"
+            onClick={() => onItemClick?.("effective_section_modification", itemId)}
+          >
           {/* Header with effect category and severity */}
           <div className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 flex-wrap">
             <div className="flex items-center gap-2">
@@ -231,7 +267,8 @@ export function ModificationTable({ items }: { items: any[] }) {
             )}
           </div>
         </div>
-      ))}
+        );
+      })}
     </div>
   );
 }
