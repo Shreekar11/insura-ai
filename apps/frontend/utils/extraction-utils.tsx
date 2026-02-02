@@ -1,12 +1,14 @@
 import React from "react";
 import { AlertTriangle, Shield, FileCheck, FileText, Info } from "lucide-react";
-import { 
-  Section, 
-  Entity, 
-  CoverageData, 
-  ExclusionData, 
-  ConditionData, 
-  EndorsementData 
+import {
+  Section,
+  Entity,
+  CoverageData,
+  ExclusionData,
+  ConditionData,
+  EndorsementData,
+  ModificationData,
+  EffectiveCoverageData
 } from "../types/extraction";
 
 /**
@@ -241,4 +243,117 @@ export function mapRawToCondition(item: any): ConditionData {
 
 export function mapRawToEndorsement(item: any): EndorsementData {
   return mapEntityToEndorsement(item);
+}
+
+/**
+ * Maps a modification item from endorsement extraction to ModificationData.
+ * Modifications represent how endorsements modify base policy coverages/exclusions.
+ */
+export function mapSectionToModification(item: any): ModificationData {
+  return {
+    effectCategory: item.effect_category || "unknown",
+    verbatimLanguage: item.verbatim_language,
+    referencedSection: item.referenced_section,
+    severity: item.severity,
+    impactedCoverage: item.impacted_coverage,
+    impactedExclusion: item.impacted_exclusion,
+    exclusionScope: item.exclusion_scope,
+    exclusionEffect: item.exclusion_effect,
+    exceptionConditions: item.exception_conditions,
+    reasoning: item.reasoning
+  };
+}
+
+/**
+ * Maps an effective coverage item to EffectiveCoverageData.
+ * Effective coverages are synthesized from base policy + endorsement modifications.
+ */
+export function mapToEffectiveCoverage(item: any): EffectiveCoverageData {
+  return {
+    coverageName: item.coverage_name || "Unknown Coverage",
+    coverageType: item.coverage_type,
+    description: item.description,
+    confidence: item.confidence,
+    limits: item.limits,
+    deductibles: item.deductibles,
+    isModified: item.is_modified,
+    isStandardProvision: item.is_standard_provision,
+    modificationDetails: item.modification_details,
+    effectiveTerms: item.effective_terms,
+    sources: item.sources,
+    sourceForm: item.source_form,
+    formSection: item.form_section,
+    canonicalId: item.canonical_id
+  };
+}
+
+/**
+ * Returns badge styling based on effect category.
+ */
+export function getEffectCategoryBadgeStyle(category: string) {
+  switch (category?.toLowerCase()) {
+    case "introduces_exclusion":
+      return "bg-red-100 text-red-700 dark:bg-red-900/30 dark:text-red-400 border-red-200 dark:border-red-800";
+    case "removes_exclusion":
+      return "bg-emerald-100 text-emerald-700 dark:bg-emerald-900/30 dark:text-emerald-400 border-emerald-200 dark:border-emerald-800";
+    case "narrows_exclusion":
+      return "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400 border-blue-200 dark:border-blue-800";
+    case "expands_coverage":
+      return "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400 border-green-200 dark:border-green-800";
+    case "restricts_coverage":
+      return "bg-orange-100 text-orange-700 dark:bg-orange-900/30 dark:text-orange-400 border-orange-200 dark:border-orange-800";
+    default:
+      return "bg-zinc-100 text-zinc-600 dark:bg-zinc-800 dark:text-zinc-400 border-zinc-200 dark:border-zinc-700";
+  }
+}
+
+/**
+ * Formats effect category for display.
+ */
+export function formatEffectCategory(category: string): string {
+  if (!category) return "Unknown";
+  return category
+    .replace(/_/g, " ")
+    .replace(/\b\w/g, (l) => l.toUpperCase());
+}
+
+/**
+ * Detects if section fields contain modifications array.
+ * Endorsement extractions store modifications in fields.modifications.
+ */
+export function hasModifications(fields: Record<string, unknown>): boolean {
+  return Array.isArray(fields?.modifications) && fields.modifications.length > 0;
+}
+
+/**
+ * Gets the primary data array from section fields.
+ * Handles different field structures: coverages[], exclusions[], modifications[], endorsements[]
+ */
+export function getSectionItems(fields: Record<string, unknown>): { items: any[]; type: string } {
+  // Check for modifications first (endorsement semantic projection output)
+  if (hasModifications(fields)) {
+    return { items: fields.modifications as any[], type: "modifications" };
+  }
+
+  // Check for specific section type arrays
+  if (Array.isArray(fields.coverages)) {
+    return { items: fields.coverages, type: "coverages" };
+  }
+  if (Array.isArray(fields.exclusions)) {
+    return { items: fields.exclusions, type: "exclusions" };
+  }
+  if (Array.isArray(fields.conditions)) {
+    return { items: fields.conditions, type: "conditions" };
+  }
+  if (Array.isArray(fields.endorsements)) {
+    return { items: fields.endorsements, type: "endorsements" };
+  }
+
+  // Fallback: get first array value
+  const firstValue = Object.values(fields)[0];
+  if (Array.isArray(firstValue)) {
+    return { items: firstValue, type: "unknown" };
+  }
+
+  return { items: [], type: "empty" };
 }

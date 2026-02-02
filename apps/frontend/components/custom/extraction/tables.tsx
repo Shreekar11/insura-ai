@@ -3,7 +3,7 @@ import { Tag } from "lucide-react";
 import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { MinimalTableHeader } from "./common";
-import { 
+import {
   mapEntityToCoverage,
   mapSectionToCoverage,
   mapEntityToExclusion,
@@ -12,9 +12,12 @@ import {
   mapSectionToCondition,
   mapEntityToEndorsement,
   mapSectionToEndorsement,
+  mapSectionToModification,
   normalizeFieldLabel,
   formatValue,
-  getSeverityBadgeStyle
+  getSeverityBadgeStyle,
+  getEffectCategoryBadgeStyle,
+  formatEffectCategory
 } from "@/utils/extraction-utils";
 import { Entity } from "@/types/extraction";
 
@@ -133,7 +136,107 @@ export function EndorsementTable({ items, isEntity = false }: { items: any[]; is
   );
 }
 
-export function EntityTable({ entity, index }: { entity: Entity; index: number }) {
+/**
+ * ModificationTable - Displays endorsement modifications with rich context.
+ * Shows effect category, verbatim language, referenced sections, and severity.
+ */
+export function ModificationTable({ items }: { items: any[] }) {
+  const data = items.map(mapSectionToModification);
+  return (
+    <div className="space-y-3">
+      {data.map((row, i) => (
+        <div
+          key={i}
+          className="rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950"
+        >
+          {/* Header with effect category and severity */}
+          <div className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2">
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[9px] px-1.5 py-0 h-5 font-medium",
+                  getEffectCategoryBadgeStyle(row.effectCategory)
+                )}
+              >
+                {formatEffectCategory(row.effectCategory)}
+              </Badge>
+              {row.exclusionScope && (
+                <span className="text-xs text-zinc-600 dark:text-zinc-400">
+                  {row.exclusionScope}
+                </span>
+              )}
+            </div>
+            {row.severity && (
+              <Badge
+                variant="outline"
+                className={cn(
+                  "text-[9px] px-1.5 py-0 h-5 uppercase tracking-tighter",
+                  getSeverityBadgeStyle(row.severity)
+                )}
+              >
+                {row.severity}
+              </Badge>
+            )}
+          </div>
+
+          {/* Content */}
+          <div className="px-3 py-3 space-y-2">
+            {/* Impacted coverage/section */}
+            {row.impactedCoverage && (
+              <div className="text-xs">
+                <span className="font-medium text-zinc-500 dark:text-zinc-400">
+                  Impacts:{" "}
+                </span>
+                <span className="text-zinc-700 dark:text-zinc-300">
+                  {row.impactedCoverage}
+                </span>
+              </div>
+            )}
+
+            {/* Referenced section */}
+            {row.referencedSection && (
+              <div className="text-xs">
+                <span className="font-medium text-zinc-500 dark:text-zinc-400">
+                  Section:{" "}
+                </span>
+                <span className="text-zinc-600 dark:text-zinc-400 font-mono text-[10px]">
+                  {row.referencedSection}
+                </span>
+              </div>
+            )}
+
+            {/* Verbatim language (collapsible for long text) */}
+            {row.verbatimLanguage && (
+              <div className="mt-2 pt-2 border-t border-zinc-100 dark:border-zinc-800">
+                <div className="text-[10px] font-medium text-zinc-500 dark:text-zinc-400 mb-1">
+                  Policy Language:
+                </div>
+                <p className="text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed italic bg-zinc-50 dark:bg-zinc-900/30 rounded px-2 py-1.5">
+                  &ldquo;{row.verbatimLanguage}&rdquo;
+                </p>
+              </div>
+            )}
+
+            {/* Exception conditions */}
+            {row.exceptionConditions && (
+              <div className="text-xs">
+                <span className="font-medium text-zinc-500 dark:text-zinc-400">
+                  Conditions:{" "}
+                </span>
+                <span className="text-zinc-600 dark:text-zinc-400">
+                  {row.exceptionConditions}
+                </span>
+              </div>
+            )}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+export function EntityTable({ entity, index: _index }: { entity: Entity; index: number }) {
   const fields = entity.fields;
   const entityName = normalizeFieldLabel(entity.entity_type);
   const confidence = entity.confidence;

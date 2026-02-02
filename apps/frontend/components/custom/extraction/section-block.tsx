@@ -4,28 +4,42 @@ import { Badge } from "@/components/ui/badge";
 import { cn } from "@/lib/utils";
 import { Collapsible, CollapsibleTrigger, CollapsibleContent } from "@/components/ui/collapsible";
 import { Section } from "@/types/extraction";
-import { normalizeFieldLabel, getSectionIcon } from "@/utils/extraction-utils";
-import { 
-  CoverageTable, 
-  ExclusionTable, 
-  ConditionTable, 
-  EndorsementTable 
+import { normalizeFieldLabel, getSectionIcon, getSectionItems } from "@/utils/extraction-utils";
+import {
+  CoverageTable,
+  ExclusionTable,
+  ConditionTable,
+  EndorsementTable,
+  ModificationTable
 } from "./tables";
 import { SectionItemCard } from "./common";
 
 /**
  * Renders a section with its items.
+ * Handles both standard section data and endorsement modifications.
  */
 export function SectionBlock({ section }: { section: Section }) {
   const [isOpen, setIsOpen] = React.useState(true);
   const sectionName = normalizeFieldLabel(section.section_type);
-  const items = Object.values(section.fields)[0];
-  const itemList = Array.isArray(items) ? items : [];
+
+  // Use getSectionItems to detect the actual data type (modifications vs standard items)
+  const { items: itemList, type: dataType } = getSectionItems(section.fields);
   const confidence = section.confidence?.overall;
-  
+
   if (itemList.length === 0) return null;
-  
+
+  // Determine display name - if modifications, show "Policy Modifications"
+  const displayName = dataType === "modifications"
+    ? "Policy Modifications"
+    : sectionName;
+
   const renderTable = () => {
+    // If data contains modifications (from endorsement semantic projection), render ModificationTable
+    if (dataType === "modifications") {
+      return <ModificationTable items={itemList} />;
+    }
+
+    // Otherwise, render based on section type
     const type = section.section_type.toLowerCase();
     switch (type) {
       case "coverages":
@@ -57,7 +71,7 @@ export function SectionBlock({ section }: { section: Section }) {
               {getSectionIcon(section.section_type)}
             </div>
             <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-              {sectionName}
+              {displayName}
             </h3>
             <Badge variant="secondary" className="text-[10px] font-medium h-5 bg-zinc-100/50 text-zinc-600 border-zinc-200">
               {itemList.length} {itemList.length === 1 ? 'item' : 'items'}
