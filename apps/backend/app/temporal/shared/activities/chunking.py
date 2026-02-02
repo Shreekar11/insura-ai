@@ -44,10 +44,20 @@ async def perform_hybrid_chunking(
         # Convert section boundary dicts to SectionBoundary objects if provided
         boundaries = None
         if section_boundaries:
-            from app.models.page_analysis_models import SectionBoundary, PageType
-            boundaries = []
             from app.models.page_analysis_models import SectionBoundary, PageType, SemanticRole
             boundaries = []
+
+            # Log raw boundary data for debugging
+            boundaries_with_role = sum(1 for b in section_boundaries if b.get('semantic_role'))
+            activity.logger.info(
+                f"[Phase 3: Chunking] Processing {len(section_boundaries)} boundaries, "
+                f"{boundaries_with_role} have semantic_role set",
+                extra={
+                    "total_boundaries": len(section_boundaries),
+                    "boundaries_with_semantic_role": boundaries_with_role,
+                }
+            )
+
             for b in section_boundaries:
                 # PageType is an enum, we need to convert from string
                 st_value = b.get('section_type')
@@ -89,6 +99,23 @@ async def perform_hybrid_chunking(
                     exclusion_effects=b.get('exclusion_effects', []),
                     sub_section_type=b.get('sub_section_type')
                 ))
+
+            # Log endorsement boundaries with their semantic info for debugging
+            endorsement_boundaries = [bnd for bnd in boundaries if bnd.section_type == PageType.ENDORSEMENT]
+            if endorsement_boundaries:
+                activity.logger.info(
+                    f"[Phase 3: Chunking] Found {len(endorsement_boundaries)} endorsement boundaries",
+                    extra={
+                        "endorsement_boundaries": [
+                            {
+                                "pages": f"{bnd.start_page}-{bnd.end_page}",
+                                "semantic_role": bnd.semantic_role.value if bnd.semantic_role else None,
+                                "effective_section_type": bnd.effective_section_type.value if bnd.effective_section_type else None,
+                            }
+                            for bnd in endorsement_boundaries
+                        ]
+                    }
+                )
 
         async with async_session_maker() as session:
             # Fetch OCR pages

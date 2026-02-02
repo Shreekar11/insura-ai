@@ -566,6 +566,14 @@ class HybridChunkingService:
         boundaries_by_page = {}
         boundaries_covering_page = {}  # Maps page number -> boundary that covers it
         if section_boundaries:
+            LOGGER.info(
+                f"Processing {len(section_boundaries)} section boundaries for semantic metadata",
+                extra={
+                    "boundaries_with_semantic_role": sum(1 for b in section_boundaries if b.semantic_role),
+                    "boundaries_with_coverage_effects": sum(1 for b in section_boundaries if b.coverage_effects),
+                    "boundaries_with_exclusion_effects": sum(1 for b in section_boundaries if b.exclusion_effects),
+                }
+            )
             for b in section_boundaries:
                 if b.start_page not in boundaries_by_page:
                     boundaries_by_page[b.start_page] = []
@@ -577,6 +585,17 @@ class HybridChunkingService:
                     # Only set if not already set (prefer boundary that starts on this page)
                     if page_in_range not in boundaries_covering_page:
                         boundaries_covering_page[page_in_range] = b
+
+                # Debug log for boundaries with semantic metadata
+                if b.semantic_role or b.coverage_effects or b.exclusion_effects:
+                    role_val = b.semantic_role.value if hasattr(b.semantic_role, 'value') else b.semantic_role
+                    LOGGER.debug(
+                        f"Boundary pages {b.start_page}-{b.end_page}: "
+                        f"semantic_role={role_val}, "
+                        f"effective_section_type={b.effective_section_type}, "
+                        f"coverage_effects={b.coverage_effects}, "
+                        f"exclusion_effects={b.exclusion_effects}"
+                    )
 
         for page in pages:
             page_num = page.page_number
@@ -624,6 +643,16 @@ class HybridChunkingService:
                         if current_line_estimation >= b.start_line:
                             boundary_section = SectionTypeMapper.page_type_to_section_type(b.section_type)
                             current_boundary = b
+
+                # Log when we match a boundary with semantic info
+                if current_boundary and para_idx == 0:
+                    role_val = current_boundary.semantic_role
+                    role_str = role_val.value if hasattr(role_val, 'value') else role_val
+                    LOGGER.info(
+                        f"Matched boundary on page {page_num}: section={boundary_section.value}, "
+                        f"semantic_role={role_str}, coverage_effects={current_boundary.coverage_effects}, "
+                        f"exclusion_effects={current_boundary.exclusion_effects}"
+                    )
 
                 # CONTINUATION PAGE SUPPORT: If no boundary starts on this page but
                 # this page is covered by an existing boundary, inherit semantic context
@@ -697,7 +726,8 @@ class HybridChunkingService:
                     
                     if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role or boundary_section in ISO_HARD_STOPS:
                         LOGGER.info(
-                            f"Section transition (HARD STOP) detected via boundary: {current_section} -> {boundary_section}",
+                            f"Section transition via boundary: {current_section} -> {boundary_section}, "
+                            f"new_semantic_role={new_semantic_role}",
                             extra={"page": page_num, "line": current_line_estimation, "anchor": current_boundary.anchor_text}
                         )
                         transition_occurred = True
@@ -817,10 +847,17 @@ class HybridChunkingService:
                 if should_flush:
                     # Determine effective section types (may return multiple for dual emission)
                     effective_types = self._get_effective_section_types(
-                        current_section, 
+                        current_section,
                         current_semantic_role
                     )
-                    
+
+                    # Log chunk creation with semantic info (especially for endorsements)
+                    if current_section == SectionType.ENDORSEMENTS:
+                        LOGGER.info(
+                            f"Flushing endorsement chunk: pages={sorted(current_page_range)}, "
+                            f"semantic_role={current_semantic_role}, effective_types={[t.value for t in effective_types]}"
+                        )
+
                     for eff_type in effective_types:
                         # Create and store the chunk
                         chunk = self._flush_chunk(
@@ -942,20 +979,21 @@ class HybridChunkingService:
         """
         # Use string comparison to be safe with enums vs strings
         role_val = semantic_role.value if hasattr(semantic_role, 'value') else str(semantic_role) if semantic_role else None
-        
+
         from app.models.page_analysis_models import SemanticRole
-        
+
         # 1. Dual Emission (BOTH) takes highest priority for any section
-        if role_val == SemanticRole.BOTH:
+        # Compare to .value since role_val is a string
+        if role_val == SemanticRole.BOTH.value:
             return [SectionType.COVERAGES, SectionType.EXCLUSIONS]
-            
+
         # 2. Endorsement Semantic Projection
         if section_type == SectionType.ENDORSEMENTS and role_val:
-            if role_val == SemanticRole.COVERAGE_MODIFIER:
+            if role_val == SemanticRole.COVERAGE_MODIFIER.value:
                 return [SectionType.COVERAGES]
-            elif role_val == SemanticRole.EXCLUSION_MODIFIER:
+            elif role_val == SemanticRole.EXCLUSION_MODIFIER.value:
                 return [SectionType.EXCLUSIONS]
-            elif role_val == SemanticRole.ADMINISTRATIVE_ONLY:
+            elif role_val == SemanticRole.ADMINISTRATIVE_ONLY.value:
                 return [SectionType.ENDORSEMENTS]
                 
         # 3. Base Policy Sections are authoritative
