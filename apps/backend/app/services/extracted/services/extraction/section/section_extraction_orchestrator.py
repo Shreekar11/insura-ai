@@ -423,6 +423,35 @@ class SectionExtractionOrchestrator:
 
                 # Create citations for synthesized coverages and exclusions
                 if document_id and (result.effective_coverages or result.effective_exclusions):
+                    LOGGER.info(
+                        "="*60 + "\n[ORCHESTRATOR] Starting citation creation\n" + "="*60,
+                        extra={
+                            "document_id": str(document_id),
+                            "effective_coverages_count": len(result.effective_coverages),
+                            "effective_exclusions_count": len(result.effective_exclusions),
+                        }
+                    )
+
+                    # Log sample coverage for debugging
+                    if result.effective_coverages:
+                        sample = result.effective_coverages[0]
+                        if hasattr(sample, "model_dump"):
+                            sample_dict = sample.model_dump()
+                        else:
+                            sample_dict = sample if isinstance(sample, dict) else {}
+                        LOGGER.info(
+                            "[ORCHESTRATOR] Sample effective_coverage before citation creation",
+                            extra={
+                                "coverage_name": sample_dict.get("coverage_name"),
+                                "canonical_id": sample_dict.get("canonical_id"),
+                                "has_page_numbers": "page_numbers" in sample_dict,
+                                "page_numbers": sample_dict.get("page_numbers"),
+                                "has_source_text": "source_text" in sample_dict,
+                                "has_description": "description" in sample_dict,
+                                "all_keys": list(sample_dict.keys()),
+                            }
+                        )
+
                     try:
                         from app.services.citation.citation_creation_service import CitationCreationService
                         citation_service = CitationCreationService(self.session)
@@ -432,14 +461,29 @@ class SectionExtractionOrchestrator:
                             effective_exclusions=result.effective_exclusions,
                         )
                         LOGGER.info(
-                            "Citations created for synthesis results",
+                            "[ORCHESTRATOR] Citation creation completed",
                             extra={
                                 "document_id": str(document_id),
                                 "created_count": citation_result.get("created_count", 0),
+                                "skipped_count": citation_result.get("skipped_count", 0),
+                                "error_count": len(citation_result.get("errors", [])),
                             }
                         )
                     except Exception as citation_error:
-                        LOGGER.warning(f"Citation creation failed, continuing without: {citation_error}")
+                        LOGGER.error(
+                            f"[ORCHESTRATOR] Citation creation failed: {citation_error}",
+                            exc_info=True
+                        )
+                else:
+                    LOGGER.info(
+                        "[ORCHESTRATOR] Skipping citation creation - no effective coverages/exclusions",
+                        extra={
+                            "document_id": str(document_id) if document_id else None,
+                            "has_document_id": document_id is not None,
+                            "effective_coverages_count": len(result.effective_coverages) if result.effective_coverages else 0,
+                            "effective_exclusions_count": len(result.effective_exclusions) if result.effective_exclusions else 0,
+                        }
+                    )
             except Exception as e:
                 LOGGER.warning(f"Synthesis failed, continuing without: {e}")
                 result.effective_coverages = []
@@ -700,7 +744,16 @@ class SectionExtractionOrchestrator:
             else:
                 # Fallback to old method
                 extracted_data = self._extract_section_data(parsed, super_chunk.section_type)
-            
+
+            # Inject page_numbers into extracted items for citation support
+            # This ensures each coverage/exclusion has page info for source mapping
+            if super_chunk.page_range:
+                extracted_data = self._inject_page_numbers(
+                    extracted_data,
+                    super_chunk.page_range,
+                    super_chunk.section_type.value
+                )
+
             entities = parsed.get("entities", [])
             confidence = float(parsed.get("confidence", 0.0))
             
@@ -796,6 +849,92 @@ class SectionExtractionOrchestrator:
                 }
             )
             raise
+
+    def _inject_page_numbers(
+        self,
+        extracted_data: Dict[str, Any],
+        page_range: List[int],
+        section_type: str,
+    ) -> Dict[str, Any]:
+        """Inject page_numbers into extracted items for citation support.
+
+        This method adds page_numbers to each extracted coverage, exclusion,
+        or other item so that citations can map back to source PDF locations.
+
+        Args:
+            extracted_data: Dict of extracted fields from LLM
+            page_range: List of page numbers from the source chunk
+            section_type: Type of section (COVERAGES, EXCLUSIONS, etc.)
+
+        Returns:
+            extracted_data with page_numbers injected into items
+        """
+        if not page_range:
+            LOGGER.warning(
+                f"[PAGE-INJECT] No page_range provided for {section_type}, skipping injection"
+            )
+            return extracted_data
+
+        # Fields that contain lists of items to inject page_numbers into
+        item_fields = [
+            "coverages",
+            "exclusions",
+            "conditions",
+            "endorsements",
+            "definitions",
+            "modifications",
+        ]
+
+        injection_stats = {}
+
+        for field in item_fields:
+            items = extracted_data.get(field, [])
+            if isinstance(items, list) and items:
+                injected_count = 0
+                for item in items:
+                    if isinstance(item, dict):
+                        # Only inject if not already present
+                        if "page_numbers" not in item or not item.get("page_numbers"):
+                            item["page_numbers"] = list(page_range)
+                            injected_count += 1
+                        # Also inject source_text if description is available
+                        if "source_text" not in item and "description" in item:
+                            item["source_text"] = item["description"]
+
+                if injected_count > 0:
+                    injection_stats[field] = {
+                        "total_items": len(items),
+                        "injected": injected_count,
+                    }
+
+        LOGGER.info(
+            f"[PAGE-INJECT] Injected page_numbers into {section_type} extracted data",
+            extra={
+                "section_type": section_type,
+                "page_range": page_range,
+                "injection_stats": injection_stats,
+                "fields_with_items": [f for f in item_fields if extracted_data.get(f)],
+            }
+        )
+
+        # Log sample item for verification
+        for field in item_fields:
+            items = extracted_data.get(field, [])
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                sample = items[0]
+                LOGGER.debug(
+                    f"[PAGE-INJECT] Sample {field} item after injection",
+                    extra={
+                        "field": field,
+                        "has_page_numbers": "page_numbers" in sample,
+                        "page_numbers": sample.get("page_numbers"),
+                        "has_source_text": "source_text" in sample,
+                        "item_keys": list(sample.keys()),
+                    }
+                )
+                break
+
+        return extracted_data
 
     async def _run_extraction_call(
         self,

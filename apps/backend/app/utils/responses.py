@@ -11,18 +11,21 @@ def create_api_response(
     status: bool = True,
     request: Optional[Request] = None,
     api_version: str = "v1"
-) -> ApiResponse:
-    """Create a standardized API response."""
+) -> Dict[str, Any]:
+    """Create a standardized API response as a dictionary.
+
+    Returns a dict to be compatible with FastAPI's response_model=dict.
+    """
     request_id = str(uuid4())
     if request and hasattr(request.state, "request_id"):
         request_id = request.state.request_id
-    
+
     meta = ResponseMeta(
         timestamp=datetime.now(timezone.utc),
         request_id=request_id,
         api_version=api_version
     )
-    
+
     # Ensure data is a dict as expected by ApiResponse
     data_dict: Dict[str, Any] = {}
     if isinstance(data, dict):
@@ -30,7 +33,7 @@ def create_api_response(
     elif hasattr(data, "model_dump"):
         data_dict = data.model_dump()
     elif isinstance(data, list):
-        # If it's a list, we need to decide how to wrap it. 
+        # If it's a list, we need to decide how to wrap it.
         # For 'total' + 'items' patterns, it might already be a dict.
         # Here we assume it's just a raw list.
         data_dict = {"items": [item.model_dump() if hasattr(item, "model_dump") else item for item in data]}
@@ -40,12 +43,14 @@ def create_api_response(
         # Fallback for primitive types if they were passed
         data_dict = {"value": data}
 
-    return ApiResponse(
+    # Create ApiResponse and convert to dict for FastAPI compatibility
+    response = ApiResponse(
         status=status,
         message=message,
         data=data_dict,
         meta=meta
     )
+    return response.model_dump(mode="json")
 
 def create_error_detail(
     title: str,

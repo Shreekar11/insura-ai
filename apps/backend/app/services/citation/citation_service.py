@@ -61,6 +61,18 @@ class CitationService:
         Returns:
             Created citation response
         """
+        LOGGER.debug(
+            "[CITATION-SVC] create_citation called",
+            extra={
+                "document_id": str(citation_data.document_id),
+                "source_type": citation_data.source_type.value,
+                "source_id": citation_data.source_id,
+                "primary_page": citation_data.primary_page,
+                "span_count": len(citation_data.spans),
+                "verbatim_text_length": len(citation_data.verbatim_text) if citation_data.verbatim_text else 0,
+            }
+        )
+
         # Convert spans to JSON-serializable format
         spans_json = [
             {
@@ -82,30 +94,53 @@ class CitationService:
                 "end": citation_data.page_range.end
             }
 
-        citation = await self.citation_repo.create(
-            document_id=citation_data.document_id,
-            source_type=citation_data.source_type.value,
-            source_id=citation_data.source_id,
-            spans=spans_json,
-            verbatim_text=citation_data.verbatim_text,
-            primary_page=citation_data.primary_page,
-            page_range=page_range_dict,
-            extraction_confidence=citation_data.extraction_confidence,
-            extraction_method=citation_data.extraction_method.value,
-            clause_reference=citation_data.clause_reference,
-        )
-
-        LOGGER.info(
-            "Created citation",
+        LOGGER.debug(
+            "[CITATION-SVC] Calling citation_repo.create",
             extra={
-                "citation_id": str(citation.id),
-                "document_id": str(citation_data.document_id),
-                "source_type": citation_data.source_type.value,
-                "source_id": citation_data.source_id
+                "spans_json_length": len(spans_json),
+                "has_page_range": page_range_dict is not None,
             }
         )
 
-        return self._to_response(citation)
+        try:
+            citation = await self.citation_repo.create(
+                document_id=citation_data.document_id,
+                source_type=citation_data.source_type.value,
+                source_id=citation_data.source_id,
+                spans=spans_json,
+                verbatim_text=citation_data.verbatim_text,
+                primary_page=citation_data.primary_page,
+                page_range=page_range_dict,
+                extraction_confidence=citation_data.extraction_confidence,
+                extraction_method=citation_data.extraction_method.value,
+                clause_reference=citation_data.clause_reference,
+            )
+
+            LOGGER.info(
+                "[CITATION-SVC] ✓ Citation persisted to database",
+                extra={
+                    "citation_id": str(citation.id),
+                    "document_id": str(citation_data.document_id),
+                    "source_type": citation_data.source_type.value,
+                    "source_id": citation_data.source_id,
+                    "primary_page": citation_data.primary_page,
+                }
+            )
+
+            return self._to_response(citation)
+
+        except Exception as e:
+            LOGGER.error(
+                "[CITATION-SVC] ✗ Failed to persist citation",
+                extra={
+                    "document_id": str(citation_data.document_id),
+                    "source_type": citation_data.source_type.value,
+                    "source_id": citation_data.source_id,
+                    "error": str(e),
+                },
+                exc_info=True
+            )
+            raise
 
     async def get_citation(
         self,
@@ -165,8 +200,25 @@ class CitationService:
         Returns:
             List of citations
         """
+        LOGGER.info(
+            "[CITATION-SVC] list_citations called",
+            extra={
+                "document_id": str(document_id),
+                "source_type_filter": source_type,
+            }
+        )
+
         citations = await self.citation_repo.get_by_document(
             document_id, source_type
+        )
+
+        LOGGER.info(
+            "[CITATION-SVC] Retrieved citations from database",
+            extra={
+                "document_id": str(document_id),
+                "citation_count": len(citations),
+                "source_types": list(set(c.source_type for c in citations)) if citations else [],
+            }
         )
 
         return CitationListResponse(

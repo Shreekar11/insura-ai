@@ -9,6 +9,7 @@ from typing import List, Dict, Any, Optional
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
+from pydantic import BaseModel
 
 from app.services.citation.citation_service import CitationService
 from app.schemas.citation import (
@@ -23,6 +24,25 @@ from app.schemas.citation import (
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+def _to_dict(item: Any) -> Dict[str, Any]:
+    """Convert item to dictionary, handling Pydantic models.
+
+    Args:
+        item: A dict, Pydantic model, or other object
+
+    Returns:
+        Dictionary representation of the item
+    """
+    if isinstance(item, dict):
+        return item
+    elif isinstance(item, BaseModel):
+        return item.model_dump()
+    elif hasattr(item, "__dict__"):
+        return vars(item)
+    else:
+        return {"value": item}
 
 
 class CitationCreationService:
@@ -58,51 +78,137 @@ class CitationCreationService:
             Dict with created citation counts and any errors
         """
         created_count = 0
+        skipped_count = 0
         errors = []
 
+        LOGGER.info(
+            "="*60 + "\n[CITATION] Starting citation creation from synthesis\n" + "="*60,
+            extra={
+                "document_id": str(document_id),
+                "coverage_count": len(effective_coverages),
+                "exclusion_count": len(effective_exclusions),
+            }
+        )
+
+        # Log sample of first coverage for debugging
+        if effective_coverages:
+            sample = _to_dict(effective_coverages[0])
+            LOGGER.info(
+                "[CITATION] Sample coverage item structure",
+                extra={
+                    "sample_keys": list(sample.keys()),
+                    "has_canonical_id": "canonical_id" in sample,
+                    "has_page_numbers": "page_numbers" in sample,
+                    "has_source_text": "source_text" in sample,
+                    "has_description": "description" in sample,
+                    "canonical_id": sample.get("canonical_id"),
+                    "page_numbers": sample.get("page_numbers"),
+                    "coverage_name": sample.get("coverage_name"),
+                }
+            )
+
         # Create citations for coverages
-        for coverage in effective_coverages:
+        for i, coverage in enumerate(effective_coverages):
+            # Convert to dict if it's a Pydantic model
+            coverage_dict = _to_dict(coverage)
+            coverage_name = coverage_dict.get("coverage_name", f"coverage_{i}")
+
+            LOGGER.debug(
+                f"[CITATION] Processing coverage {i+1}/{len(effective_coverages)}: {coverage_name}",
+                extra={
+                    "canonical_id": coverage_dict.get("canonical_id"),
+                    "page_numbers": coverage_dict.get("page_numbers"),
+                    "has_source_text": bool(coverage_dict.get("source_text")),
+                    "has_description": bool(coverage_dict.get("description")),
+                }
+            )
+
             try:
                 citation = await self._create_citation_from_item(
                     document_id=document_id,
-                    item=coverage,
+                    item=coverage_dict,
                     source_type=SourceType.EFFECTIVE_COVERAGE,
                 )
                 if citation:
                     created_count += 1
+                    LOGGER.info(
+                        f"[CITATION] ✓ Created citation for coverage: {coverage_name}",
+                        extra={
+                            "citation_id": str(citation.id),
+                            "canonical_id": coverage_dict.get("canonical_id"),
+                            "primary_page": citation.primary_page,
+                        }
+                    )
+                else:
+                    skipped_count += 1
+                    LOGGER.warning(
+                        f"[CITATION] ✗ Skipped coverage (returned None): {coverage_name}",
+                        extra={"canonical_id": coverage_dict.get("canonical_id")}
+                    )
             except Exception as e:
-                error_msg = f"Failed to create citation for coverage {coverage.get('canonical_id')}: {e}"
-                LOGGER.warning(error_msg)
+                error_msg = f"Failed to create citation for coverage {coverage_dict.get('canonical_id')}: {e}"
+                LOGGER.error(f"[CITATION] ✗ Exception for coverage {coverage_name}: {e}", exc_info=True)
                 errors.append(error_msg)
 
         # Create citations for exclusions
-        for exclusion in effective_exclusions:
+        for i, exclusion in enumerate(effective_exclusions):
+            # Convert to dict if it's a Pydantic model
+            exclusion_dict = _to_dict(exclusion)
+            exclusion_name = exclusion_dict.get("exclusion_name", f"exclusion_{i}")
+
+            LOGGER.debug(
+                f"[CITATION] Processing exclusion {i+1}/{len(effective_exclusions)}: {exclusion_name}",
+                extra={
+                    "canonical_id": exclusion_dict.get("canonical_id"),
+                    "page_numbers": exclusion_dict.get("page_numbers"),
+                    "has_source_text": bool(exclusion_dict.get("source_text")),
+                    "has_description": bool(exclusion_dict.get("description")),
+                }
+            )
+
             try:
                 citation = await self._create_citation_from_item(
                     document_id=document_id,
-                    item=exclusion,
+                    item=exclusion_dict,
                     source_type=SourceType.EFFECTIVE_EXCLUSION,
                 )
                 if citation:
                     created_count += 1
+                    LOGGER.info(
+                        f"[CITATION] ✓ Created citation for exclusion: {exclusion_name}",
+                        extra={
+                            "citation_id": str(citation.id),
+                            "canonical_id": exclusion_dict.get("canonical_id"),
+                            "primary_page": citation.primary_page,
+                        }
+                    )
+                else:
+                    skipped_count += 1
+                    LOGGER.warning(
+                        f"[CITATION] ✗ Skipped exclusion (returned None): {exclusion_name}",
+                        extra={"canonical_id": exclusion_dict.get("canonical_id")}
+                    )
             except Exception as e:
-                error_msg = f"Failed to create citation for exclusion {exclusion.get('canonical_id')}: {e}"
-                LOGGER.warning(error_msg)
+                error_msg = f"Failed to create citation for exclusion {exclusion_dict.get('canonical_id')}: {e}"
+                LOGGER.error(f"[CITATION] ✗ Exception for exclusion {exclusion_name}: {e}", exc_info=True)
                 errors.append(error_msg)
 
         LOGGER.info(
-            "Citation creation completed",
+            "="*60 + f"\n[CITATION] Citation creation completed\n" + "="*60,
             extra={
                 "document_id": str(document_id),
                 "created_count": created_count,
+                "skipped_count": skipped_count,
                 "coverage_count": len(effective_coverages),
                 "exclusion_count": len(effective_exclusions),
                 "error_count": len(errors),
+                "errors": errors[:5] if errors else [],  # First 5 errors
             }
         )
 
         return {
             "created_count": created_count,
+            "skipped_count": skipped_count,
             "errors": errors,
         }
 
@@ -122,26 +228,70 @@ class CitationCreationService:
         Returns:
             CitationResponse if created, None if skipped
         """
+        item_name = item.get('coverage_name') or item.get('exclusion_name') or 'unknown'
+
         # Get canonical_id as source_id
         source_id = item.get("canonical_id")
         if not source_id:
-            LOGGER.debug(f"Skipping item without canonical_id: {item.get('coverage_name') or item.get('exclusion_name')}")
+            LOGGER.warning(
+                f"[CITATION] SKIP - No canonical_id for: {item_name}",
+                extra={
+                    "item_name": item_name,
+                    "available_keys": list(item.keys()),
+                    "source_type": source_type.value,
+                }
+            )
             return None
 
         # Get page numbers
         page_numbers = self._extract_page_numbers(item)
         if not page_numbers:
-            LOGGER.debug(f"Skipping item without page_numbers: {source_id}")
+            LOGGER.warning(
+                f"[CITATION] SKIP - No page_numbers for: {item_name} ({source_id})",
+                extra={
+                    "source_id": source_id,
+                    "available_keys": list(item.keys()),
+                    "page_numbers_field": item.get("page_numbers"),
+                    "page_range_field": item.get("page_range"),
+                    "page_number_field": item.get("page_number"),
+                }
+            )
             return None
 
         # Get source text (verbatim text)
         source_text = self._extract_source_text(item)
+        text_source_field = None
         if not source_text:
             # Use description as fallback
             source_text = item.get("description", "")
             if not source_text:
-                LOGGER.debug(f"Skipping item without source_text: {source_id}")
+                LOGGER.warning(
+                    f"[CITATION] SKIP - No source_text or description for: {item_name} ({source_id})",
+                    extra={
+                        "source_id": source_id,
+                        "checked_fields": ["source_text", "verbatim_text", "verbatim_language", "extracted_text", "description"],
+                    }
+                )
                 return None
+            text_source_field = "description"
+        else:
+            # Determine which field had the text
+            for field in ["source_text", "verbatim_text", "verbatim_language", "extracted_text"]:
+                if item.get(field):
+                    text_source_field = field
+                    break
+
+        LOGGER.info(
+            f"[CITATION] Building citation for: {item_name}",
+            extra={
+                "source_id": source_id,
+                "source_type": source_type.value,
+                "page_numbers": page_numbers,
+                "text_source_field": text_source_field,
+                "text_length": len(source_text) if source_text else 0,
+                "text_preview": source_text[:100] + "..." if source_text and len(source_text) > 100 else source_text,
+            }
+        )
 
         # Build citation spans
         # For now, create spans without bounding boxes (will be populated later)
@@ -179,6 +329,17 @@ class CitationCreationService:
             extraction_confidence=confidence,
             extraction_method=ExtractionMethod.DOCLING,
             clause_reference=clause_reference,
+        )
+
+        LOGGER.debug(
+            f"[CITATION] Calling citation_service.create_citation",
+            extra={
+                "document_id": str(document_id),
+                "source_id": source_id,
+                "source_type": source_type.value,
+                "primary_page": primary_page,
+                "span_count": len(spans),
+            }
         )
 
         return await self.citation_service.create_citation(citation_data)
