@@ -199,6 +199,24 @@ class EffectiveCoverage(BaseModel):
         description="Section reference in the source form (e.g., 'SECTION II', 'SECTION III')"
     )
 
+    # Citation fields for source mapping (FR-1, FR-4)
+    citation_id: Optional[str] = Field(
+        None,
+        description="Reference to citation record for PDF source mapping"
+    )
+    page_numbers: Optional[List[int]] = Field(
+        None,
+        description="Page numbers where this coverage is defined (1-indexed)"
+    )
+    source_text: Optional[str] = Field(
+        None,
+        description="Verbatim source text from policy document"
+    )
+    clause_reference: Optional[str] = Field(
+        None,
+        description="Clause reference e.g., 'SECTION II - COVERAGES, A.1'"
+    )
+
 
 class EffectiveExclusion(BaseModel):
     """Exclusion-centric output showing effective state after endorsements applied."""
@@ -263,6 +281,24 @@ class EffectiveExclusion(BaseModel):
     form_section: Optional[str] = Field(
         None,
         description="Section reference in the source form (e.g., 'SECTION II')"
+    )
+
+    # Citation fields for source mapping (FR-1, FR-4)
+    citation_id: Optional[str] = Field(
+        None,
+        description="Reference to citation record for PDF source mapping"
+    )
+    page_numbers: Optional[List[int]] = Field(
+        None,
+        description="Page numbers where this exclusion is defined (1-indexed)"
+    )
+    source_text: Optional[str] = Field(
+        None,
+        description="Verbatim source text from policy document"
+    )
+    clause_reference: Optional[str] = Field(
+        None,
+        description="Clause reference e.g., 'SECTION II - EXCLUSIONS, B.1'"
     )
 
 

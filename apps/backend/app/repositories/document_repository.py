@@ -103,6 +103,10 @@ class DocumentRepository(BaseRepository[Document]):
                 text=page_data.text,
                 markdown=page_data.markdown,
                 additional_metadata=page_data.metadata or {},
+                # Store page dimensions for citation coordinate transformation
+                width_points=page_data.width_points,
+                height_points=page_data.height_points,
+                rotation=page_data.rotation or 0,
             )
             self.session.add(page)
         

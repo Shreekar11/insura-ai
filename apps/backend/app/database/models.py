@@ -99,6 +99,9 @@ class Document(Base):
     vector_embeddings: Mapped[list["VectorEmbedding"]] = relationship(
         "VectorEmbedding", back_populates="document", cascade="all, delete-orphan"
     )
+    citations: Mapped[list["Citation"]] = relationship(
+        "Citation", back_populates="document", cascade="all, delete-orphan"
+    )
 
 
 class DocumentPage(Base):
@@ -119,6 +122,21 @@ class DocumentPage(Base):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     additional_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Page dimensions for citation coordinate transformation
+    width_points: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 4), nullable=True,
+        comment="Page width in PDF points (1 point = 1/72 inch)"
+    )
+    height_points: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 4), nullable=True,
+        comment="Page height in PDF points"
+    )
+    rotation: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=0,
+        comment="Page rotation in degrees (0, 90, 180, 270)"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -1299,13 +1317,13 @@ class Proposal(Base):
     carrier_name: Mapped[str] = mapped_column(String, nullable=False)
     policy_type: Mapped[str] = mapped_column(String, nullable=False)
     executive_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # The full proposal object (JSON)
     proposal_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    
+
     # Path to the generated PDF in storage
     pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -1318,5 +1336,82 @@ class Proposal(Base):
 
     __table_args__ = (
         {"comment": "Generated insurance proposals with PDF links and executive summaries"},
+    )
+
+
+class Citation(Base):
+    """Citation model for mapping extracted items to source PDF locations.
+
+    Stores precise source mapping for extracted coverages, exclusions, and clauses.
+    Supports multiple non-contiguous spans across pages (FR-2).
+    """
+
+    __tablename__ = "citations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Polymorphic reference to source item
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False,
+        comment="Type: effective_coverage, effective_exclusion, endorsement, condition"
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(255), nullable=False,
+        comment="Canonical ID or stable ID of the source item"
+    )
+
+    # Location data - supports multiple spans (FR-2)
+    spans: Mapped[list] = mapped_column(
+        JSONB, nullable=False,
+        comment="Array of span objects: [{page_number, bounding_boxes, text_content}]"
+    )
+
+    # Verbatim source text (FR-4)
+    verbatim_text: Mapped[str] = mapped_column(
+        Text, nullable=False,
+        comment="Exact extracted policy language"
+    )
+
+    # Page metadata for quick navigation
+    primary_page: Mapped[int] = mapped_column(
+        Integer, nullable=False,
+        comment="Primary page number (1-indexed) for initial navigation"
+    )
+    page_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True,
+        comment="Page range: {start: int, end: int} for multi-page citations"
+    )
+
+    # Confidence and provenance
+    extraction_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True,
+        comment="Confidence in source mapping accuracy (0.0-1.0)"
+    )
+    extraction_method: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="docling",
+        comment="Method: docling, pdfplumber, manual"
+    )
+
+    # Clause-level authority (FR-3)
+    clause_reference: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Clause reference e.g., 'SECTION II.B.3' or 'Endorsement CA 20 48'"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="citations")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "source_type", "source_id", name="uq_citation_source"),
+        {"comment": "Citation source mapping for extracted items"},
     )
 

@@ -196,6 +196,15 @@ class ExclusionSynthesizer:
                 category=category,
             )
 
+            # Extract citation fields from base exclusion data
+            page_numbers = self._extract_page_numbers(exclusion)
+            source_text = self._extract_source_text(exclusion)
+            clause_reference = self._build_clause_reference(
+                exclusion.get("form_section"),
+                exclusion_number,
+                exclusion_name
+            )
+
             effective_exclusions.append(EffectiveExclusion(
                 canonical_id=canonical_id,
                 exclusion_name=exclusion_name,
@@ -213,6 +222,10 @@ class ExclusionSynthesizer:
                 is_standard_provision=True,
                 is_modified=False,
                 form_section=exclusion.get("form_section"),
+                # Citation fields for source mapping
+                page_numbers=page_numbers,
+                source_text=source_text,
+                clause_reference=clause_reference,
             ))
 
         return effective_exclusions
@@ -673,6 +686,11 @@ class ExclusionSynthesizer:
                 category=category,
             )
 
+            # Extract citation fields from modifications
+            page_numbers = self._extract_page_numbers_from_modifications(modifications)
+            source_text = self._extract_source_text_from_modifications(modifications)
+            clause_reference = None  # Endorsement-based, no single clause reference
+
             effective_exclusions.append(EffectiveExclusion(
                 canonical_id=canonical_id,
                 exclusion_name=exclusion_name,
@@ -687,6 +705,10 @@ class ExclusionSynthesizer:
                 description=description,
                 is_modified=True,  # These are all from endorsement modifications
                 is_standard_provision=False,
+                # Citation fields for source mapping
+                page_numbers=page_numbers,
+                source_text=source_text,
+                clause_reference=clause_reference,
             ))
 
         return effective_exclusions
@@ -852,3 +874,131 @@ class ExclusionSynthesizer:
             confidence += 0.1
 
         return min(confidence, 0.98)
+
+    def _extract_page_numbers(self, exclusion: Dict[str, Any]) -> Optional[List[int]]:
+        """Extract page numbers from exclusion data.
+
+        Args:
+            exclusion: Exclusion data from extraction.
+
+        Returns:
+            List of page numbers or None.
+        """
+        # Try different field names for page information
+        if exclusion.get("page_numbers"):
+            return exclusion.get("page_numbers")
+
+        if exclusion.get("page_range"):
+            page_range = exclusion.get("page_range")
+            if isinstance(page_range, dict):
+                start = page_range.get("start")
+                end = page_range.get("end")
+                if start and end:
+                    return list(range(start, end + 1))
+            elif isinstance(page_range, list):
+                return page_range
+
+        if exclusion.get("page_number"):
+            return [exclusion.get("page_number")]
+
+        return None
+
+    def _extract_source_text(self, exclusion: Dict[str, Any]) -> Optional[str]:
+        """Extract source text from exclusion data.
+
+        Args:
+            exclusion: Exclusion data from extraction.
+
+        Returns:
+            Verbatim source text or None.
+        """
+        # Try different field names for verbatim text
+        return (
+            exclusion.get("source_text") or
+            exclusion.get("verbatim_text") or
+            exclusion.get("extracted_text") or
+            exclusion.get("description")
+        )
+
+    def _build_clause_reference(
+        self,
+        form_section: Optional[str],
+        provision_number: Optional[str],
+        exclusion_name: str
+    ) -> Optional[str]:
+        """Build clause reference from form section and provision number.
+
+        Args:
+            form_section: Form section (e.g., 'SECTION II - EXCLUSIONS')
+            provision_number: Provision number (e.g., 'B.1')
+            exclusion_name: Exclusion name
+
+        Returns:
+            Formatted clause reference or None.
+        """
+        if form_section and provision_number:
+            return f"{form_section}, {provision_number}"
+        elif form_section:
+            return form_section
+        elif provision_number:
+            return provision_number
+        else:
+            return None
+
+    def _extract_page_numbers_from_modifications(
+        self,
+        modifications: List[Dict[str, Any]]
+    ) -> Optional[List[int]]:
+        """Extract page numbers from modification data.
+
+        Args:
+            modifications: List of modification dictionaries.
+
+        Returns:
+            List of unique page numbers or None.
+        """
+        page_numbers = set()
+
+        for mod in modifications:
+            # Try to extract page numbers from modification
+            if mod.get("page_numbers"):
+                if isinstance(mod["page_numbers"], list):
+                    page_numbers.update(mod["page_numbers"])
+                else:
+                    page_numbers.add(mod["page_numbers"])
+            elif mod.get("page_number"):
+                page_numbers.add(mod["page_number"])
+
+        return sorted(list(page_numbers)) if page_numbers else None
+
+    def _extract_source_text_from_modifications(
+        self,
+        modifications: List[Dict[str, Any]]
+    ) -> Optional[str]:
+        """Extract source text from modifications.
+
+        Args:
+            modifications: List of modification dictionaries.
+
+        Returns:
+            Combined verbatim text or None.
+        """
+        texts = []
+
+        for mod in modifications:
+            text = (
+                mod.get("verbatim_language") or
+                mod.get("verbatim_text") or
+                mod.get("exclusion_scope")
+            )
+            if text:
+                texts.append(text)
+
+        # Return first text or combined text if multiple
+        if len(texts) == 1:
+            return texts[0]
+        elif len(texts) > 1:
+            # For multiple modifications, combine with separator
+            return " | ".join(texts[:3])  # Limit to first 3 to avoid too long text
+
+        return None
