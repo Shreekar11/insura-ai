@@ -34,7 +34,7 @@ export function ExtractionOutputSidebar({
     open ? workflowId : null,
     open ? documentId : null
   );
-  const { data: documentsData } = useDocuments(workflowId);
+  const { data: documentsData } = useDocuments(workflowId ?? undefined);
   const { highlightCitation } = usePDFHighlight();
 
   const sections = (data?.extracted_data?.sections || []) as Section[];

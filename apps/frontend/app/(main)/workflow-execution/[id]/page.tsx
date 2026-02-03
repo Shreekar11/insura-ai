@@ -24,12 +24,12 @@ import {
 import { PageHeader } from "@/components/layout/page-header";
 import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
 import { PDFHighlightProvider, usePDFHighlight } from "@/contexts/pdf-highlight-context";
-import { PDFViewer } from "@/components/custom/pdf-viewer";
+import { PDFViewerPanel } from "@/components/custom/pdf-viewer/PDFViewerPanel";
 
 function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
-  const { activePDFUrl, clearPDF } = usePDFHighlight();
+  const { pdfViewerOpen, pdfUrl, activeCitation, clearHighlight } = usePDFHighlight();
 
   const { data: workflow, isLoading: isLoadingWorkflow } =
     useWorkflowById(workflowId);
@@ -182,7 +182,7 @@ function WorkflowExecutionContent() {
   };
 
   // Determine layout state
-  const hasPDF = !!activePDFUrl;
+  const hasPDF = !!pdfUrl;
   const layoutState = hasPDF
     ? "three-column"
     : sidebarOpen
@@ -297,7 +297,7 @@ function WorkflowExecutionContent() {
         <>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={33} className="overflow-hidden">
-            <PDFViewer pdfUrl={activePDFUrl} onClose={clearPDF} />
+            <PDFViewerPanel pageDimensions={{}} />
           </ResizablePanel>
         </>
       )}
