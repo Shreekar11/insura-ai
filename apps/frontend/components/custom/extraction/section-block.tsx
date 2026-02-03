@@ -18,7 +18,7 @@ import { SectionItemCard } from "./common";
  * Renders a section with its items.
  * Handles both standard section data and endorsement modifications.
  */
-export function SectionBlock({ section }: { section: Section }) {
+export function SectionBlock({ section, onItemClick }: { section: Section; onItemClick?: (sourceType: string, sourceId: string) => void }) {
   const [isOpen, setIsOpen] = React.useState(true);
   const sectionName = normalizeFieldLabel(section.section_type);
 
@@ -36,20 +36,20 @@ export function SectionBlock({ section }: { section: Section }) {
   const renderTable = () => {
     // If data contains modifications (from endorsement semantic projection), render ModificationTable
     if (dataType === "modifications") {
-      return <ModificationTable items={itemList} />;
+      return <ModificationTable items={itemList} onItemClick={onItemClick} />;
     }
 
     // Otherwise, render based on section type
     const type = section.section_type.toLowerCase();
     switch (type) {
       case "coverages":
-        return <CoverageTable items={itemList} />;
+        return <CoverageTable items={itemList} onItemClick={onItemClick} />;
       case "exclusions":
-        return <ExclusionTable items={itemList} />;
+        return <ExclusionTable items={itemList} onItemClick={onItemClick} />;
       case "conditions":
-        return <ConditionTable items={itemList} />;
+        return <ConditionTable items={itemList} onItemClick={onItemClick} />;
       case "endorsements":
-        return <EndorsementTable items={itemList} />;
+        return <EndorsementTable items={itemList} onItemClick={onItemClick} />;
       default:
         // Fallback to the original list view if type is unknown
         return (
