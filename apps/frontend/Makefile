@@ -18,3 +18,8 @@ generate-frontend-schemas:
 		--input $(SPEC_DIR)/workflows.json \
 		--output $(OUTPUT_DIR)/workflows \
 		--exportSchemas true
+
+	pnpm dlx openapi-typescript-codegen \
+		--input $(SPEC_DIR)/citations.json \
+		--output $(OUTPUT_DIR)/citations \
+		--exportSchemas true
