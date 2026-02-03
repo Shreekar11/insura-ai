@@ -10,8 +10,6 @@ dist/
 downloads/
 eggs/
 .eggs/
-lib/
-!apps/frontend/lib/
 lib64/
 parts/
 sdist/
@@ -90,6 +88,8 @@ yarn-error.log*
 # turbo
 .turbo
 
+.cursor
+docs/
 # typescript
 *.tsbuildinfo
 next-env.d.ts
