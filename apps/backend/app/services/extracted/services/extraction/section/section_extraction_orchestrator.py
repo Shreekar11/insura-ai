@@ -1224,7 +1224,15 @@ class SectionExtractionOrchestrator:
             extracted_data = extractor.extract_fields(aggregated_parsed)
         else:
             extracted_data = self._extract_section_data(aggregated_parsed, super_chunk.section_type)
-            
+
+        # Inject page numbers into extracted items for citation support (batched extraction path)
+        if super_chunk.page_range:
+            extracted_data = self._inject_page_numbers(
+                extracted_data,
+                super_chunk.page_range,
+                super_chunk.section_type.value
+            )
+
         entities = aggregated_parsed.get("entities", [])
         confidence = float(aggregated_parsed.get("confidence", 0.0))
         
