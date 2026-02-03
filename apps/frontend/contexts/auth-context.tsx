@@ -45,6 +45,11 @@ export function AuthProvider({ children }: { children: ReactNode }) {
         } = await supabase.auth.getSession();
         setSession(initialSession);
         setUser(initialSession?.user ?? null);
+
+        if (initialSession) {
+          localStorage.setItem("access_token", initialSession.access_token);
+          localStorage.setItem("refresh_token", initialSession.refresh_token);
+        }
       } catch (error) {
         console.error("Error getting initial session:", error);
       } finally {
@@ -60,6 +65,16 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     } = supabase.auth.onAuthStateChange((_event, newSession) => {
       setSession(newSession);
       setUser(newSession?.user ?? null);
+
+      if (newSession) {
+        localStorage.setItem("access_token", newSession.access_token);
+        localStorage.setItem("refresh_token", newSession.refresh_token);
+      } else {
+        localStorage.removeItem("access_token");
+        localStorage.removeItem("refresh_token");
+        localStorage.removeItem("user_data");
+      }
+
       setLoading(false);
     });
 
