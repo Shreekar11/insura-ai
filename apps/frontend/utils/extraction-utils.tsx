@@ -8,7 +8,7 @@ import {
   ConditionData,
   EndorsementData,
   ModificationData,
-  EffectiveCoverageData
+  EffectiveCoverageData,
 } from "../types/extraction";
 
 /**
@@ -16,14 +16,14 @@ import {
  */
 export function normalizeFieldLabel(key: string): string {
   if (!key) return "";
-  
+
   // Handle snake_case and camelCase
   const words = key
     .replace(/_/g, " ")
     .replace(/([a-z])([A-Z])/g, "$1 $2")
     .toLowerCase()
     .split(" ");
-  
+
   return words
     .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
     .join(" ");
@@ -37,7 +37,7 @@ export function formatValue(value: unknown): string {
   if (value === null || value === undefined || value === "") {
     return "—";
   }
-  
+
   if (Array.isArray(value)) {
     if (value.length === 0) return "—";
     // For simple arrays, join with commas
@@ -47,15 +47,15 @@ export function formatValue(value: unknown): string {
     // For complex arrays, show count
     return `${value.length} items`;
   }
-  
+
   if (typeof value === "object") {
     return JSON.stringify(value);
   }
-  
+
   if (typeof value === "boolean") {
     return value ? "Yes" : "No";
   }
-  
+
   return String(value);
 }
 
@@ -104,7 +104,7 @@ export function getSeverityBadgeStyle(severity: string) {
  */
 export function hasSectionItems(section: Section): boolean {
   if (!section.fields) return false;
-  
+
   const mainField = Object.values(section.fields)[0];
   return Array.isArray(mainField) && mainField.length > 0;
 }
@@ -114,7 +114,7 @@ export function hasSectionItems(section: Section): boolean {
  */
 export function groupEntitiesByType(entities: Entity[]): Map<string, Entity[]> {
   const grouped = new Map<string, Entity[]>();
-  
+
   entities.forEach((entity) => {
     const type = entity.entity_type;
     if (!grouped.has(type)) {
@@ -122,7 +122,7 @@ export function groupEntitiesByType(entities: Entity[]): Map<string, Entity[]> {
     }
     grouped.get(type)!.push(entity);
   });
-  
+
   return grouped;
 }
 
@@ -139,42 +139,62 @@ export function mapEntityToCoverage(entity: any): CoverageData {
     limit: formatValue(fields.limit_amount || fields.limit),
     deductible: formatValue(fields.deductible),
     appliesTo: fields.applies_to,
-    source: fields.source || fields.reference
+    source: fields.source || fields.reference,
+    canonicalId: fields.canonical_id || entity.id,
   };
 }
 
 export function mapEntityToExclusion(entity: any): ExclusionData {
   const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.name || fields.title || fields.exclusion_name || "Unknown Exclusion",
+    title:
+      fields.name ||
+      fields.title ||
+      fields.exclusion_name ||
+      "Unknown Exclusion",
     affects: fields.impacted_coverage || fields.affects,
     scope: fields.exclusion_scope || fields.scope,
     severity: fields.severity,
     explanation: fields.description || fields.explanation,
-    source: fields.source || fields.reference
+    source: fields.source || fields.reference,
+    canonicalId: fields.canonical_id || entity.id,
   };
 }
 
 export function mapEntityToCondition(entity: any): ConditionData {
   const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.name || fields.title || fields.condition_name || "Unknown Condition",
+    title:
+      fields.name ||
+      fields.title ||
+      fields.condition_name ||
+      "Unknown Condition",
     whenApplies: fields.applies_to || fields.when_it_applies,
-    requirement: Array.isArray(fields.requirements) ? fields.requirements.join("; ") : fields.requirements,
-    consequence: Array.isArray(fields.consequences) ? fields.consequences.join("; ") : fields.consequences,
-    source: fields.source || fields.reference
+    requirement: Array.isArray(fields.requirements)
+      ? fields.requirements.join("; ")
+      : fields.requirements,
+    consequence: Array.isArray(fields.consequences)
+      ? fields.consequences.join("; ")
+      : fields.consequences,
+    source: fields.source || fields.reference,
+    canonicalId: fields.canonical_id || entity.id,
   };
 }
 
 export function mapEntityToEndorsement(entity: any): EndorsementData {
   const fields = entity.fields?.attributes || entity.fields || {};
   return {
-    title: fields.name || fields.title || fields.endorsement_name || "Unknown Endorsement",
+    title:
+      fields.name ||
+      fields.title ||
+      fields.endorsement_name ||
+      "Unknown Endorsement",
     type: fields.type,
     whatChanged: fields.what_changed || fields.description,
     impactedCoverage: fields.impacted_coverage,
     materiality: fields.materiality,
-    source: fields.source || fields.reference
+    source: fields.source || fields.reference,
+    canonicalId: fields.canonical_id || entity.id,
   };
 }
 
@@ -190,18 +210,27 @@ export function mapSectionToCoverage(item: any): CoverageData {
     limit: formatValue(item.limit_amount || item.limit || item.limits),
     deductible: formatValue(item.deductible || item.deductibles),
     appliesTo: item.applies_to,
-    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+    source:
+      item.source ||
+      item.reference ||
+      (Array.isArray(item.sources) ? item.sources.join(", ") : undefined),
+    canonicalId: item.canonical_id || item.id,
   };
 }
 
 export function mapSectionToExclusion(item: any): ExclusionData {
   return {
     title: item.exclusion_name || item.title || "Unknown Exclusion",
-    affects: item.impacted_coverage || item.impacted_coverages?.[0] || item.affects,
+    affects:
+      item.impacted_coverage || item.impacted_coverages?.[0] || item.affects,
     scope: item.exclusion_scope || item.scope,
     severity: item.severity,
     explanation: item.description || item.explanation,
-    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+    source:
+      item.source ||
+      item.reference ||
+      (Array.isArray(item.sources) ? item.sources.join(", ") : undefined),
+    canonicalId: item.canonical_id || item.id,
   };
 }
 
@@ -209,9 +238,17 @@ export function mapSectionToCondition(item: any): ConditionData {
   return {
     title: item.condition_name || item.title || "Unknown Condition",
     whenApplies: item.applies_to || item.when_it_applies,
-    requirement: Array.isArray(item.requirements) ? item.requirements.join("; ") : item.requirement,
-    consequence: Array.isArray(item.consequences) ? item.consequences.join("; ") : item.consequence,
-    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+    requirement: Array.isArray(item.requirements)
+      ? item.requirements.join("; ")
+      : item.requirement,
+    consequence: Array.isArray(item.consequences)
+      ? item.consequences.join("; ")
+      : item.consequence,
+    source:
+      item.source ||
+      item.reference ||
+      (Array.isArray(item.sources) ? item.sources.join(", ") : undefined),
+    canonicalId: item.canonical_id || item.id,
   };
 }
 
@@ -222,7 +259,11 @@ export function mapSectionToEndorsement(item: any): EndorsementData {
     whatChanged: item.what_changed || item.description,
     impactedCoverage: item.impacted_coverage,
     materiality: item.materiality,
-    source: item.source || item.reference || (Array.isArray(item.sources) ? item.sources.join(", ") : undefined)
+    source:
+      item.source ||
+      item.reference ||
+      (Array.isArray(item.sources) ? item.sources.join(", ") : undefined),
+    canonicalId: item.canonical_id || item.id,
   };
 }
 
@@ -260,7 +301,7 @@ export function mapSectionToModification(item: any): ModificationData {
     exclusionScope: item.exclusion_scope,
     exclusionEffect: item.exclusion_effect,
     exceptionConditions: item.exception_conditions,
-    reasoning: item.reasoning
+    reasoning: item.reasoning,
   };
 }
 
@@ -283,7 +324,7 @@ export function mapToEffectiveCoverage(item: any): EffectiveCoverageData {
     sources: item.sources,
     sourceForm: item.source_form,
     formSection: item.form_section,
-    canonicalId: item.canonical_id
+    canonicalId: item.canonical_id,
   };
 }
 
@@ -312,9 +353,7 @@ export function getEffectCategoryBadgeStyle(category: string) {
  */
 export function formatEffectCategory(category: string): string {
   if (!category) return "Unknown";
-  return category
-    .replace(/_/g, " ")
-    .replace(/\b\w/g, (l) => l.toUpperCase());
+  return category.replace(/_/g, " ").replace(/\b\w/g, (l) => l.toUpperCase());
 }
 
 /**
@@ -322,14 +361,19 @@ export function formatEffectCategory(category: string): string {
  * Endorsement extractions store modifications in fields.modifications.
  */
 export function hasModifications(fields: Record<string, unknown>): boolean {
-  return Array.isArray(fields?.modifications) && fields.modifications.length > 0;
+  return (
+    Array.isArray(fields?.modifications) && fields.modifications.length > 0
+  );
 }
 
 /**
  * Gets the primary data array from section fields.
  * Handles different field structures: coverages[], exclusions[], modifications[], endorsements[]
  */
-export function getSectionItems(fields: Record<string, unknown>): { items: any[]; type: string } {
+export function getSectionItems(fields: Record<string, unknown>): {
+  items: any[];
+  type: string;
+} {
   // Check for modifications first (endorsement semantic projection output)
   if (hasModifications(fields)) {
     return { items: fields.modifications as any[], type: "modifications" };

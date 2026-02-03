@@ -103,7 +103,9 @@ class CitationService:
         )
 
         try:
-            citation = await self.citation_repo.create(
+            # Use upsert to handle duplicate (document_id, source_type, source_id)
+            # gracefully - updates existing citation instead of throwing error
+            citation = await self.citation_repo.upsert(
                 document_id=citation_data.document_id,
                 source_type=citation_data.source_type.value,
                 source_id=citation_data.source_id,

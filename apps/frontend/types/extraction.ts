@@ -31,6 +31,7 @@ export interface CoverageData {
   deductible?: string;
   appliesTo?: string;
   source?: string;
+  canonicalId?: string | null;
   // Rich fields from effective_coverages
   confidence?: number;
   isModified?: boolean;
@@ -47,6 +48,7 @@ export interface ExclusionData {
   severity?: string;
   explanation?: string;
   source?: string;
+  canonicalId?: string | null;
 }
 
 export interface ConditionData {
@@ -55,6 +57,7 @@ export interface ConditionData {
   requirement?: string;
   consequence?: string;
   source?: string;
+  canonicalId?: string | null;
 }
 
 export interface EndorsementData {
@@ -64,6 +67,7 @@ export interface EndorsementData {
   impactedCoverage?: string;
   materiality?: string;
   source?: string;
+  canonicalId?: string | null;
   // Extended fields
   endorsementNumber?: string;
   effectiveDate?: string;

@@ -96,9 +96,10 @@ async def list_citations(
     current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
     citation_service: Annotated[CitationService, Depends(get_citation_service)] = None,
 ) -> dict:
-    """List all citations for a document.
+    """List all citations for a document with page dimensions.
 
-    Returns all citations mapped to extracted items in the document.
+    Returns all citations mapped to extracted items in the document,
+    along with page dimensions for coordinate transformation.
     Optionally filter by source type.
 
     Args:
@@ -106,13 +107,34 @@ async def list_citations(
         source_type: Optional filter by source type
 
     Returns:
-        List of citations
+        CitationsResponse with citations and page_dimensions
     """
-    result = await citation_service.list_citations(document_id, source_type)
+    # Fetch citations
+    citations_result = await citation_service.list_citations(document_id, source_type)
+
+    # Fetch page dimensions for all pages
+    pages_result = await citation_service.get_all_page_dimensions(document_id)
+
+    # Build page_dimensions map (string keys for JSON compatibility per OpenAPI spec)
+    page_dimensions = {
+        str(p.page_number): {
+            "page_number": p.page_number,
+            "width_points": p.width_points,
+            "height_points": p.height_points,
+            "rotation": p.rotation,
+        }
+        for p in pages_result.pages
+    }
+
+    # Return combined response matching CitationsResponse schema
+    response_data = {
+        "citations": [c.model_dump() for c in citations_result.citations],
+        "page_dimensions": page_dimensions,
+    }
 
     return create_api_response(
-        data=result.model_dump(),
-        message=f"Retrieved {result.total} citations",
+        data=response_data,
+        message=f"Retrieved {citations_result.total} citations",
         request=request
     )
 

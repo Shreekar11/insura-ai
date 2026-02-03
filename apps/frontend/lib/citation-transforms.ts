@@ -95,11 +95,14 @@ export function transformCitationsResponse(
   const citations = apiResponse.citations.map(transformCitation);
 
   // Transform page_dimensions map (string keys to number keys)
+  // Defensive guard: page_dimensions may be undefined if backend doesn't return it
   const pageDimensions: Record<number, PageDimensions> = {};
-  for (const [key, value] of Object.entries(apiResponse.page_dimensions)) {
-    const pageNum = parseInt(key, 10);
-    if (!isNaN(pageNum)) {
-      pageDimensions[pageNum] = transformPageDimensions(value);
+  if (apiResponse.page_dimensions) {
+    for (const [key, value] of Object.entries(apiResponse.page_dimensions)) {
+      const pageNum = parseInt(key, 10);
+      if (!isNaN(pageNum)) {
+        pageDimensions[pageNum] = transformPageDimensions(value);
+      }
     }
   }
 
