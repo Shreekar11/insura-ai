@@ -23,10 +23,13 @@ import {
 } from "@/components/ui/resizable";
 import { PageHeader } from "@/components/layout/page-header";
 import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
+import { PDFHighlightProvider, usePDFHighlight } from "@/contexts/pdf-highlight-context";
+import { PDFViewer } from "@/components/custom/pdf-viewer";
 
-export default function WorkflowExecutionPage() {
+function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
+  const { activePDFUrl, clearPDF } = usePDFHighlight();
 
   const { data: workflow, isLoading: isLoadingWorkflow } =
     useWorkflowById(workflowId);
@@ -178,13 +181,30 @@ export default function WorkflowExecutionPage() {
     setSidebarOpen(true);
   };
 
+  // Determine layout state
+  const hasPDF = !!activePDFUrl;
+  const layoutState = hasPDF
+    ? "three-column"
+    : sidebarOpen
+    ? "two-column"
+    : "one-column";
+
   return (
-    <ResizablePanelGroup 
-      direction="horizontal" 
+    <ResizablePanelGroup
+      direction="horizontal"
       className="h-svh max-h-svh overflow-hidden"
-      key={sidebarOpen ? "sidebar-open" : "sidebar-closed"}
+      key={layoutState}
     >
-      <ResizablePanel defaultSize={sidebarOpen ? 60 : 100} className="overflow-hidden">
+      <ResizablePanel
+        defaultSize={
+          layoutState === "three-column"
+            ? 33
+            : layoutState === "two-column"
+            ? 50
+            : 100
+        }
+        className="overflow-hidden"
+      >
         <div className="flex flex-col h-full">
           <div className="shrink-0">
             <PageHeader />
@@ -259,7 +279,10 @@ export default function WorkflowExecutionPage() {
       {sidebarOpen && (
         <>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={50} className="overflow-hidden">
+          <ResizablePanel
+            defaultSize={layoutState === "three-column" ? 33 : 50}
+            className="overflow-hidden"
+          >
             <ExtractionOutputSidebar
               open={sidebarOpen}
               onOpenChange={setSidebarOpen}
@@ -269,6 +292,23 @@ export default function WorkflowExecutionPage() {
           </ResizablePanel>
         </>
       )}
+
+      {hasPDF && (
+        <>
+          <ResizableHandle withHandle />
+          <ResizablePanel defaultSize={33} className="overflow-hidden">
+            <PDFViewer pdfUrl={activePDFUrl} onClose={clearPDF} />
+          </ResizablePanel>
+        </>
+      )}
     </ResizablePanelGroup>
+  );
+}
+
+export default function WorkflowExecutionPage() {
+  return (
+    <PDFHighlightProvider>
+      <WorkflowExecutionContent />
+    </PDFHighlightProvider>
   );
 }
