@@ -1,7 +1,7 @@
 "use client";
 
 import React, { createContext, useContext, useState, useCallback } from "react";
-import { Citation } from "@/types/citation";
+import { Citation, PageDimensions } from "@/types/citation";
 
 interface PDFHighlightContextValue {
   // Panel visibility
@@ -16,8 +16,12 @@ interface PDFHighlightContextValue {
   pdfUrl: string | null;
   setPdfUrl: (url: string | null) => void;
 
+  // Page dimensions for coordinate transformation
+  pageDimensions: Record<number, PageDimensions>;
+  setPageDimensions: (dims: Record<number, PageDimensions>) => void;
+
   // Helper to trigger highlight
-  highlightCitation: (citation: Citation, pdfUrl: string) => void;
+  highlightCitation: (citation: Citation, pdfUrl: string, pageDimensions?: Record<number, PageDimensions>) => void;
 
   // Helper to clear highlight
   clearHighlight: () => void;
@@ -31,10 +35,14 @@ export function PDFHighlightProvider({ children }: { children: React.ReactNode }
   const [pdfViewerOpen, setPdfViewerOpen] = useState(false);
   const [activeCitation, setActiveCitation] = useState<Citation | null>(null);
   const [pdfUrl, setPdfUrl] = useState<string | null>(null);
+  const [pageDimensions, setPageDimensions] = useState<Record<number, PageDimensions>>({});
 
-  const highlightCitation = useCallback((citation: Citation, url: string) => {
+  const highlightCitation = useCallback((citation: Citation, url: string, dims?: Record<number, PageDimensions>) => {
     setActiveCitation(citation);
     setPdfUrl(url);
+    if (dims) {
+      setPageDimensions(dims);
+    }
     setPdfViewerOpen(true);
   }, []);
 
@@ -52,6 +60,8 @@ export function PDFHighlightProvider({ children }: { children: React.ReactNode }
         setActiveCitation,
         pdfUrl,
         setPdfUrl,
+        pageDimensions,
+        setPageDimensions,
         highlightCitation,
         clearHighlight,
       }}

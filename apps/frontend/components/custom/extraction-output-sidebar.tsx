@@ -58,7 +58,8 @@ export function ExtractionOutputSidebar({
 
     const citation = findCitation(citationsData.citations, sourceType, sourceId);
     if (citation) {
-      highlightCitation(citation, pdfUrl);
+      // Pass page dimensions along with citation for PDF coordinate transformation
+      highlightCitation(citation, pdfUrl, citationsData.pageDimensions);
     } else {
       console.warn(`Citation not found for ${sourceType}:${sourceId}`);
     }

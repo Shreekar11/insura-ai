@@ -420,6 +420,26 @@ class SectionExtractionOrchestrator:
                         "confidence": synthesis_result.get("overall_confidence", 0.0),
                     }
                 )
+
+                # Create citations for synthesized coverages and exclusions
+                if document_id and (result.effective_coverages or result.effective_exclusions):
+                    try:
+                        from app.services.citation.citation_creation_service import CitationCreationService
+                        citation_service = CitationCreationService(self.session)
+                        citation_result = await citation_service.create_citations_from_synthesis(
+                            document_id=document_id,
+                            effective_coverages=result.effective_coverages,
+                            effective_exclusions=result.effective_exclusions,
+                        )
+                        LOGGER.info(
+                            "Citations created for synthesis results",
+                            extra={
+                                "document_id": str(document_id),
+                                "created_count": citation_result.get("created_count", 0),
+                            }
+                        )
+                    except Exception as citation_error:
+                        LOGGER.warning(f"Citation creation failed, continuing without: {citation_error}")
             except Exception as e:
                 LOGGER.warning(f"Synthesis failed, continuing without: {e}")
                 result.effective_coverages = []

@@ -38,7 +38,7 @@ export function CoverageTable({ items, isEntity = false, onItemClick }: { items:
               <tr
                 key={i}
                 className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
-                onClick={() => onItemClick?.("effective_section_coverage", itemId)}
+                onClick={() => onItemClick?.("effective_coverage", itemId)}
               >
                 <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
                   <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.name}</div>
@@ -74,7 +74,7 @@ export function ExclusionTable({ items, isEntity = false, onItemClick }: { items
               <tr
                 key={i}
                 className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
-                onClick={() => onItemClick?.("effective_section_exclusion", itemId)}
+                onClick={() => onItemClick?.("effective_exclusion", itemId)}
               >
                 <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
                   <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
@@ -110,7 +110,7 @@ export function ConditionTable({ items, isEntity = false, onItemClick }: { items
               <tr
                 key={i}
                 className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
-                onClick={() => onItemClick?.("effective_section_condition", itemId)}
+                onClick={() => onItemClick?.("condition", itemId)}
               >
                 <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
                   <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
@@ -146,7 +146,7 @@ export function EndorsementTable({ items, isEntity = false, onItemClick }: { ite
               <tr
                 key={i}
                 className="group hover:bg-zinc-50/30 dark:hover:bg-zinc-900/10 cursor-pointer"
-                onClick={() => onItemClick?.("effective_section_endorsement", itemId)}
+                onClick={() => onItemClick?.("endorsement", itemId)}
               >
                 <td className="px-3 py-3 align-top w-[220px] min-w-[180px]">
                   <div className="font-medium text-zinc-900 dark:text-zinc-100">{row.title}</div>
@@ -183,7 +183,7 @@ export function ModificationTable({ items, onItemClick }: { items: any[]; onItem
           <div
             key={i}
             className="rounded-md border border-zinc-200 dark:border-zinc-800 overflow-hidden bg-white dark:bg-zinc-950 cursor-pointer"
-            onClick={() => onItemClick?.("effective_section_modification", itemId)}
+            onClick={() => onItemClick?.("clause", itemId)}
           >
           {/* Header with effect category and severity */}
           <div className="px-3 py-2.5 bg-zinc-50 dark:bg-zinc-900/50 border-b border-zinc-200 dark:border-zinc-800 flex items-center justify-between gap-2 flex-wrap">

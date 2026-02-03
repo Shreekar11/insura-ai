@@ -8,11 +8,13 @@ import { usePDFHighlight } from "@/contexts/pdf-highlight-context";
 import { PageDimensions } from "@/types/citation";
 
 interface PDFViewerPanelProps {
-  pageDimensions: Record<number, PageDimensions>;
+  pageDimensions?: Record<number, PageDimensions>;
 }
 
-export function PDFViewerPanel({ pageDimensions }: PDFViewerPanelProps) {
-  const { pdfUrl, activeCitation, clearHighlight } = usePDFHighlight();
+export function PDFViewerPanel({ pageDimensions: propsDimensions }: PDFViewerPanelProps) {
+  const { pdfUrl, activeCitation, clearHighlight, pageDimensions: contextDimensions } = usePDFHighlight();
+  // Use props dimensions if provided, otherwise use context dimensions
+  const pageDimensions = propsDimensions ?? contextDimensions;
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
   const [totalPages, setTotalPages] = useState(0);

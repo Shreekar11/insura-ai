@@ -297,7 +297,7 @@ function WorkflowExecutionContent() {
         <>
           <ResizableHandle withHandle />
           <ResizablePanel defaultSize={33} className="overflow-hidden">
-            <PDFViewerPanel pageDimensions={{}} />
+            <PDFViewerPanel />
           </ResizablePanel>
         </>
       )}

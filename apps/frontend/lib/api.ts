@@ -2,6 +2,7 @@ import axios from "axios";
 import { OpenAPI as WorkflowsOpenAPI } from "@/schema/generated/workflows";
 import { OpenAPI as UsersOpenAPI } from "@/schema/generated/users";
 import { OpenAPI as DocumentsOpenAPI } from "@/schema/generated/documents";
+import { OpenAPI as CitationsOpenAPI } from "@/schema/generated/citations";
 import { createClient } from "@/utils/supabase/client";
 
 // Default base URL
@@ -29,6 +30,7 @@ const configureOpenAPI = (OpenAPI: any) => {
 configureOpenAPI(WorkflowsOpenAPI);
 configureOpenAPI(UsersOpenAPI);
 configureOpenAPI(DocumentsOpenAPI);
+configureOpenAPI(CitationsOpenAPI);
 
 export const api = axios.create({
   baseURL: `${BASE_URL}${API_VERSION}`,

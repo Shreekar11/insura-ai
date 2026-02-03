@@ -36,17 +36,45 @@ async def extract_ocr(
             from app.repositories.document_repository import DocumentRepository
             doc_repo = DocumentRepository(session)
             document = await doc_repo.get_by_id(UUID(document_id))
-            
+
             if not document or not document.file_path:
                 raise ValueError(f"Document {document_id} not found or has no file path")
-            
+
+            # Load PDF bytes for coordinate extraction (enables page dimensions)
+            pdf_bytes = None
+            file_path = document.file_path
+            try:
+                if file_path.startswith(("http://", "https://")):
+                    # Download from URL
+                    import httpx
+                    async with httpx.AsyncClient() as client:
+                        response = await client.get(file_path, timeout=120.0)
+                        response.raise_for_status()
+                        pdf_bytes = response.content
+                else:
+                    # Read from local file
+                    import aiofiles
+                    async with aiofiles.open(file_path, "rb") as f:
+                        pdf_bytes = await f.read()
+
+                activity.logger.info(
+                    f"Loaded PDF bytes for coordinate extraction: {len(pdf_bytes)} bytes",
+                    extra={"document_id": document_id}
+                )
+            except Exception as e:
+                activity.logger.warning(
+                    f"Could not load PDF bytes for coordinate extraction: {e}",
+                    extra={"document_id": document_id, "error": str(e)}
+                )
+
             # Create pipeline and extract pages
             pipeline = OCRExtractionPipeline(session)
-            
-            # Pass pages_to_process and page_section_map to the pipeline
+
+            # Pass pdf_bytes for coordinate extraction and page dimensions
             pages = await pipeline.extract_and_store_pages(
                 document_id=UUID(document_id),
                 document_url=document.file_path,
+                pdf_bytes=pdf_bytes,
             )
             
             await session.commit()

@@ -1,5 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { Citation, CitationsResponse } from "@/types/citation";
+import { DefaultService } from "@/schema/generated/citations";
+import { transformCitationsResponse } from "@/lib/citation-transforms";
 
 /**
  * Hook for lazy-fetching citations for a document in a workflow.
@@ -14,14 +16,21 @@ export const useCitations = (
     queryFn: async () => {
       if (!workflowId || !documentId) return null;
 
-      // TODO: Replace with actual API call when citations endpoint is implemented
-      // Example: const response = await DefaultService.getCitations(workflowId, documentId);
+      try {
+        const response = await DefaultService.getDocumentCitations(documentId);
 
-      // For now, return empty citations structure
-      return {
-        citations: [],
-        pageDimensions: {},
-      };
+        if (!response.data) {
+          console.warn("Citations API returned no data");
+          return { citations: [], pageDimensions: {} };
+        }
+
+        // Transform snake_case API response to camelCase frontend types
+        return transformCitationsResponse(response.data);
+      } catch (error) {
+        console.error("Failed to fetch citations:", error);
+        // Return empty structure on error to prevent UI breakage
+        return { citations: [], pageDimensions: {} };
+      }
     },
     enabled: !!workflowId && !!documentId,
     staleTime: 1000 * 60 * 5,
