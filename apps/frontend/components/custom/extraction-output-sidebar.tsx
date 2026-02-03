@@ -2,16 +2,19 @@
 
 import { Loader2, FileText, Tag, X } from "lucide-react";
 import { useExtractedData } from "@/hooks/use-extracted-data";
+import { usePDFHighlight } from "@/contexts/pdf-highlight-context";
+import { useCitations, findCitation } from "@/hooks/use-citations";
+import { useDocuments } from "@/hooks/use-documents";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { 
-  ExtractionOutputSidebarProps, 
-  Section, 
-  Entity 
+import {
+  ExtractionOutputSidebarProps,
+  Section,
+  Entity
 } from "@/types/extraction";
-import { 
-  hasSectionItems, 
-  groupEntitiesByType 
+import {
+  hasSectionItems,
+  groupEntitiesByType
 } from "@/utils/extraction-utils";
 import { SectionBlock } from "./extraction/section-block";
 import { EntityGroup } from "./extraction/entity-group";
@@ -27,13 +30,39 @@ export function ExtractionOutputSidebar({
     open ? documentId : null
   );
 
+  const { data: citationsData } = useCitations(
+    open ? workflowId : null,
+    open ? documentId : null
+  );
+  const { data: documentsData } = useDocuments(workflowId);
+  const { highlightCitation } = usePDFHighlight();
+
   const sections = (data?.extracted_data?.sections || []) as Section[];
   const entities = (data?.extracted_data?.entities || []) as Entity[];
-  
+
   // Filter sections that have actual items to display
   const validSections = sections.filter(hasSectionItems);
   const groupedEntities = groupEntitiesByType(entities);
   const hasData = validSections.length > 0 || entities.length > 0;
+
+  const currentDocument = documentsData?.documents?.find(
+    (doc) => doc.id === documentId
+  );
+  const pdfUrl = currentDocument?.file_url;
+
+  const handleItemClick = (sourceType: string, sourceId: string) => {
+    if (!citationsData?.citations || !pdfUrl) {
+      console.warn("Citations or PDF URL not available");
+      return;
+    }
+
+    const citation = findCitation(citationsData.citations, sourceType, sourceId);
+    if (citation) {
+      highlightCitation(citation, pdfUrl);
+    } else {
+      console.warn(`Citation not found for ${sourceType}:${sourceId}`);
+    }
+  };
 
   if (!open) return null;
 
@@ -108,6 +137,7 @@ export function ExtractionOutputSidebar({
                     <SectionBlock
                       key={`section-${section.section_type}-${index}`}
                       section={section}
+                      onItemClick={handleItemClick}
                     />
                   ))}
                 </div>
