@@ -9,6 +9,8 @@ interface LineShadowTextProps
     Omit<React.HTMLAttributes<HTMLElement>, keyof MotionProps>,
     MotionProps {
   shadowColor?: string
+  className?: string
+  children?: React.ReactNode
   as?: React.ElementType
 }
 

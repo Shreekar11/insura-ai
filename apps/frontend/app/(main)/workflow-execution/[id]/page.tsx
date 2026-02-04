@@ -15,6 +15,7 @@ import { useWorkflowStream } from "@/hooks/use-workflow-stream";
 import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
+import { cn } from "@/lib/utils";
 
 import {
   ResizableHandle,
@@ -23,13 +24,17 @@ import {
 } from "@/components/ui/resizable";
 import { PageHeader } from "@/components/layout/page-header";
 import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
-import { PDFHighlightProvider, usePDFHighlight } from "@/contexts/pdf-highlight-context";
-import { PDFViewerPanel } from "@/components/custom/pdf-viewer/PDFViewerPanel";
+import {
+  PDFHighlightProvider,
+  usePDFHighlight,
+} from "@/contexts/pdf-highlight-context";
+import { PDFViewerPanel } from "@/components/custom/pdf-viewer/pdf-viewer-panel";
 
 function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
-  const { pdfViewerOpen, pdfUrl, activeCitation, clearHighlight } = usePDFHighlight();
+  const { pdfViewerOpen, pdfUrl, activeCitation, clearHighlight } =
+    usePDFHighlight();
 
   const { data: workflow, isLoading: isLoadingWorkflow } =
     useWorkflowById(workflowId);
@@ -40,10 +45,13 @@ function WorkflowExecutionContent() {
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isStarted, setIsStarted] = useState(false);
-  
+
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
-  const [selectedOutput, setSelectedOutput] = useState<{ workflowId: string; documentId: string } | null>(null);
+  const [selectedOutput, setSelectedOutput] = useState<{
+    workflowId: string;
+    documentId: string;
+  } | null>(null);
 
   // SSE Stream
   const { events, isConnected, isComplete } = useWorkflowStream(
@@ -57,7 +65,7 @@ function WorkflowExecutionContent() {
     if (workflow?.definition_id) {
       setActiveWorkflowDefinitionId(workflow.definition_id);
     }
-    
+
     if (workflow?.status && workflow.status !== "draft") {
       setIsStarted(true);
     }
@@ -66,12 +74,12 @@ function WorkflowExecutionContent() {
       setUploadedFiles((prev) => {
         const existingIds = new Set(prev.map((f) => f.id));
         const newFiles = existingDocuments.documents
-            .filter((doc) => !existingIds.has(doc.id))
-            .map((doc) => ({
-              id: doc.id,
-              name: doc.document_name || "Untitled",
-              status: "success" as const,
-            }));
+          .filter((doc) => !existingIds.has(doc.id))
+          .map((doc) => ({
+            id: doc.id,
+            name: doc.document_name || "Untitled",
+            status: "success" as const,
+          }));
 
         if (newFiles.length === 0) return prev;
         return [...prev, ...newFiles];
@@ -182,12 +190,11 @@ function WorkflowExecutionContent() {
   };
 
   // Determine layout state
-  const hasPDF = !!pdfUrl;
-  const layoutState = hasPDF
-    ? "three-column"
+  const layoutState = pdfViewerOpen
+    ? "pdf-active"
     : sidebarOpen
-    ? "two-column"
-    : "one-column";
+      ? "two-column"
+      : "one-column";
 
   return (
     <ResizablePanelGroup
@@ -197,19 +204,23 @@ function WorkflowExecutionContent() {
     >
       <ResizablePanel
         defaultSize={
-          layoutState === "three-column"
-            ? 33
+          layoutState === "pdf-active"
+            ? 0
             : layoutState === "two-column"
-            ? 50
-            : 100
+              ? 50
+              : 100
         }
-        className="overflow-hidden"
+        minSize={layoutState === "pdf-active" ? 0 : 20}
+        className={cn(
+          "overflow-hidden transition-all duration-300",
+          layoutState === "pdf-active" && "max-w-0 opacity-0",
+        )}
       >
         <div className="flex flex-col h-full">
           <div className="shrink-0">
             <PageHeader />
           </div>
-          
+
           <div className="flex-1 overflow-y-auto">
             <div className="p-6">
               <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
@@ -236,28 +247,28 @@ function WorkflowExecutionContent() {
                     accept={{ "application/pdf": [".pdf"] }}
                     maxFiles={10}
                   />
-                
+
                   <div className="flex items-center justify-start w-full">
-                  {hasSuccessfulUpload && (
-                    <Button
-                      disabled={isAnyUploading || executeMutation.isPending}
-                      onClick={handleStartWorkflow}
-                      className="px-8 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
-                    >
-                      {executeMutation.isPending ? (
-                        <>
-                          <IconLoader2 className="size-4 animate-spin mr-2" />
-                          Starting...
-                        </>
-                      ) : (
-                        <>
-                          <IconPlayerPlay className="size-4 mr-2" />
-                          Start Workflow
-                        </>
-                      )}
-                    </Button>
-                  )}
-                </div>
+                    {hasSuccessfulUpload && (
+                      <Button
+                        disabled={isAnyUploading || executeMutation.isPending}
+                        onClick={handleStartWorkflow}
+                        className="px-8 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
+                      >
+                        {executeMutation.isPending ? (
+                          <>
+                            <IconLoader2 className="size-4 animate-spin mr-2" />
+                            Starting...
+                          </>
+                        ) : (
+                          <>
+                            <IconPlayerPlay className="size-4 mr-2" />
+                            Start Workflow
+                          </>
+                        )}
+                      </Button>
+                    )}
+                  </div>
                 </div>
               ) : (
                 /* SSE Timeline Section */
@@ -278,9 +289,13 @@ function WorkflowExecutionContent() {
 
       {sidebarOpen && (
         <>
-          <ResizableHandle withHandle />
+          <ResizableHandle
+            withHandle
+            className={cn(layoutState === "pdf-active" && "hidden")}
+          />
           <ResizablePanel
-            defaultSize={layoutState === "three-column" ? 33 : 50}
+            defaultSize={50}
+            minSize={20}
             className="overflow-hidden"
           >
             <ExtractionOutputSidebar
@@ -293,10 +308,14 @@ function WorkflowExecutionContent() {
         </>
       )}
 
-      {hasPDF && (
+      {pdfViewerOpen && (
         <>
           <ResizableHandle withHandle />
-          <ResizablePanel defaultSize={33} className="overflow-hidden">
+          <ResizablePanel
+            defaultSize={50}
+            minSize={20}
+            className="overflow-hidden"
+          >
             <PDFViewerPanel />
           </ResizablePanel>
         </>

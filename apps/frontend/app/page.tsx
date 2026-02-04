@@ -6,12 +6,9 @@ import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   GalleryVerticalEnd,
-  Layers,
-  Sun,
   Menu,
   X,
   ArrowRight,
-  CheckCircle,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LineShadowText } from "@/components/ui/line-shadow-text";
