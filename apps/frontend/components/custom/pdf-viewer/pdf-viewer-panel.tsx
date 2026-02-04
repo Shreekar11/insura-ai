@@ -1,9 +1,8 @@
 "use client";
 
-import React, { useState } from "react";
 import { Loader2 } from "lucide-react";
-import { PDFViewer } from "./PDFViewer";
-import { PDFToolbar } from "./PDFToolbar";
+import { PDFViewer } from "./pdf-viewer";
+import { PDFToolbar } from "./pdf-toolbar";
 import { usePDFHighlight } from "@/contexts/pdf-highlight-context";
 import { PageDimensions } from "@/types/citation";
 
@@ -11,13 +10,17 @@ interface PDFViewerPanelProps {
   pageDimensions?: Record<number, PageDimensions>;
 }
 
-export function PDFViewerPanel({ pageDimensions: propsDimensions }: PDFViewerPanelProps) {
-  const { pdfUrl, activeCitation, clearHighlight, pageDimensions: contextDimensions } = usePDFHighlight();
+export function PDFViewerPanel({
+  pageDimensions: propsDimensions,
+}: PDFViewerPanelProps) {
+  const {
+    pdfUrl,
+    activeCitation,
+    clearHighlight,
+    pageDimensions: contextDimensions,
+  } = usePDFHighlight();
   // Use props dimensions if provided, otherwise use context dimensions
   const pageDimensions = propsDimensions ?? contextDimensions;
-  const [currentPage, setCurrentPage] = useState(1);
-  const [scale, setScale] = useState(1);
-  const [totalPages, setTotalPages] = useState(0);
 
   if (!pdfUrl) {
     return (
@@ -30,32 +33,14 @@ export function PDFViewerPanel({ pageDimensions: propsDimensions }: PDFViewerPan
     );
   }
 
-  const handleZoomIn = () => {
-    setScale((prev) => Math.min(prev + 0.25, 3));
-  };
-
-  const handleZoomOut = () => {
-    setScale((prev) => Math.max(prev - 0.25, 0.5));
-  };
-
   return (
     <div className="flex flex-col h-full bg-white dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800">
-      <PDFToolbar
-        currentPage={currentPage}
-        totalPages={totalPages || 1}
-        scale={scale}
-        onPageChange={setCurrentPage}
-        onZoomIn={handleZoomIn}
-        onZoomOut={handleZoomOut}
-        onClose={clearHighlight}
-      />
+      <PDFToolbar onClose={clearHighlight} />
       <div className="flex-1 overflow-hidden">
         <PDFViewer
           pdfUrl={pdfUrl}
           citation={activeCitation}
           pageDimensions={pageDimensions}
-          onPageChange={setCurrentPage}
-          onScaleChange={setScale}
         />
       </div>
     </div>

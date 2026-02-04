@@ -3,23 +3,19 @@
 import React, { useState, useEffect } from "react";
 import { Viewer, Worker } from "@react-pdf-viewer/core";
 import { Citation, PageDimensions } from "@/types/citation";
-import { PDFHighlightLayer } from "./PDFHighlightLayer";
+import { PDFHighlightLayer } from "./pdf-highlight-layer";
 import "@react-pdf-viewer/core/lib/styles/index.css";
 
 interface PDFViewerProps {
   pdfUrl: string;
   citation: Citation | null;
   pageDimensions: Record<number, PageDimensions>;
-  onPageChange?: (page: number) => void;
-  onScaleChange?: (scale: number) => void;
 }
 
 export function PDFViewer({
   pdfUrl,
   citation,
   pageDimensions,
-  onPageChange,
-  onScaleChange,
 }: PDFViewerProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
@@ -34,12 +30,10 @@ export function PDFViewer({
   const handlePageChange = (e: any) => {
     const newPage = e.currentPage + 1; // pdfjs uses 0-indexed pages
     setCurrentPage(newPage);
-    onPageChange?.(newPage);
   };
 
   const handleZoomChange = (e: any) => {
     setScale(e.scale);
-    onScaleChange?.(e.scale);
   };
 
   return (
