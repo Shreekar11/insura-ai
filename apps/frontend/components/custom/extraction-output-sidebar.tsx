@@ -14,6 +14,7 @@ import {
   TooltipProvider,
   TooltipTrigger,
 } from "@/components/ui/tooltip";
+import { useSidebar } from "@/components/ui/sidebar";
 import { cn } from "@/lib/utils";
 import {
   hasSectionItems,
@@ -53,6 +54,8 @@ export function ExtractionOutputSidebar({
   );
   const { data: documentsData } = useDocuments(workflowId ?? undefined);
   const { highlightCitation } = usePDFHighlight();
+  const { state } = useSidebar();
+  const isExpanded = state === "expanded";
 
   const [searchQuery, setSearchQuery] = React.useState("");
 
@@ -239,7 +242,12 @@ export function ExtractionOutputSidebar({
         e.stopPropagation();
       }}
     >
-      <div className="px-6 h-14 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 flex items-center justify-between">
+      <div
+        className={cn(
+          "px-6 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 flex items-center justify-between transition-[height] ease-linear",
+          isExpanded ? "h-14" : "h-12",
+        )}
+      >
         <div className="flex items-center gap-3">
           <div className="p-1.5 rounded bg-zinc-100 dark:bg-zinc-800">
             <FileText className="size-4 text-zinc-600 dark:text-zinc-400" />

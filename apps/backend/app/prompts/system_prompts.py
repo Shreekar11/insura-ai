@@ -1322,6 +1322,7 @@ Extract even if summarized in a schedule.
 - impacted_coverage
 - materiality               # High | Medium | Low
 - effective_date
+- description               # A concise summary of the endorsement's purpose
 
 ---
 
@@ -1353,7 +1354,8 @@ OUTPUT:
       "endorsement_type": "Add",
       "impacted_coverage": "General Liability",
       "materiality": "High",
-      "effective_date": "2024-01-01"
+      "effective_date": "2024-01-01",
+      "description": "Adds Additional Insured coverage for specified entities"
     }
   ],
   "entities": [
@@ -1824,6 +1826,8 @@ Focus extraction on HOW this endorsement MODIFIES coverages, not the base policy
 - form_edition_date: Edition date if present (e.g., "02 16" = February 2016)
 - modifications: List of objects:
     - impacted_coverage: The name of the coverage being modified (e.g., "Covered Autos Liability Coverage")
+    - name: A concise name for this modification (e.g., "Short Term Hired Auto Extension")
+    - description: A summary of what this modification does
     - coverage_effect: Add | Modify | Restrict | Delete | Expand | Restore
     - effect_category: adds_coverage | expands_coverage | limits_coverage | restores_coverage
     - limit_modification: Narrative description of any limit changes (e.g., "$25,000 per accident")
@@ -1878,6 +1882,8 @@ OUTPUT:
       "condition_modification": "Coverage limited to 30 days or less",
       "verbatim_language": "Coverage is extended to apply to those \"autos\" you do not own, lease, hire or borrow that are used in connection with your business. However, this coverage applies only for a period of 30 days or less.",
       "referenced_section": "SECTION II – COVERED AUTOS LIABILITY COVERAGE",
+      - name: "Short Term Hired Auto Extension",
+      - description: "Extends liability coverage to non-owned autos used for 30 days or less",
       "reasoning": "Endorsement expands coverage to include short-term hired autos with a time limitation"
     }
   ],
@@ -1951,6 +1957,8 @@ This endorsement may contain one or more of these effects:
 - form_edition_date: Edition date if present (e.g., "05 09" = May 2009)
 - modifications: List of objects:
     - impacted_exclusion: The name/title of the exclusion being modified or added
+    - name: A concise name for this exclusion modification (e.g., "Subrogation Waiver ABC Construction")
+    - description: A summary of the change to exclusions
     - exclusion_effect: Add | Modify | Delete | Narrow | Remove
     - effect_category: introduces_exclusion | narrows_exclusion | removes_exclusion
     - exclusion_scope: What the exclusion applies to (e.g., "all autos", "operations")
@@ -2005,6 +2013,8 @@ OUTPUT:
       "verbatim_language": "The Transfer of Rights of Recovery Against Others To Us condition is waived for the person(s) or organization(s) shown in the Schedule, but only for loss arising out of your operations under a written contract that requires such a waiver.",
       "referenced_section": "Transfer of Rights of Recovery Against Others To Us condition",
       "severity": "Material",
+      "name": "Subrogation Waiver - ABC Construction",
+      "description": "Waives subrogation rights for ABC Construction Company under written contract",
       "reasoning": "Endorsement narrows the subrogation condition by waiving it for scheduled parties under contract, which is a material change affecting recovery rights"
     }
   ],

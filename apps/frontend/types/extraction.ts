@@ -78,6 +78,8 @@ export interface EndorsementData {
  * base policy coverages or exclusions.
  */
 export interface ModificationData {
+  name?: string;
+  description?: string;
   effectCategory: "introduces_exclusion" | "narrows_exclusion" | "removes_exclusion" | "expands_coverage" | "restricts_coverage" | string;
   verbatimLanguage?: string;
   referencedSection?: string;

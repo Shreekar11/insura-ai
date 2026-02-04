@@ -292,6 +292,17 @@ export function mapRawToEndorsement(item: any): EndorsementData {
  */
 export function mapSectionToModification(item: any): ModificationData {
   return {
+    name:
+      item.name ||
+      item.title ||
+      item.impacted_coverage ||
+      item.impacted_exclusion ||
+      "Modification",
+    description:
+      item.description ||
+      item.explanation ||
+      item.verbatim_language ||
+      "No description provided",
     effectCategory: item.effect_category || "unknown",
     verbatimLanguage: item.verbatim_language,
     referencedSection: item.referenced_section,

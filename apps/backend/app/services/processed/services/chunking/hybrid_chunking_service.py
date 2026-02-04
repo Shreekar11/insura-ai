@@ -688,10 +688,6 @@ class HybridChunkingService:
                 
                 # Priority: 1. Detected from text, 2. Explicit Boundary, 3. Manifest page-level
                 if detected_section != SectionType.UNKNOWN and detected_section != current_section:
-                    LOGGER.info(
-                        f"Section transition detected via header: {current_section} -> {detected_section}",
-                        extra={"page": page_num, "para_idx": para_idx}
-                    )
                     transition_occurred = True
                     new_section = detected_section
                     
@@ -725,11 +721,6 @@ class HybridChunkingService:
                     }
                     
                     if boundary_section != current_section or new_subsection != current_subsection or new_semantic_role != current_semantic_role or boundary_section in ISO_HARD_STOPS:
-                        LOGGER.info(
-                            f"Section transition via boundary: {current_section} -> {boundary_section}, "
-                            f"new_semantic_role={new_semantic_role}",
-                            extra={"page": page_num, "line": current_line_estimation, "anchor": current_boundary.anchor_text}
-                        )
                         transition_occurred = True
                         new_section = boundary_section
                 elif para_idx == 0 and manifest_section != SectionType.UNKNOWN and manifest_section != current_section:
@@ -740,10 +731,6 @@ class HybridChunkingService:
                         actual_manifest_section = SectionTypeMapper.string_to_section_type(first_type)
 
                     if actual_manifest_section != current_section:
-                        LOGGER.info(
-                            f"Section transition detected via manifest: {current_section} -> {actual_manifest_section}",
-                            extra={"page": page_num}
-                        )
                         transition_occurred = True
                         new_section = actual_manifest_section
                 

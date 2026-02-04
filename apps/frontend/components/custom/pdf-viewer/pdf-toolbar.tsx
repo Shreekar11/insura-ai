@@ -2,14 +2,24 @@
 
 import { Button } from "@/components/ui/button";
 import { X } from "lucide-react";
+import { useSidebar } from "@/components/ui/sidebar";
+import { cn } from "@/lib/utils";
 
 interface PDFToolbarProps {
   onClose: () => void;
 }
 
 export function PDFToolbar({ onClose }: PDFToolbarProps) {
+  const { state } = useSidebar();
+  const isExpanded = state === "expanded";
+
   return (
-    <div className="flex items-center justify-end px-4 h-14 border-b border-zinc-200">
+    <div
+      className={cn(
+        "flex items-center justify-end px-4 border-b border-zinc-200 transition-[height] ease-linear",
+        isExpanded ? "h-14" : "h-12",
+      )}
+    >
       <div className="flex items-end gap-2">
         <div className="ml-2 pl-2">
           <Button
