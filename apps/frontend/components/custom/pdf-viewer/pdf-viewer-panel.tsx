@@ -34,7 +34,7 @@ export function PDFViewerPanel({
   }
 
   return (
-    <div className="flex flex-col h-full bg-white dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800">
+    <div className="flex flex-col h-full bg-white dark:bg-zinc-950">
       <PDFToolbar onClose={clearHighlight} />
       <div className="flex-1 overflow-hidden">
         <PDFViewer

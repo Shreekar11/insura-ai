@@ -7,11 +7,9 @@ interface PDFToolbarProps {
   onClose: () => void;
 }
 
-export function PDFToolbar({
-  onClose,
-}: PDFToolbarProps) {
+export function PDFToolbar({ onClose }: PDFToolbarProps) {
   return (
-    <div className="flex items-end justify-end px-4 py-[0.47rem] border-b border-zinc-200">
+    <div className="flex items-center justify-end px-4 h-14 border-b border-zinc-200">
       <div className="flex items-end gap-2">
         <div className="ml-2 pl-2">
           <Button

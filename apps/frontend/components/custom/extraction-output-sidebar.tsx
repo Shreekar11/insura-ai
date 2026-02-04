@@ -1,12 +1,6 @@
 "use client";
 
-import {
-  Search,
-  FileText,
-  Download,
-  Loader2,
-  X,
-} from "lucide-react";
+import { Search, FileText, Download, Loader2, X } from "lucide-react";
 import React from "react";
 import { useExtractedData } from "@/hooks/use-extracted-data";
 import { usePDFHighlight } from "@/contexts/pdf-highlight-context";
@@ -245,7 +239,7 @@ export function ExtractionOutputSidebar({
         e.stopPropagation();
       }}
     >
-      <div className="px-6 py-[0.47rem] border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 flex items-center justify-between">
+      <div className="px-6 h-14 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 flex items-center justify-between">
         <div className="flex items-center gap-3">
           <div className="p-1.5 rounded bg-zinc-100 dark:bg-zinc-800">
             <FileText className="size-4 text-zinc-600 dark:text-zinc-400" />
@@ -326,14 +320,10 @@ export function ExtractionOutputSidebar({
                     <thead>
                       <tr className="border-b border-zinc-200 dark:border-zinc-800 bg-zinc-50/50 dark:bg-zinc-900/50">
                         <th className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-1/3">
-                          <div className="flex items-center gap-2">
-                            Item
-                          </div>
+                          <div className="flex items-center gap-2">Item</div>
                         </th>
                         <th className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400">
-                          <div className="flex items-center gap-2">
-                            Content
-                          </div>
+                          <div className="flex items-center gap-2">Content</div>
                         </th>
                       </tr>
                     </thead>
