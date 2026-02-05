@@ -32,6 +32,9 @@ import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Input } from "@/components/ui/input";
@@ -103,6 +106,7 @@ export function DataTable<TData, TValue>({
   onPaginationChange,
   workflowDefinitionId,
   total,
+  workflowDefinitions,
 }: {
   title?: string;
   data: TData[];
@@ -121,6 +125,7 @@ export function DataTable<TData, TValue>({
   }) => void;
   workflowDefinitionId?: string;
   total?: number;
+  workflowDefinitions?: any[];
 }) {
   const pathname = usePathname();
   const [data, setData] = React.useState(() => initialData);
@@ -211,12 +216,15 @@ export function DataTable<TData, TValue>({
 
   return (
     <div className="w-full flex flex-col gap-6">
-      <div className={`flex flex-col gap-4 px-4 lg:px-6 ${pathname === "/dashboard" ? "" : "pt-4"}`}>
+      <div
+        className={`flex flex-col gap-4 px-4 lg:px-6 ${pathname === "/dashboard" ? "" : "pt-4"}`}
+      >
         <div className="flex items-center justify-between">
           <div className="flex flex-col gap-1">
             {pathname !== "/dashboard" && (
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                {(initialData[0] as any)?.definition_name || "Workflow"} Overview
+                {(initialData[0] as any)?.definition_name || "Workflow"}{" "}
+                Overview
               </h1>
             )}
             <p className="text-sm text-muted-foreground">
@@ -228,7 +236,11 @@ export function DataTable<TData, TValue>({
           >
             <DropdownMenu>
               <DropdownMenuTrigger asChild>
-                <Button variant="outline" className="h-8 gap-1 rounded" size="sm">
+                <Button
+                  variant="outline"
+                  className="h-8 gap-1 rounded"
+                  size="sm"
+                >
                   <IconLayoutColumns className="size-3.5" />
                   <span className="hidden lg:inline">View</span>
                   <IconChevronDown className="size-3.5 text-muted-foreground" />
@@ -258,16 +270,46 @@ export function DataTable<TData, TValue>({
                   })}
               </DropdownMenuContent>
             </DropdownMenu>
-            {onAddClick && (
-              <Button
-                className="h-8 gap-1 rounded bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
-                size="sm"
-                onClick={() => onAddClick(workflowDefinitionId || "")}
-              >
-                <IconPlus className="size-3.5" />
-                <span className="hidden lg:inline">{addLabel}</span>
-              </Button>
-            )}
+            {onAddClick &&
+              (pathname === "/dashboard" &&
+              workflowDefinitions &&
+              workflowDefinitions.length > 0 ? (
+                <DropdownMenu>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      className="h-8 gap-1 rounded"
+                      size="sm"
+                    >
+                      <IconPlus className="size-3.5" />
+                      <span className="hidden lg:inline">{addLabel}</span>
+                      <IconChevronDown className="size-3.5" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                  <DropdownMenuContent align="end" className="w-56">
+                    <DropdownMenuLabel>Select Workflow</DropdownMenuLabel>
+                    <DropdownMenuSeparator />
+                    {workflowDefinitions.map((def) => (
+                      <DropdownMenuItem
+                        key={def.id}
+                        onClick={() => onAddClick(def.id)}
+                      >
+                        {def.name}
+                      </DropdownMenuItem>
+                    ))}
+                  </DropdownMenuContent>
+                </DropdownMenu>
+              ) : (
+                <Button
+                  variant="outline"
+                  className="h-8 gap-1 rounded"
+                  size="sm"
+                  onClick={() => onAddClick(workflowDefinitionId || "")}
+                >
+                  <IconPlus className="size-3.5" />
+                  <span className="hidden lg:inline">{addLabel}</span>
+                </Button>
+              ))}
           </div>
         </div>
       </div>
