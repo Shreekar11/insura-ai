@@ -68,5 +68,9 @@ export const $Citation = {
             description: `Optional reference to a specific clause (e.g., '2.3.1')`,
             isNullable: true,
         },
+        resolution_method: {
+            type: 'Enum',
+            isNullable: true,
+        },
     },
 } as const;

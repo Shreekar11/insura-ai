@@ -99,6 +99,7 @@ class OCRExtractionPipeline:
 
         # Extract coordinates and page dimensions if enabled and pdf_bytes provided
         page_dimensions = {}
+        page_word_coordinates = {}  # page_number -> list of word coordinate dicts
         if self.enable_coordinate_extraction and self.coordinate_service and pdf_bytes:
             try:
                 coord_result = await self.coordinate_service.extract_word_coordinates(
@@ -113,6 +114,19 @@ class OCRExtractionPipeline:
                         "rotation": page_meta.rotation,
                     }
 
+                # Build word coordinates lookup by page (compact format for storage)
+                for word in coord_result.words:
+                    if word.page_number not in page_word_coordinates:
+                        page_word_coordinates[word.page_number] = []
+                    # Store in compact format to minimize storage size
+                    page_word_coordinates[word.page_number].append({
+                        "t": word.text,  # text
+                        "x0": round(word.x0, 2),
+                        "y0": round(word.y0, 2),
+                        "x1": round(word.x1, 2),
+                        "y1": round(word.y1, 2),
+                    })
+
                 LOGGER.info(
                     f"Extracted coordinates for {coord_result.total_pages} pages, "
                     f"{coord_result.total_words} words",
@@ -120,6 +134,7 @@ class OCRExtractionPipeline:
                         "document_id": str(document_id),
                         "total_pages": coord_result.total_pages,
                         "total_words": coord_result.total_words,
+                        "pages_with_words": len(page_word_coordinates),
                     }
                 )
             except Exception as e:
@@ -141,6 +156,10 @@ class OCRExtractionPipeline:
                 page.width_points = dims["width"]
                 page.height_points = dims["height"]
                 page.rotation = dims["rotation"]
+
+            # Add word coordinates for citation mapping
+            if page.page_number in page_word_coordinates:
+                page.metadata["word_coordinates"] = page_word_coordinates[page.page_number]
 
         # Store in database
         await self.doc_repo.store_pages(document_id, pages)

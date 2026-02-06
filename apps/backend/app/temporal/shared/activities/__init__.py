@@ -9,7 +9,11 @@ from .entity_resolution import (
     extract_relationships,
     rollback_entities,
 )
-from .indexing import generate_embeddings_activity, construct_knowledge_graph_activity
+from .indexing import (
+    generate_embeddings_activity,
+    generate_chunk_embeddings_activity,
+    construct_knowledge_graph_activity,
+)
 
 __all__ = [
     "extract_ocr",
@@ -22,5 +26,6 @@ __all__ = [
     "extract_relationships",
     "rollback_entities",
     "generate_embeddings_activity",
+    "generate_chunk_embeddings_activity",
     "construct_knowledge_graph_activity",
 ]

@@ -19,6 +19,7 @@ import type {
   BoundingBox,
   SourceType,
   ExtractionMethod,
+  ResolutionMethod,
 } from "@/types/citation";
 
 /**
@@ -68,6 +69,7 @@ export function transformCitation(apiCitation: ApiCitation): Citation {
     extractionConfidence: apiCitation.extraction_confidence ?? undefined,
     extractionMethod: (apiCitation.extraction_method as ExtractionMethod) ?? undefined,
     clauseReference: apiCitation.clause_reference ?? undefined,
+    resolutionMethod: (apiCitation.resolution_method as ResolutionMethod) ?? undefined,
   };
 }
 

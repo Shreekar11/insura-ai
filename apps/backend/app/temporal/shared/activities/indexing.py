@@ -3,6 +3,7 @@ from uuid import UUID
 from typing import List, Dict, Tuple, Optional, Any
 from app.core.database import async_session_maker
 from app.services.summarized.services.indexing.vector.generate_embeddings import GenerateEmbeddingsService
+from app.services.summarized.services.indexing.vector.chunk_embedding_service import ChunkEmbeddingService
 from app.services.summarized.services.indexing.graph.graph_service import GraphService
 from app.utils.logging import get_logger
 from app.core.neo4j_client import Neo4jClientManager
@@ -31,6 +32,32 @@ async def generate_embeddings_activity(
             }
     except Exception as e:
         logger.error(f"Embedding generation activity failed for {document_id}: {e}", exc_info=True)
+        raise
+
+
+@ActivityRegistry.register("shared", "generate_chunk_embeddings_activity")
+@activity.defn
+async def generate_chunk_embeddings_activity(
+    document_id: str,
+    workflow_id: str,
+) -> dict:
+    """Temporal activity to generate chunk-level embeddings for citation resolution."""
+    try:
+        async with async_session_maker() as session:
+            service = ChunkEmbeddingService(session)
+            result = await service.generate_chunk_embeddings(
+                UUID(document_id), UUID(workflow_id)
+            )
+            return {
+                "chunks_embedded": result["chunks_embedded"],
+                "total_chunks": result.get("total_chunks", 0),
+                "status": result.get("status", "completed"),
+            }
+    except Exception as e:
+        logger.error(
+            f"Chunk embedding generation activity failed for {document_id}: {e}",
+            exc_info=True,
+        )
         raise
 
 

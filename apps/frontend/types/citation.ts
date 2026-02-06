@@ -41,6 +41,11 @@ export type SourceType = "effective_coverage" | "effective_exclusion" | "endorse
 export type ExtractionMethod = "docling" | "pdfplumber" | "manual";
 
 /**
+ * How the citation coordinates were resolved.
+ */
+export type ResolutionMethod = "direct_text_match" | "semantic_chunk_match" | "placeholder";
+
+/**
  * Represents a range of pages in a document.
  */
 export interface PageRange {
@@ -87,6 +92,9 @@ export interface Citation {
 
   /** Optional reference to a specific clause (e.g., "2.3.1") */
   clauseReference?: string;
+
+  /** How the citation was resolved (direct text match, semantic chunk search, or placeholder) */
+  resolutionMethod?: ResolutionMethod;
 }
 
 /**

@@ -445,7 +445,8 @@ class DocumentProcessingMixin:
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        vector_indexing_result = await workflow.execute_activity(
+        # Run entity embeddings and chunk embeddings in parallel
+        vector_indexing_handle = workflow.start_activity(
             "generate_embeddings_activity",
             args=[document_id, workflow_id, target_sections],
             start_to_close_timeout=timedelta(minutes=5),
@@ -454,6 +455,19 @@ class DocumentProcessingMixin:
                 maximum_attempts=3
             )
         )
+
+        chunk_embedding_handle = workflow.start_activity(
+            "generate_chunk_embeddings_activity",
+            args=[document_id, workflow_id],
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=3
+            )
+        )
+
+        vector_indexing_result = await vector_indexing_handle
+        chunk_embedding_result = await chunk_embedding_handle
 
         graph_construction_result = await workflow.execute_activity(
             "construct_knowledge_graph_activity",
@@ -465,13 +479,18 @@ class DocumentProcessingMixin:
             )
         )
 
+        total_chunks_indexed = (
+            vector_indexing_result.get("chunks_embedded", 0) +
+            chunk_embedding_result.get("chunks_embedded", 0)
+        )
+
         output = validate_workflow_output(
             {
                 "workflow_id": workflow_id,
                 "document_id": document_id,
                 "vector_indexed": True,
                 "graph_constructed": True,
-                "chunks_indexed": vector_indexing_result.get("chunks_embedded", 0),
+                "chunks_indexed": total_chunks_indexed,
                 "entities_created": graph_construction_result.get("entities_created", 0),
                 "relationships_created": graph_construction_result.get("relationships_created", 0),
                 "embeddings_linked": graph_construction_result.get("embeddings_linked", 0),
@@ -482,6 +501,7 @@ class DocumentProcessingMixin:
 
         indexing_metadata = {
             "chunks_indexed": output.get("chunks_indexed", 0),
+            "chunk_embeddings": chunk_embedding_result.get("chunks_embedded", 0),
             "entities_created": output.get("entities_created", 0),
             "relationships_created": output.get("relationships_created", 0),
             "document_name": document_name,

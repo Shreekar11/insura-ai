@@ -32,6 +32,14 @@ class ExtractionMethod(str, Enum):
     MANUAL = "manual"
 
 
+class ResolutionMethod(str, Enum):
+    """Methods used for citation coordinate resolution."""
+
+    DIRECT_TEXT_MATCH = "direct_text_match"
+    SEMANTIC_CHUNK_MATCH = "semantic_chunk_match"
+    PLACEHOLDER = "placeholder"
+
+
 class BoundingBox(BaseModel):
     """Bounding box in PDF coordinate system.
 
@@ -118,6 +126,9 @@ class CitationCreate(BaseModel):
     clause_reference: Optional[str] = Field(
         None, description="Clause reference (e.g., 'SECTION II.B.3')"
     )
+    resolution_method: Optional[str] = Field(
+        None, description="How citation was resolved: direct_text_match, semantic_chunk_match, placeholder"
+    )
 
 
 class CitationBulkCreate(BaseModel):
@@ -150,6 +161,9 @@ class CitationResponse(BaseModel):
     extraction_method: str = Field(..., description="Method used for extraction")
     clause_reference: Optional[str] = Field(
         None, description="Clause reference"
+    )
+    resolution_method: Optional[str] = Field(
+        None, description="How citation was resolved: direct_text_match, semantic_chunk_match, placeholder"
     )
     created_at: datetime = Field(..., description="Creation timestamp")
 
@@ -218,6 +232,7 @@ __all__ = [
     # Enums
     "SourceType",
     "ExtractionMethod",
+    "ResolutionMethod",
     # Core models
     "BoundingBox",
     "CitationSpan",

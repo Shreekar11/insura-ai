@@ -52,6 +52,10 @@ export type Citation = {
      * Optional reference to a specific clause (e.g., '2.3.1')
      */
     clause_reference?: string | null;
+    /**
+     * How the citation was resolved: direct_text_match (exact/fuzzy word match), semantic_chunk_match (embedding-based chunk search), or placeholder (full-page fallback)
+     */
+    resolution_method?: Citation.resolution_method | null;
 };
 export namespace Citation {
     /**
@@ -71,6 +75,14 @@ export namespace Citation {
         DOCLING = 'docling',
         PDFPLUMBER = 'pdfplumber',
         MANUAL = 'manual',
+    }
+    /**
+     * How the citation was resolved: direct_text_match (exact/fuzzy word match), semantic_chunk_match (embedding-based chunk search), or placeholder (full-page fallback)
+     */
+    export enum resolution_method {
+        DIRECT_TEXT_MATCH = 'direct_text_match',
+        SEMANTIC_CHUNK_MATCH = 'semantic_chunk_match',
+        PLACEHOLDER = 'placeholder',
     }
 }
 

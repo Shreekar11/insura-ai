@@ -79,6 +79,9 @@ importers:
       '@react-pdf-viewer/highlight':
         specifier: 3.12.0
         version: 3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      '@react-pdf-viewer/page-navigation':
+        specifier: 3.12.0
+        version: 3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       '@react-pdf-viewer/zoom':
         specifier: 3.12.0
         version: 3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
@@ -1169,6 +1172,12 @@ packages:
 
   '@react-pdf-viewer/highlight@3.12.0':
     resolution: {integrity: sha512-UxdnvnvTjikugOUEj/RIeJm3Lm93aVu+Xr0jMa7d+wrZlHh5b7wTd+FeI6gNk9wdJDrB70oHiCzn6MTbepkc5g==}
+    peerDependencies:
+      react: '>=16.8.0'
+      react-dom: '>=16.8.0'
+
+  '@react-pdf-viewer/page-navigation@3.12.0':
+    resolution: {integrity: sha512-tVEJ48Dd5kajV1nKkrPWijglJRNBiKBTyYDKVexhiRdTHUP1f6QQXiSyDgCUb0IGSZeJzOJb1h7ApKHe8OTtuw==}
     peerDependencies:
       react: '>=16.8.0'
       react-dom: '>=16.8.0'
@@ -4298,6 +4307,14 @@ snapshots:
       react-dom: 19.2.3(react@19.2.3)
 
   '@react-pdf-viewer/highlight@3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
+    dependencies:
+      '@react-pdf-viewer/core': 3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
+      react: 19.2.3
+      react-dom: 19.2.3(react@19.2.3)
+    transitivePeerDependencies:
+      - pdfjs-dist
+
+  '@react-pdf-viewer/page-navigation@3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)':
     dependencies:
       '@react-pdf-viewer/core': 3.12.0(pdfjs-dist@3.11.174)(react-dom@19.2.3(react@19.2.3))(react@19.2.3)
       react: 19.2.3

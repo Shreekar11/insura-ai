@@ -1221,6 +1221,10 @@ class VectorEmbedding(Base):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
+    source_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"), nullable=True,
+        comment="FK to document_chunks for chunk-level embeddings"
+    )
     section_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
@@ -1243,7 +1247,7 @@ class VectorEmbedding(Base):
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="vector_embeddings")
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="vector_embeddings")
-
+    source_chunk: Mapped["DocumentChunk | None"] = relationship("DocumentChunk")
 
     __table_args__ = (
         {"comment": "Canonical table for pgvector embeddings"},
@@ -1401,6 +1405,12 @@ class Citation(Base):
     clause_reference: Mapped[str | None] = mapped_column(
         String(255), nullable=True,
         comment="Clause reference e.g., 'SECTION II.B.3' or 'Endorsement CA 20 48'"
+    )
+
+    # Citation resolution tracking (Phase 3)
+    resolution_method: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+        comment="How citation was resolved: direct_text_match, semantic_chunk_match, placeholder"
     )
 
     created_at: Mapped[datetime] = mapped_column(

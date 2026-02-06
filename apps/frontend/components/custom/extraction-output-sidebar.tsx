@@ -354,7 +354,9 @@ export function ExtractionOutputSidebar({
                                   {row.item}
                                 </td>
                                 <td className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed relative pr-8">
-                                  {row.content}
+                                  {row.content.length > 200
+                                    ? `${row.content.slice(0, 200).trimEnd()}...`
+                                    : row.content}
                                   {citFound && (
                                     <div className="absolute top-0 right-0">
                                       <div className="w-0 h-0 border-t-[10px] border-l-[10px] border-t-orange-500 border-l-transparent" />

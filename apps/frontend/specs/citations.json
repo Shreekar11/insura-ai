@@ -404,6 +404,12 @@
             "type": "string",
             "nullable": true,
             "description": "Optional reference to a specific clause (e.g., '2.3.1')"
+          },
+          "resolution_method": {
+            "type": "string",
+            "enum": ["direct_text_match", "semantic_chunk_match", "placeholder"],
+            "nullable": true,
+            "description": "How the citation was resolved: direct_text_match (exact/fuzzy word match), semantic_chunk_match (embedding-based chunk search), or placeholder (full-page fallback)"
           }
         }
       },

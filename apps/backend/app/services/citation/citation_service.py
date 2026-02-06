@@ -116,6 +116,7 @@ class CitationService:
                 extraction_confidence=citation_data.extraction_confidence,
                 extraction_method=citation_data.extraction_method.value,
                 clause_reference=citation_data.clause_reference,
+                resolution_method=citation_data.resolution_method,
             )
 
             LOGGER.info(
@@ -344,6 +345,7 @@ class CitationService:
             ),
             extraction_method=citation.extraction_method,
             clause_reference=citation.clause_reference,
+            resolution_method=citation.resolution_method,
             created_at=citation.created_at
         )
 

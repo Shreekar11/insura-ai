@@ -1,7 +1,8 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import { useState, useEffect, useMemo, useRef } from "react";
 import { Viewer, Worker } from "@react-pdf-viewer/core";
+import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
 import { Citation, PageDimensions } from "@/types/citation";
 import { PDFHighlightLayer } from "./pdf-highlight-layer";
 import "@react-pdf-viewer/core/lib/styles/index.css";
@@ -19,13 +20,31 @@ export function PDFViewer({
 }: PDFViewerProps) {
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
+  const documentLoaded = useRef(false);
 
-  // Navigate to primary page when citation changes
+  const pageNavigationPluginInstance = useMemo(
+    () => pageNavigationPlugin(),
+    [],
+  );
+  const { jumpToPage } = pageNavigationPluginInstance;
+
+  // Auto-scroll to the citation's page when citation changes
   useEffect(() => {
-    if (citation?.primaryPage) {
+    if (citation?.primaryPage && documentLoaded.current) {
+      const targetPage = citation.primaryPage - 1; // 0-indexed
+      jumpToPage(targetPage);
       setCurrentPage(citation.primaryPage);
     }
-  }, [citation?.primaryPage]);
+  }, [citation?.primaryPage, citation?.id, jumpToPage]);
+
+  const handleDocumentLoad = () => {
+    documentLoaded.current = true;
+    // Jump to citation page after initial load
+    if (citation?.primaryPage) {
+      jumpToPage(citation.primaryPage - 1);
+      setCurrentPage(citation.primaryPage);
+    }
+  };
 
   const handlePageChange = (e: any) => {
     const newPage = e.currentPage + 1; // pdfjs uses 0-indexed pages
@@ -43,6 +62,11 @@ export function PDFViewer({
           <Viewer
             fileUrl={pdfUrl}
             defaultScale={1}
+            initialPage={
+              citation?.primaryPage ? citation.primaryPage - 1 : 0
+            }
+            plugins={[pageNavigationPluginInstance]}
+            onDocumentLoad={handleDocumentLoad}
             onPageChange={handlePageChange}
             onZoom={handleZoomChange}
             renderPage={(props) => (
