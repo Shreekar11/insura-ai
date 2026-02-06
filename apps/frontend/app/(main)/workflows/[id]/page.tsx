@@ -2,7 +2,10 @@
 
 import React from "react";
 import { useParams, useRouter } from "next/navigation";
-import { useWorkflowsByDefinitionId, useCreateWorkflow } from "@/hooks/use-workflows";
+import {
+  useWorkflowsByDefinitionId,
+  useCreateWorkflow,
+} from "@/hooks/use-workflows";
 import { workflowColumns } from "@/components/custom/workflow-columns";
 import { DataTable } from "@/components/custom/data-table";
 import { toast } from "sonner";
@@ -12,6 +15,7 @@ import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
 
 // ui components
 import { Button } from "@/components/ui/button";
+import { TableSkeleton } from "@/components/custom/table-skeleton";
 
 export default function WorkflowExecutionPage() {
   const params = useParams();
@@ -28,7 +32,7 @@ export default function WorkflowExecutionPage() {
   const { data, isLoading, error, refetch } = useWorkflowsByDefinitionId(
     workflowDefinitionId as string,
     pagination.pageSize,
-    pagination.pageIndex * pagination.pageSize
+    pagination.pageIndex * pagination.pageSize,
   );
 
   const workflowsResult = data || { workflows: [], total: 0 };
@@ -55,11 +59,16 @@ export default function WorkflowExecutionPage() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <IconLoader2 className="size-8 animate-spin text-primary" />
-        <p className="text-muted-foreground animate-pulse">
-          Loading your workflows...
-        </p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col gap-1 px-4 lg:px-6 pt-4">
+          <h1 className="text-2xl font-semibold tracking-tight text-foreground">
+            Workflow Overview
+          </h1>
+          <p className="text-sm text-muted-foreground">
+            Manage and monitor your workflow executions.
+          </p>
+        </div>
+        <TableSkeleton />
       </div>
     );
   }

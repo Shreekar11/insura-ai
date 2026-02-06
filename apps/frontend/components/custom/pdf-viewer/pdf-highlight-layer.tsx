@@ -6,25 +6,25 @@ import { transformPageBoxes } from "@/lib/coordinate-transform";
 
 interface PDFHighlightLayerProps {
   spans: CitationSpan[];
-  currentPage: number;
+  pageNumber: number;
   scale: number;
   pageDimensions: Record<number, PageDimensions>;
 }
 
 export function PDFHighlightLayer({
   spans,
-  currentPage,
+  pageNumber,
   scale,
   pageDimensions,
 }: PDFHighlightLayerProps) {
-  // Filter spans for current page
-  const currentPageSpans = spans.filter((s) => s.pageNumber === currentPage);
+  // Filter spans for this specific page
+  const currentPageSpans = spans.filter((s) => s.pageNumber === pageNumber);
 
   if (currentPageSpans.length === 0) {
     return null;
   }
 
-  const pageHeight = pageDimensions[currentPage]?.heightPoints;
+  const pageHeight = pageDimensions[pageNumber]?.heightPoints;
   if (!pageHeight) {
     return null;
   }
@@ -35,7 +35,7 @@ export function PDFHighlightLayer({
         const viewerBoxes = transformPageBoxes(
           span.boundingBoxes,
           pageHeight,
-          scale
+          scale,
         );
 
         return (
