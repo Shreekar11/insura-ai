@@ -26,7 +26,13 @@ import { Input } from "@/components/ui/input";
 import { useUpdateWorkflow } from "@/hooks/use-workflows";
 import { cn } from "@/lib/utils";
 
-const EditableBreadcrumbItem = ({ label, workflowId }: { label: string, workflowId: string }) => {
+const EditableBreadcrumbItem = ({
+  label,
+  workflowId,
+}: {
+  label: string;
+  workflowId: string;
+}) => {
   const [isEditing, setIsEditing] = useState(false);
   const [value, setValue] = useState(label);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -46,7 +52,7 @@ const EditableBreadcrumbItem = ({ label, workflowId }: { label: string, workflow
     if (value.trim() && value !== label) {
       updateWorkflow({ workflow_id: workflowId, workflow_name: value });
     } else {
-        setValue(label);
+      setValue(label);
     }
     setIsEditing(false);
   };
@@ -74,7 +80,7 @@ const EditableBreadcrumbItem = ({ label, workflowId }: { label: string, workflow
   }
 
   return (
-    <span 
+    <span
       className="flex items-center gap-2 cursor-pointer hover:bg-muted/50 px-1.5 py-0.5 rounded transition-colors group"
       onClick={() => setIsEditing(true)}
       title="Click to rename"
@@ -118,20 +124,21 @@ export function DynamicBreadcrumb() {
 
   // Detect workflow page and fetch workflow data
   const isWorkflowPage = pathSegments[0] === "workflows" && pathSegments[1];
-  const isExecutionPage = pathSegments[0] === "workflow-execution" && pathSegments[1];
+  const isExecutionPage =
+    pathSegments[0] === "workflow-execution" && pathSegments[1];
   const workflowId = isWorkflowPage || isExecutionPage ? pathSegments[1] : null;
 
-  const { 
-    data: workflowDefinition, 
+  const {
+    data: workflowDefinition,
     isLoading: isLoadingDefinition,
     isError: isDefinitionError,
-  } = useWorkflowDefinitionById(isWorkflowPage ? (workflowId || "") : "");
+  } = useWorkflowDefinitionById(isWorkflowPage ? workflowId || "" : "");
 
   const {
     data: workflowInstance,
     isLoading: isLoadingInstance,
     isError: isInstanceError,
-  } = useWorkflowById(isExecutionPage ? (workflowId || "") : "");
+  } = useWorkflowById(isExecutionPage ? workflowId || "" : "");
 
   const isLoadingWorkflow = isLoadingDefinition || isLoadingInstance;
   const isWorkflowError = isDefinitionError || isInstanceError;
@@ -151,11 +158,15 @@ export function DynamicBreadcrumb() {
     }
 
     // Handle workflow detail page - show only workflow name
-    if (pathSegments[0] === "workflows" && pathSegments[1] && pathSegments.length === 2) {
+    if (
+      pathSegments[0] === "workflows" &&
+      pathSegments[1] &&
+      pathSegments.length === 2
+    ) {
       items.push({
-        label: isLoadingDefinition 
-          ? "Loading..." 
-          : isDefinitionError 
+        label: isLoadingDefinition
+          ? "Loading..."
+          : isDefinitionError
             ? "Unknown Workflow"
             : workflowDefinition?.name || "Workflow",
         href: pathname,
@@ -166,39 +177,46 @@ export function DynamicBreadcrumb() {
     }
 
     // Handle workflow execution page - show definition_name > workflow_name
-    if (pathSegments[0] === "workflow-execution" && pathSegments[1] && pathSegments.length === 2) {
+    if (
+      pathSegments[0] === "workflow-execution" &&
+      pathSegments[1] &&
+      pathSegments.length === 2
+    ) {
       // First segment: Definition
       items.push({
-        label: isLoadingInstance 
-          ? "Loading..." 
-          : isInstanceError 
+        label: isLoadingInstance
+          ? "Loading..."
+          : isInstanceError
             ? "Unknown Process"
             : workflowInstance?.definition_name || "Definition",
-        href: workflowInstance?.definition_id 
+        href: workflowInstance?.definition_id
           ? `/workflows/${workflowInstance.definition_id}`
           : "#",
         isCurrentPage: false,
         isLoading: isLoadingInstance,
       });
-      
+
       // Second segment: Execution (Editable)
       items.push({
-        label: isLoadingInstance 
-          ? "Loading..." 
-          : isInstanceError 
+        label: isLoadingInstance
+          ? "Loading..."
+          : isInstanceError
             ? "Unknown Execution"
             : workflowInstance?.workflow_name || "Execution",
         href: pathname,
         isCurrentPage: true,
         isLoading: isLoadingInstance,
         isEditable: true,
-        workflowId: workflowInstance?.id
+        workflowId: workflowInstance?.id,
       });
       return items;
     }
 
     // For all other pages, start with Dashboard as home
-    if (pathSegments[0] !== "dashboard" && pathSegments[0] !== "workflow-execution") {
+    if (
+      pathSegments[0] !== "dashboard" &&
+      pathSegments[0] !== "workflow-execution"
+    ) {
       items.push({
         label: "Dashboard",
         href: "/dashboard",
@@ -229,9 +247,9 @@ export function DynamicBreadcrumb() {
       // Handle workflow ID (dynamic name from API)
       if (pathSegments[index - 1] === "workflows" && workflowId === segment) {
         items.push({
-          label: isLoadingDefinition 
-            ? "Loading..." 
-            : isDefinitionError 
+          label: isLoadingDefinition
+            ? "Loading..."
+            : isDefinitionError
               ? "Unknown Workflow"
               : workflowDefinition?.name || "Workflow",
           href,
@@ -255,7 +273,9 @@ export function DynamicBreadcrumb() {
       // Fallback: capitalize segment
       if (segment !== workflowId) {
         items.push({
-          label: segment.charAt(0).toUpperCase() + segment.slice(1).replace(/-/g, " "),
+          label:
+            segment.charAt(0).toUpperCase() +
+            segment.slice(1).replace(/-/g, " "),
           href,
           isCurrentPage: isLast,
         });
@@ -272,9 +292,7 @@ export function DynamicBreadcrumb() {
   const itemsToShow = shouldShowEllipsis
     ? [breadcrumbItems[0], ...breadcrumbItems.slice(-2)]
     : breadcrumbItems;
-  const hiddenItems = shouldShowEllipsis
-    ? breadcrumbItems.slice(1, -2)
-    : [];
+  const hiddenItems = shouldShowEllipsis ? breadcrumbItems.slice(1, -2) : [];
 
   return (
     <Breadcrumb>
@@ -289,7 +307,7 @@ export function DynamicBreadcrumb() {
                   {(itemsToShow[0] as any).label}
                 </BreadcrumbPage>
               ) : (
-                <BreadcrumbLink 
+                <BreadcrumbLink
                   href={(itemsToShow[0] as any).href}
                   className="flex items-center gap-2"
                 >
@@ -333,10 +351,10 @@ export function DynamicBreadcrumb() {
                       {(item as any).isLoading ? (
                         <Skeleton className="h-4 w-32 animate-pulse" />
                       ) : (item as any).isEditable ? (
-                         <EditableBreadcrumbItem 
-                           label={(item as any).label} 
-                           workflowId={(item as any).workflowId} 
-                         />
+                        <EditableBreadcrumbItem
+                          label={(item as any).label}
+                          workflowId={(item as any).workflowId}
+                        />
                       ) : (
                         <span className="flex items-center gap-2">
                           {(item as any).icon}
@@ -345,7 +363,7 @@ export function DynamicBreadcrumb() {
                       )}
                     </BreadcrumbPage>
                   ) : (
-                    <BreadcrumbLink 
+                    <BreadcrumbLink
                       href={(item as any).href}
                       className="flex items-center gap-2"
                     >
@@ -372,9 +390,9 @@ export function DynamicBreadcrumb() {
                     {item.isLoading ? (
                       <Skeleton className="h-4 w-32 animate-pulse" />
                     ) : item.isEditable ? (
-                      <EditableBreadcrumbItem 
-                        label={item.label} 
-                        workflowId={item.workflowId!} 
+                      <EditableBreadcrumbItem
+                        label={item.label}
+                        workflowId={item.workflowId!}
                       />
                     ) : (
                       <span className="flex items-center gap-2">
@@ -384,7 +402,7 @@ export function DynamicBreadcrumb() {
                     )}
                   </BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink 
+                  <BreadcrumbLink
                     href={item.href}
                     className="flex items-center gap-2"
                   >

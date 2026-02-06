@@ -41,5 +41,6 @@ export const useWorkflowDefinitionById = (workflowDefinitionId: string) => {
     gcTime: 1000 * 60 * 10,
     retry: 2,
     refetchOnWindowFocus: true,
+    enabled: !!workflowDefinitionId,
   });
 };

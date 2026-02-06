@@ -22,6 +22,7 @@ import {
 import { useWorkflowDefinitions } from "@/hooks/use-workflow-definitions";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
+import { Skeleton } from "@/components/ui/skeleton";
 
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 
@@ -49,7 +50,9 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">InsuraAI</span>
-              <span className="truncate text-xs text-gray-600">AI-insurance workspace</span>
+              <span className="truncate text-xs text-gray-600">
+                AI-insurance workspace
+              </span>
             </div>
           </SidebarMenuButton>
           <SidebarTrigger className="group-data-[collapsible=icon]:hidden h-8 w-8 hover:bg-[#DBDCDE] hover:rounded text-[#2B2C36]" />
@@ -65,7 +68,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${pathname === "/dashboard" ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
               >
                 <Link href="/dashboard">
-                  <IconChartBar size={20}/>
+                  <IconChartBar size={20} />
                   <span>Dashboard</span>
                 </Link>
               </SidebarMenuButton>
@@ -75,30 +78,39 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <SidebarGroup>
           <SidebarGroupLabel>Workflows</SidebarGroupLabel>
           <SidebarMenu>
-            {workflowDefinitions?.map((item, index) => {
-              const Icon = item.name?.toLowerCase().includes("policy")
-                ? IconReport
-                : item.name?.toLowerCase().includes("proposal")
-                  ? IconFileWord
-                  : item.name?.toLowerCase().includes("quote")
-                    ? FileText
-                    : Blocks;
+            {isLoading
+              ? Array.from({ length: 5 }).map((_, i) => (
+                  <SidebarMenuItem key={i}>
+                    <SidebarMenuButton disabled className="animate-pulse">
+                      <Skeleton className="size-6 rounded shrink-0 bg-[#DBDCDE]" />
+                      <Skeleton className="h-6 w-full rounded bg-[#DBDCDE]" />
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))
+              : workflowDefinitions?.map((item, index) => {
+                  const Icon = item.name?.toLowerCase().includes("policy")
+                    ? IconReport
+                    : item.name?.toLowerCase().includes("proposal")
+                      ? IconFileWord
+                      : item.name?.toLowerCase().includes("quote")
+                        ? FileText
+                        : Blocks;
 
-              return (
-                <SidebarMenuItem key={index}>
-                  <SidebarMenuButton
-                    className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${item.id === workflowDefId || item.id === activeWorkflowDefinitionId ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
-                    asChild
-                    tooltip={item.name}
-                  >
-                    <Link href={`/workflows/${item.id}`}>
-                      <Icon size={20}/>
-                      <span>{item.name}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              );
-            })}
+                  return (
+                    <SidebarMenuItem key={index}>
+                      <SidebarMenuButton
+                        className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${item.id === workflowDefId || item.id === activeWorkflowDefinitionId ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
+                        asChild
+                        tooltip={item.name}
+                      >
+                        <Link href={`/workflows/${item.id}`}>
+                          <Icon size={20} />
+                          <span>{item.name}</span>
+                        </Link>
+                      </SidebarMenuButton>
+                    </SidebarMenuItem>
+                  );
+                })}
           </SidebarMenu>
         </SidebarGroup>
       </SidebarContent>

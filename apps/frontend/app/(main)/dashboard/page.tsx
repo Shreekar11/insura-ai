@@ -12,6 +12,7 @@ import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth-context";
+import { TableSkeleton } from "@/components/custom/table-skeleton";
 
 export default function Page() {
   const router = useRouter();
@@ -53,11 +54,9 @@ export default function Page() {
 
   if (isLoading) {
     return (
-      <div className="flex flex-col items-center justify-center min-h-[400px] gap-4">
-        <IconLoader2 className="size-8 animate-spin text-primary" />
-        <p className="text-muted-foreground animate-pulse">
-          Loading your dashboard...
-        </p>
+      <div className="flex flex-col gap-2 pt-2">
+        <DashboardHeader workflows={[]} userName={user?.user_metadata.name} />
+        <TableSkeleton />
       </div>
     );
   }
