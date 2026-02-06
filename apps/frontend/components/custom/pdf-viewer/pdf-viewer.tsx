@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useMemo, useRef } from "react";
+import { useState, useEffect, useRef, useMemo } from "react";
 import { Viewer, Worker } from "@react-pdf-viewer/core";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
 import { Citation, PageDimensions } from "@/types/citation";
@@ -21,33 +21,58 @@ export function PDFViewer({
   const [currentPage, setCurrentPage] = useState(1);
   const [scale, setScale] = useState(1);
   const documentLoaded = useRef(false);
+  const manualScroll = useRef(false);
+  const lastJumpedCitationId = useRef<string | null>(null);
 
-  const pageNavigationPluginInstance = useMemo(
-    () => pageNavigationPlugin(),
-    [],
-  );
+  const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
 
-  // Auto-scroll to the citation's page when citation changes
+  // Auto-scroll to the citation's page and bounding box when citation changes
   useEffect(() => {
-    if (citation?.primaryPage && documentLoaded.current) {
-      const targetPage = citation.primaryPage - 1; // 0-indexed
-      jumpToPage(targetPage);
+    if (
+      citation?.id &&
+      citation.id !== lastJumpedCitationId.current &&
+      citation.primaryPage &&
+      documentLoaded.current
+    ) {
+      const pageIndex = citation.primaryPage - 1;
+      const pageHeight = pageDimensions[citation.primaryPage]?.heightPoints;
+
+      // Find the first bounding box on the primary page to scroll to
+      const primaryPageSpan = citation.spans.find(
+        (s) => s.pageNumber === citation.primaryPage,
+      );
+      const firstBox = primaryPageSpan?.boundingBoxes?.[0];
+
+      lastJumpedCitationId.current = citation.id;
+
+      const isFullPage =
+        !firstBox ||
+        (firstBox.x0 === 0 &&
+          firstBox.y0 === 0 &&
+          firstBox.x1 >= 611 &&
+          firstBox.y1 >= 791);
+
+      if (!isFullPage && firstBox && pageHeight) {
+        const topFromTop = pageHeight - firstBox.y1;
+        const left = firstBox.x0;
+        const scrollOffset = Math.max(0, topFromTop - 50);
+        const destination = [pageIndex, "XYZ", left, scrollOffset, null];
+        (pageNavigationPluginInstance as any).jumpToDestination(destination);
+      } else {
+        jumpToPage(pageIndex);
+      }
+
       setCurrentPage(citation.primaryPage);
     }
-  }, [citation?.primaryPage, citation?.id, jumpToPage]);
+  }, [citation, jumpToPage, pageDimensions, pageNavigationPluginInstance]);
 
   const handleDocumentLoad = () => {
     documentLoaded.current = true;
-    // Jump to citation page after initial load
-    if (citation?.primaryPage) {
-      jumpToPage(citation.primaryPage - 1);
-      setCurrentPage(citation.primaryPage);
-    }
   };
 
   const handlePageChange = (e: any) => {
-    const newPage = e.currentPage + 1; // pdfjs uses 0-indexed pages
+    const newPage = e.currentPage + 1;
     setCurrentPage(newPage);
   };
 
@@ -62,9 +87,7 @@ export function PDFViewer({
           <Viewer
             fileUrl={pdfUrl}
             defaultScale={1}
-            initialPage={
-              citation?.primaryPage ? citation.primaryPage - 1 : 0
-            }
+            initialPage={citation?.primaryPage ? citation.primaryPage - 1 : 0}
             plugins={[pageNavigationPluginInstance]}
             onDocumentLoad={handleDocumentLoad}
             onPageChange={handlePageChange}
@@ -77,7 +100,7 @@ export function PDFViewer({
                   {citation && (
                     <PDFHighlightLayer
                       spans={citation.spans}
-                      currentPage={currentPage}
+                      pageNumber={props.pageIndex + 1}
                       scale={scale}
                       pageDimensions={pageDimensions}
                     />
