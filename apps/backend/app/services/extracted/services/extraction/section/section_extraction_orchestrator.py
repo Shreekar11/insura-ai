@@ -421,69 +421,8 @@ class SectionExtractionOrchestrator:
                     }
                 )
 
-                # Create citations for synthesized coverages and exclusions
-                if document_id and (result.effective_coverages or result.effective_exclusions):
-                    LOGGER.info(
-                        "="*60 + "\n[ORCHESTRATOR] Starting citation creation\n" + "="*60,
-                        extra={
-                            "document_id": str(document_id),
-                            "effective_coverages_count": len(result.effective_coverages),
-                            "effective_exclusions_count": len(result.effective_exclusions),
-                        }
-                    )
-
-                    # Log sample coverage for debugging
-                    if result.effective_coverages:
-                        sample = result.effective_coverages[0]
-                        if hasattr(sample, "model_dump"):
-                            sample_dict = sample.model_dump()
-                        else:
-                            sample_dict = sample if isinstance(sample, dict) else {}
-                        LOGGER.info(
-                            "[ORCHESTRATOR] Sample effective_coverage before citation creation",
-                            extra={
-                                "coverage_name": sample_dict.get("coverage_name"),
-                                "canonical_id": sample_dict.get("canonical_id"),
-                                "has_page_numbers": "page_numbers" in sample_dict,
-                                "page_numbers": sample_dict.get("page_numbers"),
-                                "has_source_text": "source_text" in sample_dict,
-                                "has_description": "description" in sample_dict,
-                                "all_keys": list(sample_dict.keys()),
-                            }
-                        )
-
-                    try:
-                        from app.services.citation.citation_creation_service import CitationCreationService
-                        citation_service = CitationCreationService(self.session)
-                        citation_result = await citation_service.create_citations_from_synthesis(
-                            document_id=document_id,
-                            effective_coverages=result.effective_coverages,
-                            effective_exclusions=result.effective_exclusions,
-                        )
-                        LOGGER.info(
-                            "[ORCHESTRATOR] Citation creation completed",
-                            extra={
-                                "document_id": str(document_id),
-                                "created_count": citation_result.get("created_count", 0),
-                                "skipped_count": citation_result.get("skipped_count", 0),
-                                "error_count": len(citation_result.get("errors", [])),
-                            }
-                        )
-                    except Exception as citation_error:
-                        LOGGER.error(
-                            f"[ORCHESTRATOR] Citation creation failed: {citation_error}",
-                            exc_info=True
-                        )
-                else:
-                    LOGGER.info(
-                        "[ORCHESTRATOR] Skipping citation creation - no effective coverages/exclusions",
-                        extra={
-                            "document_id": str(document_id) if document_id else None,
-                            "has_document_id": document_id is not None,
-                            "effective_coverages_count": len(result.effective_coverages) if result.effective_coverages else 0,
-                            "effective_exclusions_count": len(result.effective_exclusions) if result.effective_exclusions else 0,
-                        }
-                    )
+                # Citation creation is deferred to the indexing stage (after chunk
+                # embeddings are generated) so Tier 2 semantic search has data.
             except Exception as e:
                 LOGGER.warning(f"Synthesis failed, continuing without: {e}")
                 result.effective_coverages = []

@@ -84,13 +84,17 @@ class DocumentProcessingMixin:
             )
             results["enriched"] = enrichment_result
 
-        # 4. Indexing Stage
+        # 4. Indexing Stage (includes citation creation after chunk embeddings)
         if not config.skip_indexing:
+            effective_coverages = results.get("extracted", {}).get("effective_coverages", [])
+            effective_exclusions = results.get("extracted", {}).get("effective_exclusions", [])
             indexing_result = await self._execute_indexing_stage(
                 config.workflow_id,
                 document_id,
                 config.target_sections,
-                config.document_name
+                config.document_name,
+                effective_coverages=effective_coverages,
+                effective_exclusions=effective_exclusions,
             )
             results["summarized"] = indexing_result
 
@@ -353,6 +357,8 @@ class DocumentProcessingMixin:
             "document_id": document_id,
             "sections_extracted": extraction_metadata["section_count"],
             "entities_found": output.get("total_entities", 0),
+            "effective_coverages": effective_coverages,
+            "effective_exclusions": effective_exclusions,
         }
 
     async def _execute_enrichment_stage(
@@ -434,9 +440,11 @@ class DocumentProcessingMixin:
         workflow_id: str,
         document_id: str,
         target_sections: Optional[List[str]] = None,
-        document_name: Optional[str] = None
+        document_name: Optional[str] = None,
+        effective_coverages: Optional[List[Dict[str, Any]]] = None,
+        effective_exclusions: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Execute vector indexing and graph construction."""
+        """Execute vector indexing, graph construction, and citation creation."""
         workflow.logger.info(f"Starting SummarizedStage (Indexing) for {document_id}")
 
         await workflow.execute_activity(
@@ -468,6 +476,22 @@ class DocumentProcessingMixin:
 
         vector_indexing_result = await vector_indexing_handle
         chunk_embedding_result = await chunk_embedding_handle
+
+        # Create citations after chunk embeddings so Tier 2 semantic search
+        citation_result = {}
+        if effective_coverages or effective_exclusions:
+            try:
+                citation_result = await workflow.execute_activity(
+                    "create_citations_activity",
+                    args=[document_id, effective_coverages or [], effective_exclusions or []],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5),
+                        maximum_attempts=3
+                    ),
+                )
+            except Exception as e:
+                workflow.logger.warning(f"Citation creation failed for {document_id}: {e}")
 
         graph_construction_result = await workflow.execute_activity(
             "construct_knowledge_graph_activity",

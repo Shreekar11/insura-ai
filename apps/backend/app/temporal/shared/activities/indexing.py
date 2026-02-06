@@ -61,6 +61,43 @@ async def generate_chunk_embeddings_activity(
         raise
 
 
+@ActivityRegistry.register("shared", "create_citations_activity")
+@activity.defn
+async def create_citations_activity(
+    document_id: str,
+    effective_coverages: list[dict],
+    effective_exclusions: list[dict],
+) -> dict:
+    """Temporal activity to create citations after chunk embeddings are available.
+
+    Runs after chunk embedding generation so that Tier 2 semantic search
+    can find matching chunks in the vector_embeddings table.
+    """
+    try:
+        async with async_session_maker() as session:
+            from app.services.citation.citation_creation_service import CitationCreationService
+
+            service = CitationCreationService(session)
+            result = await service.create_citations_from_synthesis(
+                document_id=UUID(document_id),
+                effective_coverages=effective_coverages,
+                effective_exclusions=effective_exclusions,
+            )
+            return {
+                "created_count": result.get("created_count", 0),
+                "skipped_count": result.get("skipped_count", 0),
+                "error_count": len(result.get("errors", [])),
+                "resolution_stats": result.get("resolution_stats", {}),
+                "status": "completed",
+            }
+    except Exception as e:
+        logger.error(
+            f"Citation creation activity failed for {document_id}: {e}",
+            exc_info=True,
+        )
+        raise
+
+
 @ActivityRegistry.register("shared", "construct_knowledge_graph_activity")
 @activity.defn
 async def construct_knowledge_graph_activity(document_id: str, workflow_id: str) -> dict:

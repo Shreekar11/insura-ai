@@ -5,7 +5,8 @@ to handle OCR variations and text normalization differences.
 """
 
 import re
-from dataclasses import dataclass
+from dataclasses import dataclass, field
+from difflib import SequenceMatcher
 from typing import Dict, List, Optional, Tuple
 
 from app.schemas.citation import BoundingBox, CitationSpan, TextMatch
@@ -25,6 +26,8 @@ class MatchConfig:
     fuzzy_threshold: float = 0.85
     y_tolerance: float = 5.0  # Points for line grouping
     context_words: int = 3  # Words of context for disambiguation
+    anchor_size: int = 15  # Words to use as anchor for long text matching
+    word_similarity_threshold: float = 0.8  # Per-word fuzzy match threshold
 
 
 class CitationMapper:
@@ -157,21 +160,40 @@ class CitationMapper:
         page_words: List[WordCoordinate],
         threshold: float
     ) -> Optional[CitationSpan]:
-        """Find word sequence in page words using sliding window."""
+        """Find word sequence in page words.
+
+        Uses anchor-based matching for long texts (> anchor_size words)
+        and full sliding window for short texts.
+        """
         if not search_words or not page_words:
             return None
 
         page_texts = [self._normalize_text(w.text) for w in page_words]
+        anchor_size = self.config.anchor_size
 
-        # Sliding window search
-        for i in range(len(page_words) - len(search_words) + 1):
-            window = page_texts[i:i + len(search_words)]
+        # For short texts, use full sliding window (original approach)
+        if len(search_words) <= anchor_size:
+            for i in range(len(page_words) - len(search_words) + 1):
+                window = page_texts[i:i + len(search_words)]
+                similarity = self._sequence_similarity(search_words, window)
+                if similarity >= threshold:
+                    matched_words = page_words[i:i + len(search_words)]
+                    return self._words_to_span(matched_words)
+            return None
 
-            # Calculate similarity
-            similarity = self._sequence_similarity(search_words, window)
+        # For long texts, use anchor-based matching:
+        # 1. Find start position using first N words as anchor
+        # 2. Extend to cover the full search length
+        anchor_words = search_words[:anchor_size]
 
-            if similarity >= threshold:
-                matched_words = page_words[i:i + len(search_words)]
+        for i in range(len(page_texts) - anchor_size + 1):
+            anchor_window = page_texts[i:i + anchor_size]
+            anchor_sim = self._sequence_similarity(anchor_words, anchor_window)
+
+            if anchor_sim >= threshold:
+                # Anchor matched — take the full span from this start position
+                end_idx = min(i + len(search_words), len(page_words))
+                matched_words = page_words[i:end_idx]
                 return self._words_to_span(matched_words)
 
         return None
@@ -214,16 +236,25 @@ class CitationMapper:
         seq1: List[str],
         seq2: List[str]
     ) -> float:
-        """Calculate similarity between word sequences.
-
-        Uses a simple token-level comparison. For production,
-        consider using rapidfuzz for better fuzzy matching.
-        """
+        """Calculate similarity between word sequences using fuzzy per-word matching."""
         if len(seq1) != len(seq2):
             return 0.0
 
-        matches = sum(1 for w1, w2 in zip(seq1, seq2) if w1 == w2)
+        word_thresh = self.config.word_similarity_threshold
+        matches = 0
+        for w1, w2 in zip(seq1, seq2):
+            if w1 == w2:
+                matches += 1
+            elif self._word_similarity(w1, w2) >= word_thresh:
+                matches += 1
         return matches / len(seq1)
+
+    @staticmethod
+    def _word_similarity(w1: str, w2: str) -> float:
+        """Character-level similarity between two words."""
+        if not w1 or not w2:
+            return 0.0
+        return SequenceMatcher(None, w1, w2).ratio()
 
     def _group_into_lines(
         self,
