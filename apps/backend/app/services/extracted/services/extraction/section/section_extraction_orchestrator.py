@@ -693,6 +693,13 @@ class SectionExtractionOrchestrator:
                     super_chunk.section_type.value
                 )
 
+            # Tag projection type for downstream synthesis routing
+            # This preserves which projection extractor produced the data
+            if extractor_key == "endorsement_coverage_projection":
+                extracted_data["_projection_type"] = "coverage"
+            elif extractor_key == "endorsement_exclusion_projection":
+                extracted_data["_projection_type"] = "exclusion"
+
             entities = parsed.get("entities", [])
             confidence = float(parsed.get("confidence", 0.0))
             
@@ -1171,6 +1178,13 @@ class SectionExtractionOrchestrator:
                 super_chunk.page_range,
                 super_chunk.section_type.value
             )
+
+        # Tag projection type for downstream synthesis routing (batched path)
+        # This preserves which projection extractor produced the data
+        if extractor_key == "endorsement_coverage_projection":
+            extracted_data["_projection_type"] = "coverage"
+        elif extractor_key == "endorsement_exclusion_projection":
+            extracted_data["_projection_type"] = "exclusion"
 
         entities = aggregated_parsed.get("entities", [])
         confidence = float(aggregated_parsed.get("confidence", 0.0))

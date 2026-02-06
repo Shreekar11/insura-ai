@@ -326,6 +326,9 @@ class SynthesisOrchestrator:
     ) -> tuple:
         """Extract endorsement data from extraction result.
 
+        Routes projection data to correct modification type based on _projection_type tag
+        added by section extraction orchestrator.
+
         Args:
             extraction_result: The extraction result dict.
 
@@ -343,22 +346,27 @@ class SynthesisOrchestrator:
             extracted_data = section.get("extracted_data", {})
 
             if section_type == "endorsements":
-                # Check if this is projection data (has "modifications" key in endorsements)
-                endorsements = extracted_data.get("endorsements", [])
+                # Check for projection type tag added by extraction orchestrator
+                projection_type = extracted_data.get("_projection_type")
 
-                has_modifications = any(
-                    "modifications" in endo for endo in endorsements
-                )
-
-                if has_modifications:
-                    # This is projection data - check for coverage vs exclusion
-                    # For now, treat as coverage modifications (most common)
+                if projection_type == "exclusion":
+                    # Exclusion projection data - route to exclusion synthesizer
+                    exclusion_modifications = extracted_data
+                elif projection_type == "coverage":
+                    # Coverage projection data - route to coverage synthesizer
                     endorsement_modifications = extracted_data
                 else:
-                    # This is basic endorsement data
-                    endorsement_data = extracted_data
-
-            # Future: handle dedicated exclusion projection section type
+                    # Backward compatibility: untagged data uses existing heuristic
+                    endorsements = extracted_data.get("endorsements", [])
+                    has_modifications = any(
+                        "modifications" in endo for endo in endorsements
+                    )
+                    if has_modifications:
+                        # Treat as coverage modifications (most common)
+                        endorsement_modifications = extracted_data
+                    else:
+                        # This is basic endorsement data
+                        endorsement_data = extracted_data
 
         return endorsement_data, endorsement_modifications, exclusion_modifications
 

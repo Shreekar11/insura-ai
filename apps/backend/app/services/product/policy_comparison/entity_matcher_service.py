@@ -34,6 +34,7 @@ class EntityMatcherService:
         doc1_entities: List[Dict[str, Any]],
         doc2_entities: List[Dict[str, Any]],
         entity_type: EntityType,
+        endorsement_mode: bool = False,
     ) -> List[Dict[str, Any]]:
         """Match entities between two documents.
 
@@ -41,6 +42,8 @@ class EntityMatcherService:
             doc1_entities: List of entities from document 1 (base/expiring)
             doc2_entities: List of entities from document 2 (endorsement/renewal)
             entity_type: Type of entity (coverage or exclusion)
+            endorsement_mode: If True, doc2 is an endorsement that only contains modifications.
+                            Unmatched doc1 entities are marked as UNCHANGED instead of REMOVED.
 
         Returns:
             List of match results with match_type, confidence, and entity references
@@ -87,19 +90,35 @@ class EntityMatcherService:
                 if match.get("doc2_index") is not None:
                     matched_doc2_indices.add(match["doc2_index"])
 
-        # Phase 3: Mark remaining as REMOVED (doc1 only) or ADDED (doc2 only)
+        # Phase 3: Mark remaining unmatched entities
+        # In endorsement mode, unmatched doc1 entities are UNCHANGED (not modified by endorsement)
+        # In standard mode, unmatched doc1 entities are REMOVED
         for i, entity in enumerate(doc1_entities):
             if i not in matched_doc1_indices:
-                matches.append({
-                    "match_type": MatchType.REMOVED,
-                    "doc1_index": i,
-                    "doc1_entity": entity,
-                    "doc2_index": None,
-                    "doc2_entity": None,
-                    "confidence": Decimal("1.0"),
-                    "match_method": "unmatched",
-                    "reasoning": f"No corresponding {entity_type.value} found in document 2",
-                })
+                if endorsement_mode:
+                    # Endorsement didn't modify this entity - it remains unchanged from base
+                    matches.append({
+                        "match_type": MatchType.UNCHANGED,
+                        "doc1_index": i,
+                        "doc1_entity": entity,
+                        "doc2_index": None,
+                        "doc2_entity": None,
+                        "confidence": Decimal("1.0"),
+                        "match_method": "endorsement_unmodified",
+                        "reasoning": f"Base {entity_type.value} not modified by endorsement",
+                    })
+                else:
+                    # Standard comparison - entity was removed in doc2
+                    matches.append({
+                        "match_type": MatchType.REMOVED,
+                        "doc1_index": i,
+                        "doc1_entity": entity,
+                        "doc2_index": None,
+                        "doc2_entity": None,
+                        "confidence": Decimal("1.0"),
+                        "match_method": "unmatched",
+                        "reasoning": f"No corresponding {entity_type.value} found in document 2",
+                    })
 
         for i, entity in enumerate(doc2_entities):
             if i not in matched_doc2_indices:
@@ -340,3 +359,156 @@ Return a JSON array of matches:
 
 Only include valid matches. Return empty array [] if no matches found.
 """
+
+    async def find_cross_type_matches(
+        self,
+        doc1_coverages: List[Dict[str, Any]],
+        doc1_exclusions: List[Dict[str, Any]],
+        doc2_coverages: List[Dict[str, Any]],
+        doc2_exclusions: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Find entities representing the same insurance concept but classified as different types.
+
+        This detects cases where the same provision is classified as Coverage in one document
+        and Exclusion in the other (or vice versa), which indicates a data quality issue.
+
+        Args:
+            doc1_coverages: Coverage entities from document 1
+            doc1_exclusions: Exclusion entities from document 1
+            doc2_coverages: Coverage entities from document 2
+            doc2_exclusions: Exclusion entities from document 2
+
+        Returns:
+            List of TYPE_RECLASSIFIED match results with both entity types recorded
+        """
+        LOGGER.info(
+            f"Finding cross-type matches: doc1 ({len(doc1_coverages)} cov, {len(doc1_exclusions)} exc) "
+            f"vs doc2 ({len(doc2_coverages)} cov, {len(doc2_exclusions)} exc)"
+        )
+
+        cross_type_matches = []
+
+        # Check doc1 coverages vs doc2 exclusions
+        if doc1_coverages and doc2_exclusions:
+            matches = await self._cross_type_llm_match(
+                doc1_coverages, doc2_exclusions,
+                EntityType.COVERAGE, EntityType.EXCLUSION
+            )
+            cross_type_matches.extend(matches)
+
+        # Check doc1 exclusions vs doc2 coverages
+        if doc1_exclusions and doc2_coverages:
+            matches = await self._cross_type_llm_match(
+                doc1_exclusions, doc2_coverages,
+                EntityType.EXCLUSION, EntityType.COVERAGE
+            )
+            cross_type_matches.extend(matches)
+
+        LOGGER.info(f"Found {len(cross_type_matches)} cross-type matches")
+        return cross_type_matches
+
+    async def _cross_type_llm_match(
+        self,
+        doc1_entities: List[Dict[str, Any]],
+        doc2_entities: List[Dict[str, Any]],
+        doc1_type: EntityType,
+        doc2_type: EntityType,
+    ) -> List[Dict[str, Any]]:
+        """Use LLM to detect cross-type matches between entities.
+
+        Args:
+            doc1_entities: Entities from document 1 (one type)
+            doc2_entities: Entities from document 2 (different type)
+            doc1_type: Entity type for doc1 entities
+            doc2_type: Entity type for doc2 entities
+
+        Returns:
+            List of TYPE_RECLASSIFIED match results
+        """
+        # Simplify entity data for LLM (reduce token usage)
+        simplified_doc1 = []
+        for i, entity in enumerate(doc1_entities):
+            name = entity.get("coverage_name") or entity.get("exclusion_name") or entity.get("name") or entity.get("title")
+            desc = entity.get("description") or entity.get("scope") or ""
+            simplified_doc1.append({
+                "index": i,
+                "name": name,
+                "description": desc[:200] if desc else "",  # Truncate long descriptions
+                "type": doc1_type.value,
+            })
+
+        simplified_doc2 = []
+        for i, entity in enumerate(doc2_entities):
+            name = entity.get("coverage_name") or entity.get("exclusion_name") or entity.get("name") or entity.get("title")
+            desc = entity.get("description") or entity.get("scope") or ""
+            simplified_doc2.append({
+                "index": i,
+                "name": name,
+                "description": desc[:200] if desc else "",
+                "type": doc2_type.value,
+            })
+
+        prompt = f"""You are an insurance policy expert. Find entities that represent the SAME insurance concept but are classified as different entity types.
+
+Document 1 entities ({doc1_type.value}s):
+{json.dumps(simplified_doc1, indent=2)}
+
+Document 2 entities ({doc2_type.value}s):
+{json.dumps(simplified_doc2, indent=2)}
+
+Task: Find pairs where an entity in Document 1 and an entity in Document 2 represent the SAME insurance provision/concept, but are classified as different types.
+
+ONLY return high-confidence matches (confidence >= 0.8) where you are certain the entities represent the same concept.
+
+Return a JSON array:
+[
+  {{
+    "doc1_index": <index from doc1>,
+    "doc2_index": <index from doc2>,
+    "confidence": <0.8-1.0>,
+    "reasoning": "<brief explanation of why these represent the same concept>"
+  }}
+]
+
+Return empty array [] if no high-confidence cross-type matches found.
+"""
+
+        try:
+            response = await self.client.generate_content(contents=prompt)
+            matches_data = parse_json_safely(response, fallback=[])
+
+            if not isinstance(matches_data, list):
+                LOGGER.warning(f"Cross-type LLM response not a list: {matches_data}")
+                return []
+
+            results = []
+            for match in matches_data:
+                doc1_idx = match.get("doc1_index")
+                doc2_idx = match.get("doc2_index")
+                confidence = match.get("confidence", 0.0)
+
+                if doc1_idx is None or doc2_idx is None:
+                    continue
+
+                if doc1_idx >= len(doc1_entities) or doc2_idx >= len(doc2_entities):
+                    LOGGER.warning(f"Invalid cross-type match indices: {doc1_idx}, {doc2_idx}")
+                    continue
+
+                results.append({
+                    "match_type": MatchType.TYPE_RECLASSIFIED,
+                    "doc1_index": doc1_idx,
+                    "doc1_entity": doc1_entities[doc1_idx],
+                    "doc1_type": doc1_type,
+                    "doc2_index": doc2_idx,
+                    "doc2_entity": doc2_entities[doc2_idx],
+                    "doc2_type": doc2_type,
+                    "confidence": Decimal(str(confidence)),
+                    "match_method": "cross_type_llm",
+                    "reasoning": match.get("reasoning", "Same concept classified as different entity type"),
+                })
+
+            return results
+
+        except Exception as e:
+            LOGGER.error(f"Cross-type LLM matching failed: {e}", exc_info=True)
+            return []

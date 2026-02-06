@@ -17,6 +17,8 @@ class MatchType(str, Enum):
     PARTIAL_MATCH = "partial_match"  # Similar but with differences
     ADDED = "added"  # Present in doc2 only
     REMOVED = "removed"  # Present in doc1 only
+    UNCHANGED = "unchanged"  # Base entity not modified by endorsement
+    TYPE_RECLASSIFIED = "type_reclassified"  # Same concept, different entity type
     NO_MATCH = "no_match"  # No corresponding entity found
 
 
@@ -102,11 +104,15 @@ class EntityComparisonSummary(BaseModel):
     coverage_partial_matches: int = Field(0, description="Number of partial coverage matches")
     coverages_added: int = Field(0, description="Coverages added in document 2")
     coverages_removed: int = Field(0, description="Coverages removed from document 1")
+    coverages_unchanged: int = Field(0, description="Base coverages not modified by endorsement")
 
     exclusion_matches: int = Field(0, description="Number of exact exclusion matches")
     exclusion_partial_matches: int = Field(0, description="Number of partial exclusion matches")
     exclusions_added: int = Field(0, description="Exclusions added in document 2")
     exclusions_removed: int = Field(0, description="Exclusions removed from document 1")
+    exclusions_unchanged: int = Field(0, description="Base exclusions not modified by endorsement")
+
+    entities_reclassified: int = Field(0, description="Entities classified as different types across documents")
 
 
 class EntityComparisonResult(BaseModel):
