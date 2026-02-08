@@ -7,46 +7,25 @@ export const $EntityComparison = {
         entity_type: {
             type: 'Enum',
         },
+        comparison_source: {
+            type: 'Enum',
+        },
+        section_type: {
+            type: 'string',
+            isNullable: true,
+        },
+        entity_id: {
+            type: 'string',
+            isNullable: true,
+        },
+        entity_name: {
+            type: 'string',
+        },
         match_type: {
             type: 'Enum',
         },
-        doc1_entity: {
-            type: 'dictionary',
-            contains: {
-                properties: {
-                },
-            },
-            isNullable: true,
-        },
-        doc1_name: {
-            type: 'string',
-            isNullable: true,
-        },
-        doc1_canonical_id: {
-            type: 'string',
-            isNullable: true,
-        },
-        doc2_entity: {
-            type: 'dictionary',
-            contains: {
-                properties: {
-                },
-            },
-            isNullable: true,
-        },
-        doc2_name: {
-            type: 'string',
-            isNullable: true,
-        },
-        doc2_canonical_id: {
-            type: 'string',
-            isNullable: true,
-        },
         confidence: {
             type: 'number',
-        },
-        match_method: {
-            type: 'string',
         },
         field_differences: {
             type: 'array',
@@ -62,6 +41,68 @@ export const $EntityComparison = {
         reasoning: {
             type: 'string',
             isNullable: true,
+        },
+        doc1_summary: {
+            type: 'string',
+            isNullable: true,
+        },
+        doc2_summary: {
+            type: 'string',
+            isNullable: true,
+        },
+        comparison_summary: {
+            type: 'string',
+            isNullable: true,
+        },
+        doc1_content: {
+            type: 'dictionary',
+            contains: {
+                properties: {
+                },
+            },
+            isNullable: true,
+        },
+        doc2_content: {
+            type: 'dictionary',
+            contains: {
+                properties: {
+                },
+            },
+            isNullable: true,
+        },
+        doc1_page_range: {
+            type: 'dictionary',
+            contains: {
+                properties: {
+                },
+            },
+            isNullable: true,
+        },
+        doc2_page_range: {
+            type: 'dictionary',
+            contains: {
+                properties: {
+                },
+            },
+            isNullable: true,
+        },
+        doc1_confidence: {
+            type: 'number',
+            isNullable: true,
+        },
+        doc2_confidence: {
+            type: 'number',
+            isNullable: true,
+        },
+        doc1_extraction_id: {
+            type: 'string',
+            isNullable: true,
+            format: 'uuid',
+        },
+        doc2_extraction_id: {
+            type: 'string',
+            isNullable: true,
+            format: 'uuid',
         },
         severity: {
             type: 'Enum',

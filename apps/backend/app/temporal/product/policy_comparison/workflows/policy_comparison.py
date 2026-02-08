@@ -2,7 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 
 from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
@@ -46,6 +46,7 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         workflow_name = payload.get("workflow_name")
         documents = payload.get("documents")
         document_ids = [doc.get("document_id") for doc in documents]
+        doc_names = [doc.get("document_name") for doc in documents]
 
         self._status = "running"
         self._progress = 0.0
@@ -111,6 +112,15 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
             "persist_comparison_result_activity",
             args=[workflow_id, workflow_definition_id, document_ids, alignment_result, reasoning_result, phase_b_result],
             start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # Entity Comparison
+        self._current_step = "entity_comparison"
+        self._progress = 0.98
+        await workflow.execute_activity(
+            "entity_comparison_activity",
+            args=[workflow_id, document_ids, doc_names],
+            start_to_close_timeout=timedelta(seconds=120),
         )
 
         await workflow.execute_activity(

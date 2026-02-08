@@ -2,7 +2,8 @@
 
 import * as React from "react";
 import { GalleryVerticalEnd, FileText, Blocks } from "lucide-react";
-import { IconChartBar, IconReport, IconFileWord } from "@tabler/icons-react";
+import { IconChartBar, IconFileWord } from "@tabler/icons-react";
+import { GitCompare } from "lucide-react";
 
 import { NavUser } from "@/components/layout/nav-user";
 import {
@@ -89,7 +90,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                 ))
               : workflowDefinitions?.map((item, index) => {
                   const Icon = item.name?.toLowerCase().includes("policy")
-                    ? IconReport
+                    ? GitCompare
                     : item.name?.toLowerCase().includes("proposal")
                       ? IconFileWord
                       : item.name?.toLowerCase().includes("quote")

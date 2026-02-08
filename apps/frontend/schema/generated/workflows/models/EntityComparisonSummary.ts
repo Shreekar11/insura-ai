@@ -3,17 +3,37 @@
 /* tslint:disable */
 /* eslint-disable */
 export type EntityComparisonSummary = {
-    total_coverages_doc1?: number;
-    total_coverages_doc2?: number;
-    total_exclusions_doc1?: number;
-    total_exclusions_doc2?: number;
+    /**
+     * Total effective entities compared
+     */
+    total_comparisons?: number;
+    /**
+     * Number of exact coverage matches
+     */
     coverage_matches?: number;
-    coverage_partial_matches?: number;
-    coverages_added?: number;
-    coverages_removed?: number;
+    /**
+     * Number of exact exclusion matches
+     */
     exclusion_matches?: number;
-    exclusion_partial_matches?: number;
-    exclusions_added?: number;
-    exclusions_removed?: number;
+    /**
+     * Total entities added
+     */
+    total_added?: number;
+    /**
+     * Total entities removed
+     */
+    total_removed?: number;
+    /**
+     * Total entities with partial matches
+     */
+    total_modified?: number;
+    /**
+     * Number of section-level coverage comparisons
+     */
+    section_coverage_comparisons?: number;
+    /**
+     * Number of section-level exclusion comparisons
+     */
+    section_exclusion_comparisons?: number;
 };
 

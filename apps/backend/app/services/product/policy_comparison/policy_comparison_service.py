@@ -294,6 +294,8 @@ class PolicyComparisonService:
         doc2_id: UUID,
         doc1_data: Dict[str, Any],
         doc2_data: Dict[str, Any],
+        doc1_name: str,
+        doc2_name: str,
     ) -> EntityComparisonResult:
         """Execute entity-level comparison between two documents.
 
@@ -329,7 +331,7 @@ class PolicyComparisonService:
         )
 
         # Emit comparison:completed event
-        await self._emit_comparison_completed_event(workflow_id, result)
+        await self._emit_comparison_completed_event(workflow_id, result, doc1_name, doc2_name)
 
         LOGGER.info(
             f"Entity comparison completed for workflow {workflow_id}",
@@ -346,6 +348,8 @@ class PolicyComparisonService:
         self,
         workflow_id: UUID,
         result: EntityComparisonResult,
+        doc1_name: str,
+        doc2_name: str,
     ) -> None:
         """Emit a comparison:completed SSE event.
 
@@ -356,17 +360,16 @@ class PolicyComparisonService:
         event_payload = {
             "stage_name": "entity_comparison",
             "status": "completed",
-            "message": "Entity comparison completed successfully",
+            "message": f"Comparison between {doc1_name} and {doc2_name}",
             "has_comparison": True,
             "comparison_summary": {
                 "coverage_matches": result.summary.coverage_matches,
-                "coverage_partial_matches": result.summary.coverage_partial_matches,
-                "coverages_added": result.summary.coverages_added,
-                "coverages_removed": result.summary.coverages_removed,
                 "exclusion_matches": result.summary.exclusion_matches,
-                "exclusion_partial_matches": result.summary.exclusion_partial_matches,
-                "exclusions_added": result.summary.exclusions_added,
-                "exclusions_removed": result.summary.exclusions_removed,
+                "section_coverage_comparisons": result.summary.section_coverage_comparisons,
+                "section_exclusion_comparisons": result.summary.section_exclusion_comparisons,
+                "total_added": result.summary.total_added,
+                "total_removed": result.summary.total_removed,
+                "total_modified": result.summary.total_modified,
             },
             "overall_confidence": float(result.overall_confidence),
             "overall_explanation": result.overall_explanation,

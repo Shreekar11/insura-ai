@@ -1,14 +1,7 @@
 "use client";
 
-import React, { useMemo, useRef, useEffect, useState } from "react";
-import { 
-  Loader2, 
-  ChevronDown,
-  Sparkles,
-  Check,
-  ArrowRight,
-  ChevronUp,
-} from "lucide-react";
+import { useMemo, useRef, useEffect, useState } from "react";
+import { Loader2, ChevronDown, Check, ArrowRight } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { WorkflowEvent } from "@/hooks/use-workflow-stream";
 import {
@@ -19,7 +12,6 @@ import {
 import { motion, AnimatePresence } from "framer-motion";
 import { Button } from "@/components/ui/button";
 import { ScrollArea } from "@/components/ui/scroll-area";
-import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
 
 interface WorkflowTimelineProps {
   definitionName: string;
@@ -47,7 +39,7 @@ export function WorkflowTimeline({
   isConnected,
   isComplete,
   onViewOutput,
-  onViewComparison
+  onViewComparison,
 }: WorkflowTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -61,7 +53,7 @@ export function WorkflowTimeline({
       const docId = data?.document_id;
       const stageName = data?.stage_name;
       const message = data?.message;
-      
+
       let stepKey = "";
 
       // Logic to unify events into stable steps
@@ -87,12 +79,20 @@ export function WorkflowTimeline({
         stepKey = docId ? `${docId}:${event_type}` : `global:${event_type}`;
       }
 
-      const status = (event_type === "stage:completed" || event_type === "workflow:completed" || (event_type === "workflow:progress" && data?.status === "completed"))
-        ? "completed" 
-        : (event_type === "stage:failed" || event_type === "workflow:failed" || (event_type === "workflow:progress" && data?.status === "failed") ? "failed" : "running");
+      const status =
+        event_type === "stage:completed" ||
+        event_type === "workflow:completed" ||
+        (event_type === "workflow:progress" && data?.status === "completed")
+          ? "completed"
+          : event_type === "stage:failed" ||
+              event_type === "workflow:failed" ||
+              (event_type === "workflow:progress" && data?.status === "failed")
+            ? "failed"
+            : "running";
 
       const hasOutput = !!data?.has_output;
-      const hasComparison = !!data?.has_comparison || event_type === "comparison:completed";
+      const hasComparison =
+        !!data?.has_comparison || event_type === "comparison:completed";
 
       if (!stepMap.has(stepKey)) {
         orderedKeys.push(stepKey);
@@ -106,26 +106,30 @@ export function WorkflowTimeline({
         docId,
         workflowId: data?.workflow_id || event.workflow_id,
         hasOutput,
-        hasComparison
+        hasComparison,
       });
     });
-    
-    const finalSteps: WorkflowStep[] = orderedKeys.map(key => ({ ...stepMap.get(key)! }));
-    
+
+    const finalSteps: WorkflowStep[] = orderedKeys.map((key) => ({
+      ...stepMap.get(key)!,
+    }));
+
     // Pass 2: Clean up statuses based on sequence
     for (let i = 0; i < finalSteps.length; i++) {
-        const step = finalSteps[i];
-        if (!step) continue;
-        
-        const isLast = i === finalSteps.length - 1;
+      const step = finalSteps[i];
+      if (!step) continue;
 
-        // Auto-complete previous steps for the same document
-        if (step.status === 'running') {
-            const hasLaterDocStep = finalSteps.slice(i + 1).some(s => s && s.docId === step.docId);
-            if (hasLaterDocStep || (isComplete && isLast)) {
-                step.status = 'completed';
-            }
+      const isLast = i === finalSteps.length - 1;
+
+      // Auto-complete previous steps for the same document
+      if (step.status === "running") {
+        const hasLaterDocStep = finalSteps
+          .slice(i + 1)
+          .some((s) => s && s.docId === step.docId);
+        if (hasLaterDocStep || (isComplete && isLast)) {
+          step.status = "completed";
         }
+      }
     }
 
     return finalSteps;
@@ -135,18 +139,23 @@ export function WorkflowTimeline({
   const [showBottomBlur, setShowBottomBlur] = useState(false);
 
   useEffect(() => {
-    const scrollContainer = scrollRef.current?.querySelector('[data-radix-scroll-area-viewport]');
-    
+    const scrollContainer = scrollRef.current?.querySelector(
+      "[data-radix-scroll-area-viewport]",
+    );
+
     const handleScroll = () => {
       if (scrollContainer) {
-        const { scrollTop, scrollHeight, clientHeight } = scrollContainer as HTMLElement;
+        const { scrollTop, scrollHeight, clientHeight } =
+          scrollContainer as HTMLElement;
         setShowTopBlur(scrollTop > 10);
         setShowBottomBlur(scrollTop + clientHeight < scrollHeight);
       }
     };
 
     if (scrollRef.current) {
-      const viewport = scrollRef.current.querySelector('[data-radix-scroll-area-viewport]');
+      const viewport = scrollRef.current.querySelector(
+        "[data-radix-scroll-area-viewport]",
+      );
       if (viewport) {
         viewport.scrollTop = viewport.scrollHeight;
         setTimeout(handleScroll, 100);
@@ -162,7 +171,9 @@ export function WorkflowTimeline({
   if (events.length === 0) return null;
 
   const latestStep = steps[steps.length - 1];
-  const latestMessage = latestStep?.message || (isComplete ? "Workflow finished" : "Initializing...");
+  const latestMessage =
+    latestStep?.message ||
+    (isComplete ? "Workflow finished" : "Initializing...");
 
   return (
     <div className="w-full max-w-2xl mx-auto">
@@ -173,7 +184,9 @@ export function WorkflowTimeline({
               <div className="flex items-center gap-4 relative z-10 shrink-0">
                 <div className="flex flex-col items-start gap-1">
                   <span className="text-sm font-bold text-zinc-900 dark:text-zinc-100 tracking-tight text-left">
-                    {isComplete ? `${definitionName} Successfully Executed` : `${definitionName} Running`}
+                    {isComplete
+                      ? `${definitionName} Successfully Executed`
+                      : `${definitionName} Running`}
                   </span>
                   <p className="text-xs text-zinc-500 dark:text-zinc-400 font-medium text-left line-clamp-1">
                     {latestMessage}
@@ -193,7 +206,7 @@ export function WorkflowTimeline({
           <CollapsibleContent>
             <div className="px-6 pb-8 pt-2">
               <div className="relative">
-                <ScrollArea 
+                <ScrollArea
                   ref={scrollRef}
                   className="relative flex flex-col gap-1 max-h-[250px]"
                 >
@@ -232,18 +245,24 @@ export function WorkflowTimeline({
                           </div>
 
                           <div className="flex-1 flex items-center justify-between min-h-[2.5rem] rounded transition-colors">
-                            <span className={cn(
-                              "text-[13px] transition-colors duration-300",
-                              isCompleted ? "text-zinc-500 dark:text-zinc-400 font-medium" : (isRunning ? "text-[#1D3DCE]/80 dark:text-[#1D3DCE]/80 font-semibold" : "text-zinc-400 dark:text-zinc-500 font-medium"),
-                            )}>
+                            <span
+                              className={cn(
+                                "text-[13px] transition-colors duration-300",
+                                isCompleted
+                                  ? "text-zinc-500 dark:text-zinc-400 font-medium"
+                                  : isRunning
+                                    ? "text-[#1D3DCE]/80 dark:text-[#1D3DCE]/80 font-semibold"
+                                    : "text-zinc-400 dark:text-zinc-500 font-medium",
+                              )}
+                            >
                               {step.message}
                             </span>
-                            
+
                             {isCompleted && step.hasOutput && (
                               <Button
-                                variant="ghost"
+                                variant="outline"
                                 size="sm"
-                                className="h-7 px-2.5 text-[11px] font-bold text-zinc-500 dark:text-zinc-400 hover:bg-zinc-100 dark:hover:bg-zinc-800 hover:text-zinc-900 dark:hover:text-zinc-100 rounded group/btn shadow-none"
+                                className="h-7 rounded text-xs"
                                 onClick={(e) => {
                                   e.stopPropagation();
                                   if (step.workflowId && step.docId) {
@@ -255,22 +274,24 @@ export function WorkflowTimeline({
                                 <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
                               </Button>
                             )}
-                            {isCompleted && step.hasComparison && onViewComparison && (
-                              <Button
-                                variant="ghost"
-                                size="sm"
-                                className="h-7 px-2.5 text-[11px] font-bold text-blue-600 dark:text-blue-400 hover:bg-blue-50 dark:hover:bg-blue-900/20 hover:text-blue-700 dark:hover:text-blue-300 rounded group/btn shadow-none"
-                                onClick={(e) => {
-                                  e.stopPropagation();
-                                  if (step.workflowId) {
-                                    onViewComparison(step.workflowId);
-                                  }
-                                }}
-                              >
-                                View Comparison
-                                <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
-                              </Button>
-                            )}
+                            {isCompleted &&
+                              step.hasComparison &&
+                              onViewComparison && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 rounded text-xs"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (step.workflowId) {
+                                      onViewComparison(step.workflowId);
+                                    }
+                                  }}
+                                >
+                                  View Output
+                                  <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
+                                </Button>
+                              )}
                           </div>
                         </motion.div>
                       );
@@ -279,19 +300,19 @@ export function WorkflowTimeline({
                 </ScrollArea>
 
                 {/* Top Blur Overlay */}
-                <div 
+                <div
                   className={cn(
                     "absolute top-0 left-0 right-0 h-10 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-b from-white via-white/80 to-transparent dark:from-zinc-950 dark:via-zinc-950/80 dark:to-transparent",
-                    showTopBlur ? "opacity-100" : "opacity-0"
-                  )} 
+                    showTopBlur ? "opacity-100" : "opacity-0",
+                  )}
                 />
 
                 {/* Bottom Blur Overlay */}
-                <div 
+                <div
                   className={cn(
                     "absolute bottom-0 left-0 right-0 h-10 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-t from-white via-white/80 to-transparent dark:from-zinc-950 dark:via-zinc-950/80 dark:to-transparent",
-                    showBottomBlur ? "opacity-100" : "opacity-0"
-                  )} 
+                    showBottomBlur ? "opacity-100" : "opacity-0",
+                  )}
                 />
               </div>
             </div>

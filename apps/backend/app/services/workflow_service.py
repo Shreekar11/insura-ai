@@ -1031,13 +1031,16 @@ class WorkflowService(BaseService):
             "extracted_data": {
                 "sections": [
                     {
+                        "id": e.id,
                         "section_type": e.section_type,
                         "fields": e.display_payload,
-                        "confidence": e.confidence
+                        "confidence": e.confidence,
+                        "page_range": e.page_range
                     } for e in extracted_section_fields
                 ],
                 "entities": [
                     {
+                        "id": e.id,
                         "entity_type": e.entity_type,
                         "fields": e.display_payload,
                         "confidence": e.confidence
@@ -1110,8 +1113,10 @@ class WorkflowService(BaseService):
             self.logger.error(f"Workflow {workflow_id} has less than 2 documents")
             return None
 
-        doc1_id = workflow_docs[0].document_id
-        doc2_id = workflow_docs[1].document_id
+        doc1 = workflow_docs[0].document
+        doc2 = workflow_docs[1].document
+        doc1_id = doc1.id
+        doc2_id = doc2.id
 
         # Get extracted data for both documents
         doc1_data = await self.get_workflow_extraction(workflow_id, doc1_id, user_id)
@@ -1131,6 +1136,8 @@ class WorkflowService(BaseService):
             doc2_id=doc2_id,
             doc1_data=doc1_data.get("extracted_data", {}),
             doc2_data=doc2_data.get("extracted_data", {}),
+            doc1_name=doc1.document_name or doc1.file_path.split("/")[-1],
+            doc2_name=doc2.document_name or doc2.file_path.split("/")[-1],
         )
 
         return result.model_dump(mode="json")

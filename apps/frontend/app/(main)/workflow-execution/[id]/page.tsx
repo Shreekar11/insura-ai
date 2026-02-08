@@ -29,6 +29,7 @@ import {
   usePDFHighlight,
 } from "@/contexts/pdf-highlight-context";
 import { PDFViewerPanel } from "@/components/custom/pdf-viewer/pdf-viewer-panel";
+import { ComparisonOutputSidebar } from "@/components/custom/comparison-output-sidebar";
 
 function WorkflowExecutionContent() {
   const { id } = useParams();
@@ -48,6 +49,7 @@ function WorkflowExecutionContent() {
 
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [comparisonSidebarOpen, setComparisonSidebarOpen] = useState(false);
   const [selectedOutput, setSelectedOutput] = useState<{
     workflowId: string;
     documentId: string;
@@ -187,12 +189,18 @@ function WorkflowExecutionContent() {
   const handleViewOutput = (wId: string, dId: string) => {
     setSelectedOutput({ workflowId: wId, documentId: dId });
     setSidebarOpen(true);
+    setComparisonSidebarOpen(false);
+  };
+
+  const handleViewComparison = (wId: string) => {
+    setComparisonSidebarOpen(true);
+    setSidebarOpen(false);
   };
 
   // Determine layout state
   const layoutState = pdfViewerOpen
     ? "pdf-active"
-    : sidebarOpen
+    : sidebarOpen || comparisonSidebarOpen
       ? "two-column"
       : "one-column";
 
@@ -279,6 +287,7 @@ function WorkflowExecutionContent() {
                     isConnected={isConnected}
                     isComplete={isComplete}
                     onViewOutput={handleViewOutput}
+                    onViewComparison={handleViewComparison}
                   />
                 </div>
               )}
@@ -303,6 +312,26 @@ function WorkflowExecutionContent() {
               onOpenChange={setSidebarOpen}
               workflowId={selectedOutput?.workflowId ?? null}
               documentId={selectedOutput?.documentId ?? null}
+            />
+          </ResizablePanel>
+        </>
+      )}
+
+      {comparisonSidebarOpen && (
+        <>
+          <ResizableHandle
+            withHandle
+            className={cn(layoutState === "pdf-active" && "hidden")}
+          />
+          <ResizablePanel
+            defaultSize={50}
+            minSize={20}
+            className="overflow-hidden"
+          >
+            <ComparisonOutputSidebar
+              open={comparisonSidebarOpen}
+              onOpenChange={setComparisonSidebarOpen}
+              workflowId={workflowId}
             />
           </ResizablePanel>
         </>

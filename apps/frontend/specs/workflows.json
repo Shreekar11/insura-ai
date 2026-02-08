@@ -1348,41 +1348,37 @@
       "EntityComparisonSummary": {
         "type": "object",
         "properties": {
-          "total_coverages_doc1": {
-            "type": "integer"
-          },
-          "total_coverages_doc2": {
-            "type": "integer"
-          },
-          "total_exclusions_doc1": {
-            "type": "integer"
-          },
-          "total_exclusions_doc2": {
-            "type": "integer"
+          "total_comparisons": {
+            "type": "integer",
+            "description": "Total effective entities compared"
           },
           "coverage_matches": {
-            "type": "integer"
-          },
-          "coverage_partial_matches": {
-            "type": "integer"
-          },
-          "coverages_added": {
-            "type": "integer"
-          },
-          "coverages_removed": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Number of exact coverage matches"
           },
           "exclusion_matches": {
-            "type": "integer"
+            "type": "integer",
+            "description": "Number of exact exclusion matches"
           },
-          "exclusion_partial_matches": {
-            "type": "integer"
+          "total_added": {
+            "type": "integer",
+            "description": "Total entities added"
           },
-          "exclusions_added": {
-            "type": "integer"
+          "total_removed": {
+            "type": "integer",
+            "description": "Total entities removed"
           },
-          "exclusions_removed": {
-            "type": "integer"
+          "total_modified": {
+            "type": "integer",
+            "description": "Total entities with partial matches"
+          },
+          "section_coverage_comparisons": {
+            "type": "integer",
+            "description": "Number of section-level coverage comparisons"
+          },
+          "section_exclusion_comparisons": {
+            "type": "integer",
+            "description": "Number of section-level exclusion comparisons"
           }
         }
       },
@@ -1391,41 +1387,34 @@
         "properties": {
           "entity_type": {
             "type": "string",
-            "enum": ["coverage", "exclusion"]
+            "enum": [
+              "coverage",
+              "exclusion",
+              "section_coverage",
+              "section_exclusion"
+            ]
+          },
+          "comparison_source": {
+            "type": "string",
+            "enum": ["effective", "section"]
+          },
+          "section_type": {
+            "type": "string",
+            "nullable": true
+          },
+          "entity_id": {
+            "type": "string",
+            "nullable": true
+          },
+          "entity_name": {
+            "type": "string"
           },
           "match_type": {
             "type": "string",
             "enum": ["match", "partial_match", "added", "removed", "no_match"]
           },
-          "doc1_entity": {
-            "type": "object",
-            "nullable": true
-          },
-          "doc1_name": {
-            "type": "string",
-            "nullable": true
-          },
-          "doc1_canonical_id": {
-            "type": "string",
-            "nullable": true
-          },
-          "doc2_entity": {
-            "type": "object",
-            "nullable": true
-          },
-          "doc2_name": {
-            "type": "string",
-            "nullable": true
-          },
-          "doc2_canonical_id": {
-            "type": "string",
-            "nullable": true
-          },
           "confidence": {
             "type": "number"
-          },
-          "match_method": {
-            "type": "string"
           },
           "field_differences": {
             "type": "array",
@@ -1436,6 +1425,52 @@
           },
           "reasoning": {
             "type": "string",
+            "nullable": true
+          },
+          "doc1_summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "doc2_summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "comparison_summary": {
+            "type": "string",
+            "nullable": true
+          },
+          "doc1_content": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc2_content": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc1_page_range": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc2_page_range": {
+            "type": "object",
+            "nullable": true
+          },
+          "doc1_confidence": {
+            "type": "number",
+            "nullable": true
+          },
+          "doc2_confidence": {
+            "type": "number",
+            "nullable": true
+          },
+          "doc1_extraction_id": {
+            "type": "string",
+            "format": "uuid",
+            "nullable": true
+          },
+          "doc2_extraction_id": {
+            "type": "string",
+            "format": "uuid",
             "nullable": true
           },
           "severity": {

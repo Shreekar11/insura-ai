@@ -1,11 +1,33 @@
 "use client";
 
-import { Loader2, GitCompare, X, CheckCircle2, MinusCircle, PlusCircle, AlertCircle } from "lucide-react";
+import {
+  Loader2,
+  GitCompare,
+  X,
+  CheckCircle2,
+  MinusCircle,
+  PlusCircle,
+  AlertCircle,
+  Search,
+  Download,
+} from "lucide-react";
+import React from "react";
 import { useComparisonData } from "@/hooks/use-comparison-data";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Input } from "@/components/ui/input";
+import { TooltipProvider } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
-import { EntityComparison, EntityComparisonSummary } from "@/schema/generated/workflows";
+import {
+  Table,
+  TableBody,
+  TableCell,
+  TableHead,
+  TableHeader,
+  TableRow,
+} from "@/components/ui/table";
+import { EntityComparison } from "@/schema/generated/workflows";
+import { useSidebar } from "../ui/sidebar";
 
 interface ComparisonOutputSidebarProps {
   open: boolean;
@@ -14,20 +36,30 @@ interface ComparisonOutputSidebarProps {
 }
 
 function MatchTypeBadge({ matchType }: { matchType: string }) {
-  const config: Record<string, { label: string; className: string; icon: React.ReactNode }> = {
+  const config: Record<
+    string,
+    {
+      label: string | undefined;
+      className: string | undefined;
+      icon: React.ReactNode | undefined;
+    }
+  > = {
     match: {
       label: "Match",
-      className: "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
+      className:
+        "bg-green-100 text-green-700 dark:bg-green-900/30 dark:text-green-400",
       icon: <CheckCircle2 className="size-3" />,
     },
     partial_match: {
       label: "Partial",
-      className: "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
+      className:
+        "bg-yellow-100 text-yellow-700 dark:bg-yellow-900/30 dark:text-yellow-400",
       icon: <AlertCircle className="size-3" />,
     },
     added: {
       label: "Added",
-      className: "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
+      className:
+        "bg-blue-100 text-blue-700 dark:bg-blue-900/30 dark:text-blue-400",
       icon: <PlusCircle className="size-3" />,
     },
     removed: {
@@ -37,167 +69,23 @@ function MatchTypeBadge({ matchType }: { matchType: string }) {
     },
     no_match: {
       label: "No Match",
-      className: "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
+      className:
+        "bg-zinc-100 text-zinc-700 dark:bg-zinc-800 dark:text-zinc-400",
       icon: <X className="size-3" />,
     },
   };
 
-  const { label, className, icon } = config[matchType] || config.no_match;
+  const { label, className, icon } = config[matchType] ||
+    config.no_match || { label: "", className: "", icon: null };
 
   return (
-    <Badge variant="secondary" className={cn("gap-1 font-normal", className)}>
+    <Badge
+      variant="secondary"
+      className={cn("gap-1 font-normal rounded", className)}
+    >
       {icon}
       {label}
     </Badge>
-  );
-}
-
-function ComparisonSummaryCard({ summary, doc1Name, doc2Name }: {
-  summary: EntityComparisonSummary;
-  doc1Name: string;
-  doc2Name: string;
-}) {
-  return (
-    <div className="bg-zinc-50 dark:bg-zinc-900 rounded-lg p-4 mb-6">
-      <h3 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 mb-3">
-        Comparison Summary
-      </h3>
-      <div className="grid grid-cols-2 gap-4 text-xs">
-        <div>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-2 font-medium">{doc1Name}</p>
-          <div className="space-y-1">
-            <p>{summary.total_coverages_doc1} coverages</p>
-            <p>{summary.total_exclusions_doc1} exclusions</p>
-          </div>
-        </div>
-        <div>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-2 font-medium">{doc2Name}</p>
-          <div className="space-y-1">
-            <p>{summary.total_coverages_doc2} coverages</p>
-            <p>{summary.total_exclusions_doc2} exclusions</p>
-          </div>
-        </div>
-      </div>
-      <div className="border-t border-zinc-200 dark:border-zinc-800 mt-4 pt-4">
-        <div className="grid grid-cols-2 gap-2 text-xs">
-          <div className="flex items-center gap-2">
-            <span className="text-green-600 font-medium">{summary.coverage_matches + summary.exclusion_matches}</span>
-            <span className="text-zinc-500">Exact Matches</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-yellow-600 font-medium">{summary.coverage_partial_matches + summary.exclusion_partial_matches}</span>
-            <span className="text-zinc-500">Partial Matches</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-blue-600 font-medium">{summary.coverages_added + summary.exclusions_added}</span>
-            <span className="text-zinc-500">Added</span>
-          </div>
-          <div className="flex items-center gap-2">
-            <span className="text-red-600 font-medium">{summary.coverages_removed + summary.exclusions_removed}</span>
-            <span className="text-zinc-500">Removed</span>
-          </div>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function ComparisonRow({ comparison, doc1Name, doc2Name }: {
-  comparison: EntityComparison;
-  doc1Name: string;
-  doc2Name: string;
-}) {
-  const entityName = comparison.doc1_name || comparison.doc2_name || "Unknown";
-  const entityType = comparison.entity_type === "coverage" ? "Coverage" : "Exclusion";
-
-  return (
-    <div className="border border-zinc-200 dark:border-zinc-800 rounded-lg p-4 mb-3">
-      <div className="flex items-start justify-between mb-3">
-        <div className="flex-1">
-          <div className="flex items-center gap-2 mb-1">
-            <span className="text-xs font-medium text-zinc-500 dark:text-zinc-400 uppercase">
-              {entityType}
-            </span>
-            <MatchTypeBadge matchType={comparison.match_type || "no_match"} />
-          </div>
-          <h4 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100">
-            {entityName}
-          </h4>
-        </div>
-      </div>
-
-      {/* Side-by-side comparison */}
-      <div className="grid grid-cols-2 gap-4 text-xs">
-        <div className={cn(
-          "p-3 rounded-md",
-          comparison.match_type === "added"
-            ? "bg-zinc-100 dark:bg-zinc-800 opacity-50"
-            : "bg-zinc-50 dark:bg-zinc-900"
-        )}>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-2 font-medium truncate" title={doc1Name}>
-            {doc1Name}
-          </p>
-          {comparison.doc1_entity ? (
-            <div className="space-y-1 text-zinc-700 dark:text-zinc-300">
-              <p className="font-medium">{comparison.doc1_name || "—"}</p>
-              {comparison.doc1_canonical_id && (
-                <p className="text-zinc-400 text-[10px]">ID: {comparison.doc1_canonical_id}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-zinc-400 italic">Not present</p>
-          )}
-        </div>
-        <div className={cn(
-          "p-3 rounded-md",
-          comparison.match_type === "removed"
-            ? "bg-zinc-100 dark:bg-zinc-800 opacity-50"
-            : "bg-zinc-50 dark:bg-zinc-900"
-        )}>
-          <p className="text-zinc-500 dark:text-zinc-400 mb-2 font-medium truncate" title={doc2Name}>
-            {doc2Name}
-          </p>
-          {comparison.doc2_entity ? (
-            <div className="space-y-1 text-zinc-700 dark:text-zinc-300">
-              <p className="font-medium">{comparison.doc2_name || "—"}</p>
-              {comparison.doc2_canonical_id && (
-                <p className="text-zinc-400 text-[10px]">ID: {comparison.doc2_canonical_id}</p>
-              )}
-            </div>
-          ) : (
-            <p className="text-zinc-400 italic">Not present</p>
-          )}
-        </div>
-      </div>
-
-      {/* Reasoning */}
-      {comparison.reasoning && (
-        <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-          <p className="text-xs text-zinc-600 dark:text-zinc-400">
-            {comparison.reasoning}
-          </p>
-        </div>
-      )}
-
-      {/* Field Differences */}
-      {comparison.field_differences && comparison.field_differences.length > 0 && (
-        <div className="mt-3 pt-3 border-t border-zinc-200 dark:border-zinc-800">
-          <p className="text-xs font-medium text-zinc-500 dark:text-zinc-400 mb-2">
-            Differences:
-          </p>
-          <div className="space-y-1">
-            {comparison.field_differences.map((diff: any, index: number) => (
-              <div key={index} className="text-xs text-zinc-600 dark:text-zinc-400 flex gap-2">
-                <span className="font-medium text-zinc-700 dark:text-zinc-300">{diff.field}:</span>
-                <span className="text-red-500 line-through">{String(diff.doc1_value ?? "—")}</span>
-                <span>→</span>
-                <span className="text-green-500">{String(diff.doc2_value ?? "—")}</span>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-    </div>
   );
 }
 
@@ -206,155 +94,327 @@ export function ComparisonOutputSidebar({
   onOpenChange,
   workflowId,
 }: ComparisonOutputSidebarProps) {
-  const { data, isLoading, error } = useComparisonData(open ? workflowId : null);
+  const { data, isLoading, error } = useComparisonData(
+    open ? workflowId : null,
+  );
 
-  const comparisons = data?.comparisons || [];
+  const { state } = useSidebar();
+  const isExpanded = state === "expanded";
+
+  const [searchQuery, setSearchQuery] = React.useState("");
+
+  const comparisons = (data?.comparisons || []) as EntityComparison[];
   const summary = data?.summary;
-  const hasData = comparisons.length > 0;
   const doc1Name = data?.doc1_name || "Document 1";
   const doc2Name = data?.doc2_name || "Document 2";
 
-  // Separate by entity type
-  const coverageComparisons = comparisons.filter((c) => c.entity_type === "coverage");
-  const exclusionComparisons = comparisons.filter((c) => c.entity_type === "exclusion");
+  const filteredComparisons = React.useMemo(() => {
+    if (!searchQuery) return comparisons;
+    const lowerQuery = searchQuery.toLowerCase();
+    return comparisons.filter((c) => {
+      const entityName = (c.entity_name || "").toLowerCase();
+      const reasoning = (c.reasoning || "").toLowerCase();
+      const summary = (c.comparison_summary || "").toLowerCase();
+      const type = (c.entity_type || "").toLowerCase();
+      return (
+        entityName.includes(lowerQuery) ||
+        reasoning.includes(lowerQuery) ||
+        summary.includes(lowerQuery) ||
+        type.includes(lowerQuery)
+      );
+    });
+  }, [comparisons, searchQuery]);
+
+  const hasData = filteredComparisons.length > 0;
+
+  const formatAttributes = (content: any) => {
+    if (!content) return "—";
+    // If content is just a string/number (not object), return it
+    if (typeof content !== "object") return String(content);
+
+    return Object.entries(content)
+      .filter(([key]) => {
+        const lowerKey = key.toLowerCase();
+        return (
+          !["name", "title", "id"].includes(lowerKey) && !key.startsWith("_")
+        );
+      })
+      .map(([key, val]) => {
+        // Handle nested objects or arrays gracefully
+        const displayVal = typeof val === "object" ? JSON.stringify(val) : val;
+        return `${key.replace(/_/g, " ")}: ${displayVal}`;
+      })
+      .join("; ");
+  };
 
   if (!open) return null;
 
   return (
     <div
-      className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950 border-l border-zinc-200 dark:border-zinc-800"
+      className="flex flex-col h-full overflow-hidden bg-white dark:bg-zinc-950"
       onWheel={(e) => {
         e.stopPropagation();
       }}
     >
-      <div className="px-6 py-5 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-zinc-50/50 dark:bg-zinc-900/50 flex items-center justify-between">
-        <div>
-          <h2 className="text-lg font-semibold text-zinc-900 dark:text-zinc-100">
-            Policy Comparison
-          </h2>
-          <p className="text-sm text-zinc-500 dark:text-zinc-400">
-            Entity-level comparison between policies
-          </p>
+      <div
+        className={cn(
+          "px-6 border-b border-zinc-200 dark:border-zinc-800 shrink-0 bg-white dark:bg-zinc-950 flex items-center justify-between transition-[height] ease-linear",
+          isExpanded ? "h-14" : "h-12",
+        )}
+      >
+        <div className="flex items-center gap-3">
+          <div className="p-1.5 rounded bg-zinc-100 dark:bg-zinc-800">
+            <GitCompare className="size-4 text-zinc-600 dark:text-zinc-400" />
+          </div>
+          <div>
+            <h2 className="text-sm font-semibold text-zinc-900 dark:text-zinc-100 leading-tight">
+              Policy Comparison
+            </h2>
+          </div>
         </div>
         <Button
           variant="ghost"
           size="icon"
-          className="h-8 w-8 rounded-full"
+          className="h-8 w-8 rounded text-zinc-500 hover:text-zinc-900 dark:text-zinc-400 dark:hover:text-zinc-100"
           onClick={() => onOpenChange(false)}
         >
           <X className="size-4" />
         </Button>
       </div>
 
-      <div className="flex-1 overflow-y-auto overflow-x-hidden">
-        <div className="px-6 py-5 pb-20">
-          {/* Loading State */}
-          {isLoading && (
-            <div className="flex flex-col items-center justify-center py-16">
-              <div className="p-3 rounded-full bg-zinc-100 dark:bg-zinc-800 mb-4">
-                <Loader2 className="size-6 text-zinc-500 animate-spin" />
+      <div className="flex-1 flex flex-col min-h-0">
+        <div className="px-6 py-4 bg-white dark:bg-zinc-950 flex items-center gap-3 border-b border-zinc-100 dark:border-zinc-900">
+          <div className="relative flex-1">
+            <Search className="absolute left-2.5 top-1/2 -translate-y-1/2 size-4 text-zinc-400" />
+            <Input
+              placeholder="Search comparison..."
+              className="pl-9 h-9 rounded text-xs bg-zinc-50 dark:bg-zinc-900 border-zinc-200 dark:border-zinc-800"
+              value={searchQuery}
+              onChange={(e) => setSearchQuery(e.target.value)}
+            />
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              variant="outline"
+              size="sm"
+              className="h-9 rounded px-3 text-xs gap-2"
+            >
+              <Download className="size-3.5" />
+              Export
+            </Button>
+          </div>
+        </div>
+
+        <div className="flex-1 overflow-auto">
+          <div className="min-w-full inline-block align-middle">
+            <div className="overflow-hidden">
+              <div className="p-2 pb-0">
+                {/* Overall Explanation */}
+                {!isLoading && !error && data?.overall_explanation && (
+                  <div className="bg-gray-50 dark:bg-gray-900/10 rounded p-4 mb-2 border border-gray-100 dark:border-gray-900/50">
+                    <h3 className="text-sm font-semibold text-[#2B2C36] dark:text-gray-100 mb-2 tracking-wider">
+                      Overall Summary
+                    </h3>
+                    <p className="text-xs text-[#2B2C36] leading-relaxed">
+                      {data.overall_explanation}
+                    </p>
+                  </div>
+                )}
               </div>
-              <p className="text-sm text-zinc-500 dark:text-zinc-400">
-                Loading comparison data...
-              </p>
-            </div>
-          )}
 
-          {/* Error State */}
-          {error && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="p-3 rounded-full bg-red-100 dark:bg-red-900/20 mb-4">
-                <X className="size-6 text-red-500" />
-              </div>
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1">
-                Failed to load comparison data
-              </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs">
-                {error.message}
-              </p>
-            </div>
-          )}
-
-          {/* Data Display */}
-          {!isLoading && !error && hasData && (
-            <div>
-              {/* Summary */}
-              {summary && (
-                <ComparisonSummaryCard
-                  summary={summary}
-                  doc1Name={doc1Name}
-                  doc2Name={doc2Name}
-                />
-              )}
-
-              {/* Overall Explanation */}
-              {data?.overall_explanation && (
-                <div className="bg-blue-50 dark:bg-blue-900/20 rounded-lg p-4 mb-6 border border-blue-200 dark:border-blue-800">
-                  <h3 className="text-sm font-semibold text-blue-900 dark:text-blue-100 mb-2">
-                    Summary
-                  </h3>
-                  <p className="text-sm text-blue-800 dark:text-blue-200">
-                    {data.overall_explanation}
+              {/* Loading State */}
+              {isLoading && (
+                <div className="flex flex-col items-center justify-center py-16">
+                  <div className="p-3 rounded-full bg-zinc-100 dark:bg-zinc-800 mb-4">
+                    <Loader2 className="size-6 text-zinc-500 animate-spin" />
+                  </div>
+                  <p className="text-sm text-zinc-500 dark:text-zinc-400">
+                    Loading comparison data...
                   </p>
                 </div>
               )}
 
-              {/* Coverage Comparisons */}
-              {coverageComparisons.length > 0 && (
-                <div className="mb-8">
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-zinc-200 dark:border-zinc-800">
-                    <GitCompare className="size-4 text-zinc-500" />
-                    <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                      Coverages ({coverageComparisons.length})
-                    </h2>
+              {/* Error State */}
+              {error && (
+                <div className="flex flex-col items-center justify-center py-16 text-center">
+                  <div className="p-3 rounded bg-red-100 dark:bg-red-900/20 mb-4">
+                    <X className="size-6 text-red-500" />
                   </div>
-                  {coverageComparisons.map((comparison, index) => (
-                    <ComparisonRow
-                      key={`coverage-${index}`}
-                      comparison={comparison}
-                      doc1Name={doc1Name}
-                      doc2Name={doc2Name}
-                    />
-                  ))}
+                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1">
+                    Failed to load comparison data
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs">
+                    {error.message}
+                  </p>
                 </div>
               )}
 
-              {/* Exclusion Comparisons */}
-              {exclusionComparisons.length > 0 && (
-                <div>
-                  <div className="flex items-center gap-2 mb-4 pb-3 border-b border-zinc-200 dark:border-zinc-800">
-                    <GitCompare className="size-4 text-zinc-500" />
-                    <h2 className="text-xs font-semibold uppercase tracking-wider text-zinc-500 dark:text-zinc-400">
-                      Exclusions ({exclusionComparisons.length})
-                    </h2>
+              {/* Data Display Table */}
+              {!isLoading && !error && hasData && (
+                <TooltipProvider>
+                  <Table>
+                    <TableHeader className="border-t ">
+                      <TableRow className="bg-zinc-50/50 dark:bg-zinc-900/50">
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[15%]">
+                          Item
+                        </TableHead>
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%]">
+                          {doc1Name}
+                        </TableHead>
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%]">
+                          {doc2Name}
+                        </TableHead>
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[35%]">
+                          Comparison
+                        </TableHead>
+                      </TableRow>
+                    </TableHeader>
+                    <TableBody>
+                      {filteredComparisons.map((c, i) => {
+                        let entityTypeLabel = "Unknown";
+                        switch (c.entity_type) {
+                          case "coverage":
+                            entityTypeLabel = "Coverage";
+                            break;
+                          case "exclusion":
+                            entityTypeLabel = "Exclusion";
+                            break;
+                          case "section_coverage":
+                            entityTypeLabel = "Coverage (Section)";
+                            break;
+                          case "section_exclusion":
+                            entityTypeLabel = "Exclusion (Section)";
+                            break;
+                          default:
+                            entityTypeLabel = c.entity_type || "Entity";
+                        }
+
+                        // Helper to get name from content if available
+                        const getName = (content: any, type?: string) => {
+                          if (!content || !type) return null;
+                          if (
+                            type === "coverage" ||
+                            type === "section_coverage"
+                          ) {
+                            return (
+                              content.attributes?.coverage_name ||
+                              content.coverage_name ||
+                              content.name ||
+                              content.title ||
+                              null
+                            );
+                          }
+                          return (
+                            content.attributes?.name ||
+                            content.name ||
+                            content.title ||
+                            null
+                          );
+                        };
+
+                        const entityName =
+                          getName(c.doc1_content, c.entity_type) ||
+                          getName(c.doc2_content, c.entity_type) ||
+                          c.entity_name ||
+                          "—";
+
+                        return (
+                          <TableRow
+                            key={i}
+                            className="group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-900"
+                          >
+                            <TableCell className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal">
+                              <span className="text-[10px] uppercase text-zinc-400 block mb-1">
+                                {entityTypeLabel}
+                              </span>
+                              {entityName}
+                            </TableCell>
+                            <TableCell className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal">
+                              {c.doc1_content ? (
+                                <div className="space-y-1">
+                                  {getName(c.doc1_content, c.entity_type) && (
+                                    <span className="font-medium text-zinc-900 dark:text-zinc-200 block">
+                                      {getName(c.doc1_content, c.entity_type)}
+                                    </span>
+                                  )}
+                                  <p className="text-zinc-700 dark:text-zinc-300">
+                                    {c.doc1_summary ||
+                                      formatAttributes(c.doc1_content)}
+                                  </p>
+                                  {c.doc1_summary && (
+                                    <span className="text-[10px] text-zinc-400 block mt-1 italic">
+                                      {formatAttributes(c.doc1_content)}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-zinc-400 italic">
+                                  Not present
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal">
+                              {c.doc2_content ? (
+                                <div className="space-y-1">
+                                  {getName(c.doc2_content, c.entity_type) && (
+                                    <span className="font-medium text-zinc-900 dark:text-zinc-200 block">
+                                      {getName(c.doc2_content, c.entity_type)}
+                                    </span>
+                                  )}
+                                  <p className="text-zinc-700 dark:text-zinc-300">
+                                    {c.doc2_summary ||
+                                      formatAttributes(c.doc2_content)}
+                                  </p>
+                                  {c.doc2_summary && (
+                                    <span className="text-[10px] text-zinc-400 block mt-1 italic">
+                                      {formatAttributes(c.doc2_content)}
+                                    </span>
+                                  )}
+                                </div>
+                              ) : (
+                                <span className="text-zinc-400 italic">
+                                  Not present
+                                </span>
+                              )}
+                            </TableCell>
+                            <TableCell className="px-6 py-4 align-top text-xs leading-relaxed whitespace-normal min-w-[360px] w-[420px]">
+                              <div className="flex flex-col gap-2">
+                                <MatchTypeBadge
+                                  matchType={c.match_type || "no_match"}
+                                />
+                                {(c.comparison_summary || c.reasoning) && (
+                                  <p className="text-zinc-700 dark:text-zinc-300 font-medium text-[11px]">
+                                    {c.comparison_summary || c.reasoning}
+                                  </p>
+                                )}
+                              </div>
+                            </TableCell>
+                          </TableRow>
+                        );
+                      })}
+                    </TableBody>
+                  </Table>
+                </TooltipProvider>
+              )}
+
+              {/* Empty State */}
+              {!isLoading && !error && !hasData && (
+                <div className="flex flex-col items-center justify-center py-20 text-center px-6">
+                  <div className="p-4 rounded-full bg-zinc-100 dark:bg-zinc-800 mb-4">
+                    <GitCompare className="size-8 text-zinc-400 dark:text-zinc-500" />
                   </div>
-                  {exclusionComparisons.map((comparison, index) => (
-                    <ComparisonRow
-                      key={`exclusion-${index}`}
-                      comparison={comparison}
-                      doc1Name={doc1Name}
-                      doc2Name={doc2Name}
-                    />
-                  ))}
+                  <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1">
+                    No comparison data found
+                  </p>
+                  <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs">
+                    {searchQuery
+                      ? "Try adjusting your search query."
+                      : "The comparison has not been executed yet or no entities were found to compare."}
+                  </p>
                 </div>
               )}
             </div>
-          )}
-
-          {/* Empty State */}
-          {!isLoading && !error && !hasData && (
-            <div className="flex flex-col items-center justify-center py-16 text-center">
-              <div className="p-4 rounded-full bg-zinc-100 dark:bg-zinc-800 mb-4">
-                <GitCompare className="size-8 text-zinc-400 dark:text-zinc-500" />
-              </div>
-              <p className="text-sm font-medium text-zinc-900 dark:text-zinc-100 mb-1">
-                No comparison data available
-              </p>
-              <p className="text-xs text-zinc-500 dark:text-zinc-400 max-w-xs">
-                The comparison has not been executed yet or no entities were found to compare.
-              </p>
-            </div>
-          )}
+          </div>
         </div>
       </div>
     </div>

@@ -114,7 +114,7 @@ export function FileDropzone({
             <div
               key={file.id}
               className={cn(
-                "inline-flex items-center gap-2 rounded-md border px-2.5 py-1.5 text-xs",
+                "inline-flex items-center gap-2 rounded border px-2.5 py-1.5 text-xs",
                 file.status === "success" && "border-green-500/40 bg-green-500/5 text-green-700 dark:text-green-400",
                 file.status === "error" && "border-destructive/40 bg-destructive/5 text-destructive",
                 file.status === "uploading" && "border-muted bg-muted/30 text-muted-foreground"

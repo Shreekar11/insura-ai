@@ -40,123 +40,117 @@ class EntityMatcherService:
         Args:
             doc1_entities: List of entities from document 1 (base/expiring)
             doc2_entities: List of entities from document 2 (endorsement/renewal)
-            entity_type: Type of entity (coverage or exclusion)
+            entity_type: Type of entities being matched
 
         Returns:
-            List of match results with match_type, confidence, and entity references
+            List of match results, each containing doc1_entity, doc2_entity, 
+            match_type, and list of differences.
         """
+        if not doc1_entities and not doc2_entities:
+            return []
+
         LOGGER.info(
-            f"Matching {len(doc1_entities)} doc1 {entity_type.value}s with {len(doc2_entities)} doc2 {entity_type.value}s"
+            f"Matching {len(doc1_entities)} items from Doc1 and {len(doc2_entities)} items from Doc2 "
+            f"for type {entity_type.value}"
         )
 
-        matches = []
-        matched_doc1_indices = set()
-        matched_doc2_indices = set()
-
-        # Phase 1: Canonical ID matching
-        canonical_matches = self._match_by_canonical_id(
+        # 1. Match by canonical_id (and 'id' for section data)
+        matches, unmatched_doc1, unmatched_doc2 = await self._match_by_canonical_id(
             doc1_entities, doc2_entities, entity_type
         )
 
-        for match in canonical_matches:
-            matches.append(match)
-            if match.get("doc1_index") is not None:
-                matched_doc1_indices.add(match["doc1_index"])
-            if match.get("doc2_index") is not None:
-                matched_doc2_indices.add(match["doc2_index"])
-
-        # Phase 2: LLM semantic matching for unmatched entities
-        unmatched_doc1 = [
-            (i, e) for i, e in enumerate(doc1_entities)
-            if i not in matched_doc1_indices
-        ]
-        unmatched_doc2 = [
-            (i, e) for i, e in enumerate(doc2_entities)
-            if i not in matched_doc2_indices
-        ]
-
-        if unmatched_doc1 or unmatched_doc2:
+        # 2. Match remaining using LLM
+        if unmatched_doc1 and unmatched_doc2:
             llm_matches = await self._match_by_llm(
                 unmatched_doc1, unmatched_doc2, entity_type
             )
+            matches.extend(llm_matches)
 
-            for match in llm_matches:
-                matches.append(match)
-                if match.get("doc1_index") is not None:
-                    matched_doc1_indices.add(match["doc1_index"])
-                if match.get("doc2_index") is not None:
-                    matched_doc2_indices.add(match["doc2_index"])
+        # 3. Handle unmatched as ADDED or REMOVED
+        matched_doc1_indices = {m["doc1_index"] for m in matches if m.get("doc1_index") is not None}
+        matched_doc2_indices = {m["doc2_index"] for m in matches if m.get("doc2_index") is not None}
 
-        # Phase 3: Mark remaining as REMOVED (doc1 only) or ADDED (doc2 only)
         for i, entity in enumerate(doc1_entities):
             if i not in matched_doc1_indices:
                 matches.append({
                     "match_type": MatchType.REMOVED,
-                    "doc1_index": i,
                     "doc1_entity": entity,
-                    "doc2_index": None,
                     "doc2_entity": None,
-                    "confidence": Decimal("1.0"),
-                    "match_method": "unmatched",
-                    "reasoning": f"No corresponding {entity_type.value} found in document 2",
+                    "field_differences": [],
+                    "doc1_index": i,
+                    "doc2_index": None,
                 })
 
         for i, entity in enumerate(doc2_entities):
             if i not in matched_doc2_indices:
                 matches.append({
                     "match_type": MatchType.ADDED,
-                    "doc1_index": None,
                     "doc1_entity": None,
-                    "doc2_index": i,
                     "doc2_entity": entity,
-                    "confidence": Decimal("1.0"),
-                    "match_method": "unmatched",
-                    "reasoning": f"New {entity_type.value} in document 2",
+                    "field_differences": [],
+                    "doc1_index": None,
+                    "doc2_index": i,
                 })
 
-        LOGGER.info(f"Matching complete: {len(matches)} total matches")
         return matches
 
-    def _match_by_canonical_id(
+    async def _match_by_canonical_id(
         self,
         doc1_entities: List[Dict[str, Any]],
         doc2_entities: List[Dict[str, Any]],
         entity_type: EntityType,
-    ) -> List[Dict[str, Any]]:
-        """Match entities using canonical_id field."""
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any]]], List[Tuple[int, Dict[str, Any]]]]:
+        """Match entities using canonical_id field or section-level stable IDs."""
         matches = []
+        doc1_map = {}
+        
+        # Determine ID fields based on type
+        id_fields = ["canonical_id"]
+        if entity_type in [EntityType.SECTION_COVERAGE, EntityType.SECTION_EXCLUSION]:
+            id_fields.append("id")  # Fallback to internal ID for section data
 
-        # Build index of doc2 entities by canonical_id
-        doc2_by_canonical = {}
-        for i, entity in enumerate(doc2_entities):
-            canonical_id = entity.get("canonical_id")
-            if canonical_id:
-                doc2_by_canonical[canonical_id] = (i, entity)
+        for i, entity in enumerate(doc1_entities):
+            for id_field in id_fields:
+                val = entity.get(id_field)
+                if val:
+                    doc1_map[val] = (i, entity)
+                    break
 
-        for i, doc1_entity in enumerate(doc1_entities):
-            canonical_id = doc1_entity.get("canonical_id")
-            if canonical_id and canonical_id in doc2_by_canonical:
-                j, doc2_entity = doc2_by_canonical[canonical_id]
-
-                # Check if entities are identical or have differences
+        matched_doc2_indices = set()
+        for j, doc2_entity in enumerate(doc2_entities):
+            match_val = None
+            for id_field in id_fields:
+                val = doc2_entity.get(id_field)
+                if val and val in doc1_map:
+                    match_val = val
+                    break
+            
+            if match_val:
+                i, doc1_entity = doc1_map[match_val]
                 match_type, differences = self._compare_entity_fields(
                     doc1_entity, doc2_entity, entity_type
                 )
-
                 matches.append({
-                    "match_type": match_type,
                     "doc1_index": i,
-                    "doc1_entity": doc1_entity,
                     "doc2_index": j,
+                    "match_type": match_type,
+                    "doc1_entity": doc1_entity,
                     "doc2_entity": doc2_entity,
-                    "confidence": Decimal("0.95"),
+                    "field_differences": differences,
+                    "confidence": Decimal("1.0"),
                     "match_method": "canonical_id",
-                    "field_differences": differences if differences else None,
-                    "reasoning": f"Matched by canonical_id: {canonical_id}",
                 })
+                matched_doc2_indices.add(j)
+                # Remove from map to prevent double matching
+                doc1_map.pop(match_val)
 
-        LOGGER.debug(f"Canonical ID matching found {len(matches)} matches")
-        return matches
+        unmatched_doc1 = [val for val in doc1_map.values()]
+        unmatched_doc2 = [
+            (j, entity) for j, entity in enumerate(doc2_entities) 
+            if j not in matched_doc2_indices
+        ]
+
+        return matches, unmatched_doc1, unmatched_doc2
 
     async def _match_by_llm(
         self,
@@ -273,25 +267,41 @@ class EntityMatcherService:
         Returns:
             Tuple of (match_type, list of field differences)
         """
-        # Define key fields to compare
+        # Define key fields to compare based on entity type
         if entity_type == EntityType.COVERAGE:
             key_fields = [
                 "coverage_name", "coverage_type", "limit_amount", "deductible_amount",
-                "premium_amount", "effective_terms", "limits", "deductibles",
-                "is_modified", "modification_details"
+                "premium_amount", "effective_terms", "limits", "deductibles"
             ]
-        else:
+        elif entity_type == EntityType.EXCLUSION:
             key_fields = [
                 "exclusion_name", "effective_state", "scope", "carve_backs",
-                "conditions", "impacted_coverages", "is_modified", "modification_details"
+                "conditions", "impacted_coverages"
             ]
+        elif entity_type == EntityType.SECTION_COVERAGE:
+            key_fields = [
+                "name", "coverage_basis", "coverage_category", "limit_aggregate",
+                "limit_per_occurrence", "deductible_per_occurrence", "description"
+            ]
+        elif entity_type == EntityType.SECTION_EXCLUSION:
+            key_fields = [
+                "title", "description", "exception_carveback", "applicability",
+                "impacted_sections"
+            ]
+        else:
+            key_fields = []
 
         differences = []
         for field in key_fields:
             val1 = doc1_entity.get(field)
             val2 = doc2_entity.get(field)
 
-            if val1 != val2 and (val1 is not None or val2 is not None):
+            # Skip comparison if both are None
+            if val1 is None and val2 is None:
+                continue
+
+            # Handle different types of inequality (using string representation for complex types)
+            if str(val1) != str(val2):
                 differences.append({
                     "field": field,
                     "doc1_value": val1,
@@ -310,7 +320,14 @@ class EntityMatcherService:
         entity_type: EntityType,
     ) -> str:
         """Generate the LLM prompt for semantic matching."""
-        entity_label = "coverages" if entity_type == EntityType.COVERAGE else "exclusions"
+        if entity_type in [EntityType.COVERAGE, EntityType.SECTION_COVERAGE]:
+            entity_label = "coverages"
+        else:
+            entity_label = "exclusions"
+
+        context_note = ""
+        if entity_type in [EntityType.SECTION_COVERAGE, EntityType.SECTION_EXCLUSION]:
+            context_note = "(Note: This is raw extracted data from specific document sections, not finalized effective results.)"
 
         return f"""You are an insurance policy expert. Your task is to match {entity_label} between two insurance documents.
 
