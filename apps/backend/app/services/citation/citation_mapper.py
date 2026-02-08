@@ -56,9 +56,60 @@ class CitationMapper:
             page_metadata: List of page dimension metadata
             config: Optional matching configuration
         """
-        self.word_index = word_index
         self.page_metadata = {p.page_number: p for p in page_metadata}
         self.config = config or MatchConfig()
+        # Flatten multi-word entries (lines/phrases) into word-level coordinates
+        self.word_index = self._flatten_word_index(word_index)
+
+    def _flatten_word_index(self, word_index: Dict[int, List[WordCoordinate]]) -> Dict[int, List[WordCoordinate]]:
+        """Flatten line-level coordinates into individual words."""
+        new_index = {}
+        for page_num, items in word_index.items():
+            flattened = []
+            for item in items:
+                # Use regex to find words and their offsets
+                # This preserves spacing and punctuation
+                parts = item.text.split()
+                if len(parts) <= 1:
+                    flattened.append(item)
+                    continue
+
+                # Estimate word coordinates by proportionally distributing width
+                # This is an approximation as character widths vary
+                total_chars = len(item.text)
+                if total_chars == 0:
+                    continue
+                    
+                char_width = (item.x1 - item.x0) / total_chars
+                
+                # We use a simple split() for the mapper's word-by-word comparison,
+                # but we need to track where each word starts in the original line
+                current_offset = 0
+                for word in parts:
+                    # Find word in original text starting from current_offset
+                    start_idx = item.text.find(word, current_offset)
+                    if start_idx == -1:
+                        # Should not happen with split(), but safeguard
+                        start_idx = current_offset
+                    
+                    word_len = len(word)
+                    
+                    word_x0 = item.x0 + (start_idx * char_width)
+                    word_x1 = word_x0 + (word_len * char_width)
+                    
+                    flattened.append(WordCoordinate(
+                        text=word,
+                        page_number=page_num,
+                        x0=word_x0,
+                        y0=item.y0,
+                        x1=word_x1,
+                        y1=item.y1
+                    ))
+                    current_offset = start_idx + word_len
+            
+            new_index[page_num] = flattened
+            
+        return new_index
 
     def find_text_location(
         self,
@@ -235,8 +286,16 @@ class CitationMapper:
         # Convert common dashes to standard hyphen
         text = text.replace('—', '-').replace('–', '-')
         
-        # Remove extra whitespace, lowercase
+        # Strip markdown-style list prefixes (e.g., "- (1)", "* 2.", "1. ", etc.)
+        # Strip from start of string
+        text = re.sub(r'^[\s\-\*]*\(?\d+\)?[\.\):]?\s+', '', text)
+        # Strip from middle of string (converted to single space later)
+        text = re.sub(r'\n[\s\-\*]*\(?\d+\)?[\.\):]?\s+', ' ', text)
+        
+        # Remove extra whitespace (including newlines), lowercase
         text = re.sub(r'\s+', ' ', text.strip().lower())
+        
+        # Remove special characters except common punctuation used in insurance clauses
         text = re.sub(r'[^\w\s\-\.,;:\'"()&/%$]', '', text)
         return text
 

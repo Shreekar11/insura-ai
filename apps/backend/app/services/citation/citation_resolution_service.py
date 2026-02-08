@@ -230,6 +230,34 @@ class CitationResolutionService:
                         semantic_distance=best_distance,
                     )
 
+                # NEW: Substring fallback - try matching shortened versions of the text
+                # (Often LLM synthesis truncates or slightly alters the end of a clause)
+                if len(search_text) > 50:
+                    for fraction in [0.5, 0.25]:
+                        substring = search_text[:int(len(search_text) * fraction)]
+                        # Use a slightly higher threshold for partial matches to avoid false positives
+                        match = self.citation_mapper.find_text_location(
+                            search_text=substring,
+                            expected_page=chunk.page_number,
+                            fuzzy_threshold=0.7,
+                        )
+                        if match and match.spans:
+                            LOGGER.info(
+                                f"[RESOLUTION] Partial text match found ({int(fraction*100)}% of text)",
+                                extra={
+                                    "document_id": str(document_id),
+                                    "chunk_id": str(chunk.id),
+                                    "fraction": fraction
+                                }
+                            )
+                            return ResolutionResult(
+                                spans=match.spans,
+                                method="semantic_chunk_match",
+                                confidence=confidence * float(fraction),
+                                matched_chunk_id=chunk.id,
+                                semantic_distance=best_distance,
+                            )
+
             # Chunk matched semantically but no precise bbox — use chunk's page
             span = CitationSpan(
                 page_number=chunk.page_number,

@@ -1,7 +1,13 @@
 "use client";
 
 import { useState, useEffect, useRef, useMemo } from "react";
-import { Viewer, Worker } from "@react-pdf-viewer/core";
+import {
+  Viewer,
+  Worker,
+  Plugin,
+  PluginFunctions,
+  Destination,
+} from "@react-pdf-viewer/core";
 import { pageNavigationPlugin } from "@react-pdf-viewer/page-navigation";
 import { Citation, PageDimensions } from "@/types/citation";
 import { PDFHighlightLayer } from "./pdf-highlight-layer";
@@ -23,9 +29,19 @@ export function PDFViewer({
   const documentLoaded = useRef(false);
   const manualScroll = useRef(false);
   const lastJumpedCitationId = useRef<string | null>(null);
-
+  const jumpToDestinationRef = useRef<(destination: Destination) => void>(null);
   const pageNavigationPluginInstance = pageNavigationPlugin();
   const { jumpToPage } = pageNavigationPluginInstance;
+
+  const jumpPlugin = useMemo(
+    (): Plugin => ({
+      install: (pluginFunctions: PluginFunctions) => {
+        (jumpToDestinationRef as any).current =
+          pluginFunctions.jumpToDestination;
+      },
+    }),
+    [],
+  );
 
   // Auto-scroll to the citation's page and bounding box when citation changes
   useEffect(() => {
@@ -54,18 +70,28 @@ export function PDFViewer({
           firstBox.y1 >= 791);
 
       if (!isFullPage && firstBox && pageHeight) {
-        const topFromTop = pageHeight - firstBox.y1;
-        const left = firstBox.x0;
-        const scrollOffset = Math.max(0, topFromTop - 50);
-        const destination = [pageIndex, "XYZ", left, scrollOffset, null];
-        (pageNavigationPluginInstance as any).jumpToDestination(destination);
+        // Correct calculation: zoom to XYZ where Y is distance from bottom.
+        // We want the box to be at the top of the viewport (with padding).
+        // Since Y=0 is bottom, top of box is firstBox.y1.
+        // Adding 50 points of padding above it.
+        const bottomOffset = Math.min(pageHeight, firstBox.y1 + 50);
+        const leftOffset = firstBox.x0;
+
+        if (jumpToDestinationRef.current) {
+          jumpToDestinationRef.current({
+            pageIndex,
+            bottomOffset,
+            leftOffset,
+            scaleTo: scale,
+          });
+        }
       } else {
         jumpToPage(pageIndex);
       }
 
       setCurrentPage(citation.primaryPage);
     }
-  }, [citation, jumpToPage, pageDimensions, pageNavigationPluginInstance]);
+  }, [citation, jumpToPage, pageDimensions, scale]);
 
   const handleDocumentLoad = () => {
     documentLoaded.current = true;
@@ -88,25 +114,23 @@ export function PDFViewer({
             fileUrl={pdfUrl}
             defaultScale={1}
             initialPage={citation?.primaryPage ? citation.primaryPage - 1 : 0}
-            plugins={[pageNavigationPluginInstance]}
+            plugins={[pageNavigationPluginInstance, jumpPlugin]}
             onDocumentLoad={handleDocumentLoad}
             onPageChange={handlePageChange}
             onZoom={handleZoomChange}
             renderPage={(props) => (
               <>
                 {props.canvasLayer.children}
-                <div className="relative">
-                  {props.textLayer.children}
-                  {citation && (
-                    <PDFHighlightLayer
-                      spans={citation.spans}
-                      pageNumber={props.pageIndex + 1}
-                      scale={scale}
-                      pageDimensions={pageDimensions}
-                    />
-                  )}
-                  {props.annotationLayer.children}
-                </div>
+                {props.textLayer.children}
+                {citation && (
+                  <PDFHighlightLayer
+                    spans={citation.spans}
+                    pageNumber={props.pageIndex + 1}
+                    scale={props.scale}
+                    pageDimensions={pageDimensions}
+                  />
+                )}
+                {props.annotationLayer.children}
               </>
             )}
           />
