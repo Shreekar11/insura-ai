@@ -193,17 +193,40 @@ export function ExtractionOutputSidebar({
     return items;
   }, [validSections, entities]);
 
-  const filteredData = React.useMemo(() => {
-    if (!searchQuery) return flattenedData;
-    const lowerQuery = searchQuery.toLowerCase();
-    return flattenedData.filter(
-      (item) =>
-        item.item.toLowerCase().includes(lowerQuery) ||
-        item.content.toLowerCase().includes(lowerQuery),
-    );
-  }, [flattenedData, searchQuery]);
+  const hasCitation = React.useCallback(
+    (type: string, id: string) => {
+      if (!citationsData?.citations) return false;
+      return !!findCitation(citationsData.citations, type, id);
+    },
+    [citationsData?.citations],
+  );
 
-  const hasData = flattenedData.length > 0;
+  const filteredData = React.useMemo(() => {
+    // Initial filter for non-null Item and Content
+    let result = flattenedData.filter((item) => item.item && item.content);
+
+    // Sort by citation presence (items with citations on top)
+    result = [...result].sort((a, b) => {
+      const aHasCit = hasCitation(a.type, a.id);
+      const bHasCit = hasCitation(b.type, b.id);
+      if (aHasCit && !bHasCit) return -1;
+      if (!aHasCit && bHasCit) return 1;
+      return 0;
+    });
+
+    // Search query filter
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      result = result.filter(
+        (item) =>
+          item.item.toLowerCase().includes(lowerQuery) ||
+          item.content.toLowerCase().includes(lowerQuery),
+      );
+    }
+    return result;
+  }, [flattenedData, searchQuery, hasCitation]);
+
+  const hasData = filteredData.length > 0;
 
   const currentDocument = documentsData?.documents?.find(
     (doc) => doc.id === documentId,
@@ -226,11 +249,6 @@ export function ExtractionOutputSidebar({
     } else {
       console.warn(`Citation not found for ${sourceType}:${sourceId}`);
     }
-  };
-
-  const hasCitation = (type: string, id: string) => {
-    if (!citationsData?.citations) return false;
-    return !!findCitation(citationsData.citations, type, id);
   };
 
   if (!open) return null;
@@ -350,7 +368,7 @@ export function ExtractionOutputSidebar({
                                   handleItemClick(row.type, row.id)
                                 }
                               >
-                                <td className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100">
+                                <td className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 relative pr-4">
                                   {row.item}
                                 </td>
                                 <td className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed relative pr-8">
@@ -359,7 +377,7 @@ export function ExtractionOutputSidebar({
                                     : row.content}
                                   {citFound && (
                                     <div className="absolute top-0 right-0">
-                                      <div className="w-0 h-0 border-t-[10px] border-l-[10px] border-t-orange-500 border-l-transparent" />
+                                      <div className="w-0 h-0 border-t-[10px] border-l-[10px] border-t-orange-400 border-l-transparent" />
                                     </div>
                                   )}
                                 </td>

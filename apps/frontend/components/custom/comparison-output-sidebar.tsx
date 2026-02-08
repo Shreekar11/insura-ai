@@ -13,6 +13,9 @@ import {
 } from "lucide-react";
 import React from "react";
 import { useComparisonData } from "@/hooks/use-comparison-data";
+import { useCitations, findCitation } from "@/hooks/use-citations";
+import { usePDFHighlight } from "@/contexts/pdf-highlight-context";
+import { useDocuments } from "@/hooks/use-documents";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
 import { Input } from "@/components/ui/input";
@@ -108,22 +111,62 @@ export function ComparisonOutputSidebar({
   const doc1Name = data?.doc1_name || "Document 1";
   const doc2Name = data?.doc2_name || "Document 2";
 
+  const { data: citations1 } = useCitations(workflowId, data?.doc1_id || null);
+  const { data: citations2 } = useCitations(workflowId, data?.doc2_id || null);
+  const { data: documentsData } = useDocuments(workflowId ?? undefined);
+  const { highlightCitation } = usePDFHighlight();
+
+  const hasCitation1 = React.useCallback(
+    (type: string | undefined, id: string | null | undefined) => {
+      if (!type || !id || !citations1?.citations) return false;
+      return !!findCitation(citations1.citations, type, id);
+    },
+    [citations1?.citations],
+  );
+
+  const hasCitation2 = React.useCallback(
+    (type: string | undefined, id: string | null | undefined) => {
+      if (!type || !id || !citations2?.citations) return false;
+      return !!findCitation(citations2.citations, type, id);
+    },
+    [citations2?.citations],
+  );
+
   const filteredComparisons = React.useMemo(() => {
-    if (!searchQuery) return comparisons;
-    const lowerQuery = searchQuery.toLowerCase();
-    return comparisons.filter((c) => {
-      const entityName = (c.entity_name || "").toLowerCase();
-      const reasoning = (c.reasoning || "").toLowerCase();
-      const summary = (c.comparison_summary || "").toLowerCase();
-      const type = (c.entity_type || "").toLowerCase();
-      return (
-        entityName.includes(lowerQuery) ||
-        reasoning.includes(lowerQuery) ||
-        summary.includes(lowerQuery) ||
-        type.includes(lowerQuery)
-      );
+    // Initial filter for non-null Item
+    let result = comparisons.filter((c) => c.entity_name || c.entity_type);
+
+    // Sort by citation presence (items with citations on top)
+    result = [...result].sort((a, b) => {
+      const aHasCit =
+        hasCitation1(a.entity_type, a.entity_id) ||
+        hasCitation2(a.entity_type, a.entity_id);
+      const bHasCit =
+        hasCitation1(b.entity_type, b.entity_id) ||
+        hasCitation2(b.entity_type, b.entity_id);
+      if (aHasCit && !bHasCit) return -1;
+      if (!aHasCit && bHasCit) return 1;
+      return 0;
     });
-  }, [comparisons, searchQuery]);
+
+    // Search query filter
+    if (searchQuery) {
+      const lowerQuery = searchQuery.toLowerCase();
+      result = result.filter((c) => {
+        const entityName = (c.entity_name || "").toLowerCase();
+        const reasoning = (c.reasoning || "").toLowerCase();
+        const summary = (c.comparison_summary || "").toLowerCase();
+        const type = (c.entity_type || "").toLowerCase();
+        return (
+          entityName.includes(lowerQuery) ||
+          reasoning.includes(lowerQuery) ||
+          summary.includes(lowerQuery) ||
+          type.includes(lowerQuery)
+        );
+      });
+    }
+    return result;
+  }, [comparisons, searchQuery, hasCitation1, hasCitation2]);
 
   const hasData = filteredComparisons.length > 0;
 
@@ -318,18 +361,73 @@ export function ComparisonOutputSidebar({
                           c.entity_name ||
                           "—";
 
+                        const cit1 = hasCitation1(c.entity_type, c.entity_id);
+                        const cit2 = hasCitation2(c.entity_type, c.entity_id);
+                        const anyCit = cit1 || cit2;
+
+                        const handleDocHighlight = (docNum: 1 | 2) => {
+                          const citData =
+                            docNum === 1 ? citations1 : citations2;
+                          const docId =
+                            docNum === 1 ? data?.doc1_id : data?.doc2_id;
+                          const document = documentsData?.documents?.find(
+                            (d) => d.id === docId,
+                          );
+
+                          if (
+                            !citData?.citations ||
+                            !document?.file_path ||
+                            !c.entity_type ||
+                            !c.entity_id
+                          )
+                            return;
+
+                          const citation = findCitation(
+                            citData.citations,
+                            c.entity_type,
+                            c.entity_id,
+                          );
+                          if (citation) {
+                            highlightCitation(
+                              citation,
+                              document.file_path,
+                              citData.pageDimensions,
+                            );
+                          }
+                        };
+
                         return (
                           <TableRow
                             key={i}
-                            className="group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-900"
+                            className={cn(
+                              "group hover:bg-zinc-50/50 dark:hover:bg-zinc-900/50 border-b border-zinc-100 dark:border-zinc-900 transition-colors",
+                              anyCit && "bg-orange-50/10",
+                            )}
                           >
-                            <TableCell className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal">
+                            <TableCell
+                              className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal relative pr-6 cursor-pointer"
+                              onClick={() => {
+                                if (cit1) handleDocHighlight(1);
+                                else if (cit2) handleDocHighlight(2);
+                              }}
+                            >
                               <span className="text-[10px] uppercase text-zinc-400 block mb-1">
                                 {entityTypeLabel}
                               </span>
                               {entityName}
+                              {anyCit && (
+                                <div className="absolute top-0 right-0">
+                                  <div className="w-0 h-0 border-t-[8px] border-l-[8px] border-t-orange-500 border-l-transparent" />
+                                </div>
+                              )}
                             </TableCell>
-                            <TableCell className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal">
+                            <TableCell
+                              className={cn(
+                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
+                                cit1 && "cursor-pointer hover:bg-orange-50/20",
+                              )}
+                              onClick={() => cit1 && handleDocHighlight(1)}
+                            >
                               {c.doc1_content ? (
                                 <div className="space-y-1">
                                   {getName(c.doc1_content, c.entity_type) && (
@@ -346,6 +444,11 @@ export function ComparisonOutputSidebar({
                                       {formatAttributes(c.doc1_content)}
                                     </span>
                                   )}
+                                  {cit1 && (
+                                    <div className="absolute top-0 right-0">
+                                      <div className="w-0 h-0 border-t-[10px] border-l-[10px] border-t-orange-500 border-l-transparent" />
+                                    </div>
+                                  )}
                                 </div>
                               ) : (
                                 <span className="text-zinc-400 italic">
@@ -353,7 +456,13 @@ export function ComparisonOutputSidebar({
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal">
+                            <TableCell
+                              className={cn(
+                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
+                                cit2 && "cursor-pointer hover:bg-orange-50/20",
+                              )}
+                              onClick={() => cit2 && handleDocHighlight(2)}
+                            >
                               {c.doc2_content ? (
                                 <div className="space-y-1">
                                   {getName(c.doc2_content, c.entity_type) && (
@@ -369,6 +478,11 @@ export function ComparisonOutputSidebar({
                                     <span className="text-[10px] text-zinc-400 block mt-1 italic">
                                       {formatAttributes(c.doc2_content)}
                                     </span>
+                                  )}
+                                  {cit2 && (
+                                    <div className="absolute top-0 right-0">
+                                      <div className="w-0 h-0 border-t-[10px] border-l-[10px] border-t-orange-500 border-l-transparent" />
+                                    </div>
                                   )}
                                 </div>
                               ) : (

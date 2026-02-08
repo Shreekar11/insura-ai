@@ -48,17 +48,17 @@ export function PDFViewer({
     if (
       citation?.id &&
       citation.id !== lastJumpedCitationId.current &&
-      citation.primaryPage &&
       documentLoaded.current
     ) {
-      const pageIndex = citation.primaryPage - 1;
-      const pageHeight = pageDimensions[citation.primaryPage]?.heightPoints;
-
-      // Find the first bounding box on the primary page to scroll to
-      const primaryPageSpan = citation.spans.find(
-        (s) => s.pageNumber === citation.primaryPage,
+      // Find the first span that has bounding boxes to determine the correct page to scroll to
+      const firstDataSpan = citation.spans.find(
+        (s) => s.boundingBoxes && s.boundingBoxes.length > 0,
       );
-      const firstBox = primaryPageSpan?.boundingBoxes?.[0];
+
+      const targetPage = firstDataSpan?.pageNumber || citation.primaryPage || 1;
+      const pageIndex = targetPage - 1;
+      const pageHeight = pageDimensions[targetPage]?.heightPoints;
+      const firstBox = firstDataSpan?.boundingBoxes?.[0];
 
       lastJumpedCitationId.current = citation.id;
 
@@ -70,11 +70,7 @@ export function PDFViewer({
           firstBox.y1 >= 791);
 
       if (!isFullPage && firstBox && pageHeight) {
-        // Correct calculation: zoom to XYZ where Y is distance from bottom.
-        // We want the box to be at the top of the viewport (with padding).
-        // Since Y=0 is bottom, top of box is firstBox.y1.
-        // Adding 50 points of padding above it.
-        const bottomOffset = Math.min(pageHeight, firstBox.y1 + 50);
+        const bottomOffset = Math.min(pageHeight, firstBox.y1 + 10);
         const leftOffset = firstBox.x0;
 
         if (jumpToDestinationRef.current) {
@@ -89,7 +85,7 @@ export function PDFViewer({
         jumpToPage(pageIndex);
       }
 
-      setCurrentPage(citation.primaryPage);
+      setCurrentPage(targetPage);
     }
   }, [citation, jumpToPage, pageDimensions, scale]);
 
