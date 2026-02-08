@@ -28,10 +28,13 @@ class EntityExtractor:
     """Extracts structured entities from user queries using regex patterns."""
 
     # Regex patterns for entity extraction
+    # Patterns ordered by specificity (most specific first to avoid partial matches)
     POLICY_NUMBER_PATTERNS = [
-        r"\b[A-Z]{2,5}[-_]?\d{3,10}\b",  # POL-12345, CA001
+        r"\bpolicy\s+(?:number\s+)?([A-Z0-9\-_]{3,15})\b",  # policy number POL-123
+        r"\b[A-Z]{2,5}[-_]\d{3,10}(?:[-_]\d{2,4})?\b",  # POL-12345, CA-001-2024
+        r"\b[A-Z]{2,5}\d{5,10}\b",  # GL123456, CA001 (no separator)
         r"\b\d{3,10}[-_][A-Z]{2,5}\b",  # 12345-POL
-        r"\bpolicy\s+(?:number\s+)?([A-Z0-9\-_]{5,15})\b",  # policy number POL-123
+        r"\b[A-Z]{3,5}[-_][A-Z]\b",  # POL-A, POL-B (short policy numbers)
     ]
 
     DATE_PATTERNS = [
@@ -41,8 +44,9 @@ class EntityExtractor:
     ]
 
     AMOUNT_PATTERNS = [
-        r"\$\s*(\d{1,3}(?:,\d{3})*(?:\.\d{2})?)",  # $1,000,000.00
-        r"\b(\d{1,3}(?:,\d{3})*)\s*(?:dollars?|USD)\b",  # 1,000,000 dollars
+        r"\$\s*(\d{1,3}(?:,\d{3})+(?:\.\d{1,2})?)",  # $1,000,000 or $1,000,000.00 (with commas)
+        r"\b(\d{1,3}(?:,\d{3})+)\s*(?:dollars?|USD)\b",  # 1,000,000 dollars (with commas)
+        r"\$\s*(\d{1,4})(?!\d)",  # $5000 or $25000 (without commas, negative lookahead for more digits)
         r"\b(\d+(?:\.\d+)?)\s*(?:million|M)\b",  # 1.5 million
     ]
 
@@ -133,7 +137,20 @@ class EntityExtractor:
             policy_numbers.extend(matches)
 
         # Deduplicate and clean
-        return list(set(pol.strip() for pol in policy_numbers if pol.strip()))
+        unique_numbers = set(pol.strip() for pol in policy_numbers if pol.strip())
+
+        # Remove substrings - keep only the longest matches
+        # E.g., if "CA-001" and "CA-001-2024" both match, only keep "CA-001-2024"
+        filtered_numbers = []
+        sorted_numbers = sorted(unique_numbers, key=len, reverse=True)
+
+        for number in sorted_numbers:
+            # Check if this number is a substring of any already added number
+            is_substring = any(number in other and number != other for other in filtered_numbers)
+            if not is_substring:
+                filtered_numbers.append(number)
+
+        return filtered_numbers
 
     def _extract_coverage_types(self, query_lower: str) -> list[str]:
         """Extract coverage types by matching against known keywords."""
@@ -192,7 +209,20 @@ class EntityExtractor:
             amounts.extend(matches)
 
         # Deduplicate and clean
-        return list(set(amt.strip() for amt in amounts if amt.strip()))
+        unique_amounts = set(amt.strip() for amt in amounts if amt.strip())
+
+        # Remove substrings - keep only the longest matches
+        # E.g., if "1" and "1,000,000" both match, only keep "1,000,000"
+        filtered_amounts = []
+        sorted_amounts = sorted(unique_amounts, key=len, reverse=True)
+
+        for amount in sorted_amounts:
+            # Check if this amount is a substring of any already added amount
+            is_substring = any(amount in other and amount != other for other in filtered_amounts)
+            if not is_substring:
+                filtered_amounts.append(amount)
+
+        return filtered_amounts
 
     def _extract_locations(self, query: str) -> list[str]:
         """Extract location references (addresses, cities, states)."""

@@ -13,7 +13,7 @@ instance, with reset() called at the start of each document classification.
 The pipeline now builds a DocumentProfile, deriving document type and section boundaries from rule-based page analysis.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 

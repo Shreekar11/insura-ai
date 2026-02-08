@@ -208,6 +208,7 @@ QUERY_PATTERN_SECTION_HINTS: dict[str, list[str]] = {
     "exclusion": ["exclusions"],
     "exclude": ["exclusions"],
     "endorsement": ["endorsements"],
+    "endorsements": ["endorsements"],
     "modification": ["endorsements"],
     "insured": ["insured_info", "declarations"],
     "carrier": ["policy_info", "declarations"],
@@ -218,6 +219,8 @@ QUERY_PATTERN_SECTION_HINTS: dict[str, list[str]] = {
     "expiration": ["declarations", "policy_info"],
     "claim": ["claims", "loss_run"],
     "loss": ["claims", "loss_run"],
+    "declaration": ["declarations"],
+    "declarations": ["declarations"],
 }
 
 # Cypher query template for node mapping

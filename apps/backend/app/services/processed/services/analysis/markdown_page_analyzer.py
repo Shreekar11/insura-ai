@@ -7,14 +7,11 @@ provide signals for classification.
 
 import re
 import hashlib
-from typing import List, Optional, Dict
-from app.models.page_analysis_models import PageSignals
+from typing import List, Optional, Dict, Any, Tuple
+from app.models.page_analysis_models import PageSignals, DocumentType
 from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
-
-from typing import List, Optional, Dict, Tuple
-from app.models.page_analysis_models import PageSignals, DocumentType
 
 class MarkdownPageAnalyzer:
     """Analyzer for extracting signals from Markdown text."""
