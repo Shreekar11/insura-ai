@@ -159,7 +159,45 @@ class EntityEvidenceRepository(BaseRepository[EntityEvidence]):
         stmt = select(EntityEvidence).where(
             EntityEvidence.document_id == document_id
         ).order_by(EntityEvidence.created_at)
-        
+
         result = await self.session.execute(stmt)
         return list(result.scalars().all())
+
+    async def get_evidence_with_mentions_by_workflow(
+        self,
+        workflow_id: UUID
+    ) -> List[tuple]:
+        """Get evidence records with joined mention data for a workflow.
+
+        Joins EntityEvidence with EntityMention to get source text and chunk info.
+        Used for creating Evidence nodes in the knowledge graph.
+
+        Args:
+            workflow_id: Workflow UUID
+
+        Returns:
+            List of tuples: (EntityEvidence, EntityMention, CanonicalEntity)
+        """
+        from app.database.models import (
+            EntityMention,
+            CanonicalEntity,
+            WorkflowEntityScope,
+            StableChunk
+        )
+
+        stmt = (
+            select(EntityEvidence, EntityMention, CanonicalEntity, StableChunk)
+            .join(
+                WorkflowEntityScope,
+                EntityEvidence.canonical_entity_id == WorkflowEntityScope.canonical_entity_id
+            )
+            .join(EntityMention, EntityEvidence.entity_mention_id == EntityMention.id)
+            .join(CanonicalEntity, EntityEvidence.canonical_entity_id == CanonicalEntity.id)
+            .outerjoin(StableChunk, EntityMention.source_stable_chunk_id == StableChunk.id)
+            .where(WorkflowEntityScope.workflow_id == workflow_id)
+            .distinct()
+        )
+
+        result = await self.session.execute(stmt)
+        return result.all()
 

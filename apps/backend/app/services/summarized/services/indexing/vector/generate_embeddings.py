@@ -11,8 +11,10 @@ from app.services.base_service import BaseService
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository
+from app.repositories.entity_repository import EntityRepository
 from app.services.summarized.services.indexing.vector.vector_template_service import VectorTemplateService
 from app.utils.logging import get_logger
+from app.utils.canonical_key import generate_canonical_key, extract_normalized_value
 
 LOGGER = get_logger(__name__)
 
@@ -101,6 +103,7 @@ class SectionProcessorFactory:
         cls.register("exclusions", ListBasedSectionProcessor("exclusions", "exclusion", "excl"))
         cls.register("definitions", ListBasedSectionProcessor("definitions", "definition", "def"))
         cls.register("vehicle_schedule", ListBasedSectionProcessor("vehicles", "vehicle", "veh"))
+        cls.register("conditions", ListBasedSectionProcessor("conditions", "condition", "cond"))
         cls.register("driver_schedule", ListBasedSectionProcessor("drivers", "driver", "drv"))
 
 
@@ -125,6 +128,7 @@ class GenerateEmbeddingsService(BaseService):
         self.vector_repo = self.repository
         self.section_repo = SectionExtractionRepository(session)
         self.workflow_doc_repo = WorkflowDocumentRepository(session)
+        self.entity_repo = EntityRepository(session)
         self.template_service = VectorTemplateService()
         self.model_name = "all-MiniLM-L6-v2"
         self._model = None  # Lazy load the model
@@ -237,13 +241,18 @@ class GenerateEmbeddingsService(BaseService):
             
             # Generate ID for the entity
             entity_id = f"{section_type}_{entity_id_suffix}"
-            
+
             # Generate embedding vector
             vector = self.model.encode(text).tolist()
-            
+
             # Extract and parse metadata
             metadata = self._extract_metadata(data)
-            
+
+            # Attempt to resolve canonical entity (best-effort bridge)
+            canonical_entity_id = await self._resolve_canonical_entity(
+                entity_type, data
+            )
+
             # Save embedding
             await self.vector_repo.create(
                 document_id=document_id,
@@ -256,6 +265,7 @@ class GenerateEmbeddingsService(BaseService):
                 embedding=vector,
                 content_hash=content_hash,
                 workflow_id=workflow_id,
+                canonical_entity_id=canonical_entity_id,
                 effective_date=metadata["effective_date"],
                 expiration_date=metadata["expiration_date"],
                 location_id=metadata["location_id"],
@@ -292,3 +302,54 @@ class GenerateEmbeddingsService(BaseService):
             "expiration_date": exp_date,
             "location_id": str(loc_id) if loc_id else None
         }
+
+    async def _resolve_canonical_entity(
+        self,
+        entity_type: str,
+        entity_data: Dict[str, Any]
+    ) -> Optional[UUID]:
+        """Attempt to resolve the canonical entity for this embedding.
+
+        Best-effort lookup to bridge vector embeddings to canonical entities.
+        Uses the same canonical key generation algorithm as EntityResolver.
+
+        Args:
+            entity_type: Type of entity (e.g., "coverage", "policy")
+            entity_data: Dictionary of entity attributes
+
+        Returns:
+            UUID of canonical entity if found, None otherwise
+        """
+        try:
+            # Extract normalized value using shared utility
+            normalized_value = extract_normalized_value(entity_type.title(), entity_data)
+            if not normalized_value:
+                return None
+
+            # Generate canonical key using shared algorithm
+            canonical_key = generate_canonical_key(entity_type.title(), normalized_value)
+
+            # Look up canonical entity by key
+            canonical_entity = await self.entity_repo.get_by_key(
+                entity_type.title(), canonical_key
+            )
+
+            if canonical_entity:
+                LOGGER.debug(
+                    f"Resolved canonical entity for {entity_type}",
+                    extra={
+                        "entity_type": entity_type,
+                        "canonical_key": canonical_key,
+                        "canonical_entity_id": str(canonical_entity.id)
+                    }
+                )
+                return canonical_entity.id
+
+            return None
+
+        except Exception as e:
+            LOGGER.warning(
+                f"Failed to resolve canonical entity for {entity_type}: {e}",
+                extra={"entity_type": entity_type}
+            )
+            return None

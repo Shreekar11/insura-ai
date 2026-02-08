@@ -174,20 +174,18 @@ class EntityResolver:
     
     def _generate_canonical_key(self, entity_type: str, normalized_value: str) -> str:
         """Generate canonical key for entity.
-        
-        The canonical key is a hash of entity_type + normalized_value,
-        ensuring uniqueness across entity types.
-        
+
+        Delegates to shared utility to ensure consistency with embedding system.
+
         Args:
             entity_type: Type of entity
             normalized_value: Normalized value
-            
+
         Returns:
             str: Canonical key (hash)
         """
-        # Use SHA256 hash of type:value
-        key_input = f"{entity_type}:{normalized_value}".lower()
-        return hashlib.sha256(key_input.encode()).hexdigest()[:32]
+        from app.utils.canonical_key import generate_canonical_key
+        return generate_canonical_key(entity_type, normalized_value)
     
     async def _get_or_create_canonical_entity(
         self,

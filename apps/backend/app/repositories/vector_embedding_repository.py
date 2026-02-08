@@ -26,6 +26,10 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         """Get all embeddings for a specific document."""
         return await self.get_all(filters={"document_id": document_id})
 
+    async def get_by_workflow(self, workflow_id: UUID) -> List[VectorEmbedding]:
+        """Get all embeddings for a specific workflow."""
+        return await self.get_all(filters={"workflow_id": workflow_id})
+
     async def semantic_search(
         self, 
         embedding: List[float], 

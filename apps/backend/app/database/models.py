@@ -1184,6 +1184,12 @@ class VectorEmbedding(Base):
     workflow_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("workflows.id", ondelete="CASCADE"), nullable=False
     )
+    canonical_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("canonical_entities.id", ondelete="SET NULL"),
+        nullable=True,
+        comment="FK to canonical entity for vector↔graph bridge"
+    )
     section_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
@@ -1206,6 +1212,10 @@ class VectorEmbedding(Base):
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="vector_embeddings")
     workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="vector_embeddings")
+    canonical_entity: Mapped["CanonicalEntity | None"] = relationship(
+        "CanonicalEntity",
+        foreign_keys=[canonical_entity_id]
+    )
 
 
     __table_args__ = (
