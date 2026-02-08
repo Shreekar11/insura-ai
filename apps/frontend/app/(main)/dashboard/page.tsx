@@ -8,11 +8,25 @@ import { workflowColumns } from "@/components/custom/workflow-columns";
 import { DashboardHeader } from "@/components/custom/dashboard-header";
 import { useWorkflows, useCreateWorkflow } from "@/hooks/use-workflows";
 import { useWorkflowDefinitions } from "@/hooks/use-workflow-definitions";
-import { IconLoader2, IconAlertCircle } from "@tabler/icons-react";
+import {
+  IconAlertCircle,
+  IconArrowRight,
+} from "@tabler/icons-react";
 import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 import { useAuth } from "@/contexts/auth-context";
 import { TableSkeleton } from "@/components/custom/table-skeleton";
+import {
+  Card,
+  CardDescription,
+  CardHeader,
+  CardTitle,
+} from "@/components/ui/card";
+import Image from "next/image";
+
+import policyComparisonImg from "@/app/assets/policy-comparison.avif";
+import proposalGenerationImg from "@/app/assets/proposal-generation.avif";
+import quoteComparisonImg from "@/app/assets/quote-comparison.jpeg";
 
 export default function Page() {
   const router = useRouter();
@@ -55,7 +69,7 @@ export default function Page() {
   if (isLoading) {
     return (
       <div className="flex flex-col gap-2 pt-2">
-        <DashboardHeader workflows={[]} userName={user?.user_metadata.name} />
+        <DashboardHeader userName={user?.user_metadata.name} />
         <TableSkeleton />
       </div>
     );
@@ -80,21 +94,86 @@ export default function Page() {
 
   return (
     <div className="flex flex-col gap-2 pt-2">
-      <DashboardHeader
-        workflows={workflowsResult.workflows}
-        userName={user?.user_metadata.name}
-      />
-      <DataTable
-        data={workflowsResult.workflows}
-        columns={workflowColumns}
-        addLabel="New Workflow"
-        onAddClick={handleCreateNewWorkflow}
-        workflowDefinitions={workflowDefinitions}
-        manualPagination={true}
-        pageCount={pageCount}
-        paginationState={pagination}
-        onPaginationChange={setPagination}
-      />
+      <DashboardHeader userName={user?.user_metadata.name} />
+      {workflowsResult.workflows.length === 0 ? (
+        <div className="flex flex-col gap-8 px-4 lg:px-6 py-2">
+          <div className="flex flex-col gap-2">
+            <h2 className="text-xl font-semibold tracking-tight">
+              Choose a workflow to automate your insurance operations
+            </h2>
+            <p className="text-muted-foreground">
+              Select a prebuilt workflow to start automating insurance operations.
+            </p>
+          </div>
+
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+            {[
+              {
+                key: "policy_comparison",
+                title: "Policy Comparison",
+                description:
+                  "Deep dive into policy differences with AI-powered analysis.",
+                image: policyComparisonImg,
+              },
+              {
+                key: "proposal_generation",
+                title: "Proposal Generation",
+                description:
+                  "Automate complex proposal drafting with multi-document reasoning.",
+                image: proposalGenerationImg,
+              },
+              {
+                key: "quote_comparison",
+                title: "Quote Comparison",
+                description:
+                  "Bridge the gap between quotes with granular coverage matching.",
+                image: quoteComparisonImg,
+              },
+            ].map((card) => {
+              const definition = workflowDefinitions?.find(
+                (d) => d.key === card.key,
+              );
+              return (
+                <Card
+                  key={card.key}
+                  className="pt-0 overflow-hidden rounded-lg cursor-pointer transition-all group"
+                  onClick={() =>
+                    definition && handleCreateNewWorkflow(definition.id!)
+                  }
+                >
+                  <div className="relative h-48 w-full">
+                    <Image
+                      src={card.image}
+                      alt={card.title}
+                      fill
+                      className="object-cover transition-transform group-hover:scale-105"
+                    />
+                  </div>
+                  <CardHeader>
+                    <CardTitle className="flex items-center justify-between">
+                      {card.title}
+                      <IconArrowRight className="size-4 opacity-0 -translate-x-2 group-hover:opacity-100 group-hover:translate-x-0 transition-all" />
+                    </CardTitle>
+                    <CardDescription>{card.description}</CardDescription>
+                  </CardHeader>
+                </Card>
+              );
+            })}
+          </div>
+        </div>
+      ) : (
+        <DataTable
+          data={workflowsResult.workflows}
+          columns={workflowColumns}
+          addLabel="New Workflow"
+          onAddClick={handleCreateNewWorkflow}
+          workflowDefinitions={workflowDefinitions}
+          manualPagination={true}
+          pageCount={pageCount}
+          paginationState={pagination}
+          onPaginationChange={setPagination}
+        />
+      )}
     </div>
   );
 }

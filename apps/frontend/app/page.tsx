@@ -13,9 +13,9 @@ import {
 import { Button } from "@/components/ui/button";
 import { LineShadowText } from "@/components/ui/line-shadow-text";
 
-import productPlaceholder from "../app/assets/product-placeholder.png";
+import productPlaceholder from "../app/assets/star-landing.png";
 
-const AuthInspiredBackground = () => (
+const GradientBackground = () => (
   <div
     className="absolute inset-0 z-0 pointer-events-none overflow-hidden w-full h-full"
     style={{
@@ -49,27 +49,6 @@ const AuthInspiredBackground = () => (
   </div>
 );
 
-const NavItem = ({
-  href,
-  children,
-  active,
-}: {
-  href: string;
-  children: React.ReactNode;
-  active?: boolean;
-}) => (
-  <Link
-    href={href}
-    className={`text-[13px] font-medium transition-colors ${
-      active
-        ? "text-white bg-white/10 px-4 py-1.5 rounded-full"
-        : "text-white/60 hover:text-white"
-    }`}
-  >
-    {children}
-  </Link>
-);
-
 export default function Home() {
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
@@ -83,29 +62,18 @@ export default function Home() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const features = [
-    "AI-powered policy comparisons",
-    "Automated coverage extraction",
-    "Streamlined underwriting workflows",
-    "Precision-engineered risk analysis",
-  ];
-
   return (
     <div className="relative min-h-screen w-full selection:bg-blue-500/30 font-sans text-[#2B2C36] overflow-x-hidden">
-      <AuthInspiredBackground />
+      <GradientBackground />
 
       {/* Header */}
       <header
         className={`fixed top-0 w-full z-50 transition-all duration-300 ${
-          isScrolled ? "py-3" : "py-6"
+          isScrolled ? "py-3 bg-white/5 backdrop-blur-xl border-b border-white/10" : "py-6 bg-transparent"
         }`}
       >
         <div
-          className={`max-w-5xl mx-auto px-6 md:px-8 transition-all duration-300 ${
-            isScrolled
-              ? "bg-white/5 backdrop-blur-xl border border-white/10 py-3 rounded-xl shadow-2xl mx-4 md:mx-auto"
-              : "bg-transparent"
-          }`}
+          className="max-w-5xl mx-auto px-6 md:px-8 transition-all duration-300"
         >
           <nav className="flex items-center justify-between">
             {/* Logo */}
@@ -262,7 +230,7 @@ export default function Home() {
               </span>
             </Link>
             <p className="text-sm text-white/40">
-              © 2026 InsuraAI. Built for practitioners.
+              © 2026 InsuraAI. All rights reserved.
             </p>
           </div>
         </div>
