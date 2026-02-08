@@ -213,13 +213,13 @@ class CitationResolutionService:
 
             confidence = max(0.0, min(1.0, 1.0 - best_distance))
 
-            # Try narrowed direct match on the chunk's page
+            # Try narrowed direct match on the chunk's page.
             if self.citation_mapper:
                 search_text = source_text[:500] if len(source_text) > 500 else source_text
                 match = self.citation_mapper.find_text_location(
                     search_text=search_text,
                     expected_page=chunk.page_number,
-                    fuzzy_threshold=0.65,
+                    fuzzy_threshold=0.6,
                 )
                 if match and match.spans:
                     return ResolutionResult(

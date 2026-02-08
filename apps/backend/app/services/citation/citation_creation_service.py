@@ -254,6 +254,8 @@ class CitationCreationService:
                 "errors": errors[:5] if errors else [],
             },
         )
+        
+        await self.session.commit()
 
         return {
             "created_count": created_count,

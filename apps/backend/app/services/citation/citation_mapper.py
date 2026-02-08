@@ -225,10 +225,19 @@ class CitationMapper:
 
     def _normalize_text(self, text: str) -> str:
         """Normalize text for matching."""
+        if not text:
+            return ""
+            
+        # Convert smart quotes to standard quotes
+        text = text.replace('“', '"').replace('”', '"')
+        text = text.replace('‘', "'").replace('’', "'")
+        
+        # Convert common dashes to standard hyphen
+        text = text.replace('—', '-').replace('–', '-')
+        
         # Remove extra whitespace, lowercase
         text = re.sub(r'\s+', ' ', text.strip().lower())
-        # Remove common OCR artifacts but keep basic punctuation
-        text = re.sub(r'[^\w\s\-\.,;:\'"()]', '', text)
+        text = re.sub(r'[^\w\s\-\.,;:\'"()&/%$]', '', text)
         return text
 
     def _sequence_similarity(
