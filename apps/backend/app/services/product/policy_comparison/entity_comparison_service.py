@@ -82,75 +82,56 @@ class EntityComparisonService:
         doc1_eff_exclusions = self._extract_exclusions(doc1_data)
         doc2_eff_exclusions = self._extract_exclusions(doc2_data)
 
-        # Match effective entities
-        eff_coverage_matches = await self.matcher_service.match_entities(
-            doc1_eff_coverages, doc2_eff_coverages, EntityType.COVERAGE
-        )
-        eff_exclusion_matches = await self.matcher_service.match_entities(
-            doc1_eff_exclusions, doc2_eff_exclusions, EntityType.EXCLUSION
-        )
-
-        # 2. Section-Level Comparisons (Raw Extracted Data)
-        doc1_sec_coverages = self._extract_section_data(doc1_data, "coverages")
-        doc2_sec_coverages = self._extract_section_data(doc2_data, "coverages")
-        doc1_sec_exclusions = self._extract_section_data(doc1_data, "exclusions")
-        doc2_sec_exclusions = self._extract_section_data(doc2_data, "exclusions")
-
-        # Match section entities
-        sec_coverage_matches = await self.matcher_service.match_entities(
-            doc1_sec_coverages, doc2_sec_coverages, EntityType.SECTION_COVERAGE
-        )
-        sec_exclusion_matches = await self.matcher_service.match_entities(
-            doc1_sec_exclusions, doc2_sec_exclusions, EntityType.SECTION_EXCLUSION
-        )
-
         LOGGER.info(
-            f"Extracted entities - Effective: {len(doc1_eff_coverages)}/{len(doc2_eff_coverages)} cov, "
-            f"{len(doc1_eff_exclusions)}/{len(doc2_eff_exclusions)} excl; "
-            f"Section: {len(doc1_sec_coverages)}/{len(doc2_sec_coverages)} cov, "
-            f"{len(doc1_sec_exclusions)}/{len(doc2_sec_exclusions)} excl"
+            f"Extracted entities - Doc1: {len(doc1_eff_coverages)} coverages, {len(doc1_eff_exclusions)} exclusions; "
+            f"Doc2: {len(doc2_eff_coverages)} coverages, {len(doc2_eff_exclusions)} exclusions"
+        )
+
+        # Detect if doc2 is an endorsement affecting match interpretation
+        is_endorsement = self._is_endorsement_only(doc2_data)
+        if is_endorsement:
+            LOGGER.info("Document 2 identified as endorsement-only; using UNCHANGED for base entries")
+
+        # Match coverages
+        coverage_matches = await self.matcher_service.match_entities(
+            doc1_eff_coverages, doc2_eff_coverages, EntityType.COVERAGE,
+            endorsement_mode=is_endorsement
+        )
+
+        # Match exclusions
+        exclusion_matches = await self.matcher_service.match_entities(
+            doc1_eff_exclusions, doc2_eff_exclusions, EntityType.EXCLUSION,
+            endorsement_mode=is_endorsement
+        )
+
+        # 2. Cross-Type Matches (Entities that switched types between documents)
+        cross_type_matches = await self.matcher_service.find_cross_type_matches(
+            doc1_eff_coverages, doc1_eff_exclusions,
+            doc2_eff_coverages, doc2_eff_exclusions
         )
 
         # Convert matches to EntityComparison objects
         comparisons = []
-        
-        # Add effective comparisons
-        for match in eff_coverage_matches:
-            comp = self._create_entity_comparison(match, EntityType.COVERAGE)
-            comp.comparison_source = ComparisonSource.EFFECTIVE
-            comparisons.append(comp)
-            
-        for match in eff_exclusion_matches:
-            comp = self._create_entity_comparison(match, EntityType.EXCLUSION)
-            comp.comparison_source = ComparisonSource.EFFECTIVE
-            comparisons.append(comp)
 
-        # Add section comparisons
-        for match in sec_coverage_matches:
-            comp = self._create_entity_comparison(match, EntityType.SECTION_COVERAGE)
-            comp.comparison_source = ComparisonSource.SECTION
-            comp.section_type = "coverages"
-            comparisons.append(comp)
+        for match in coverage_matches:
+            comparison = self._create_entity_comparison(match, EntityType.COVERAGE)
+            comparisons.append(comparison)
 
-        for match in sec_exclusion_matches:
-            comp = self._create_entity_comparison(match, EntityType.SECTION_EXCLUSION)
-            comp.comparison_source = ComparisonSource.SECTION
-            comp.section_type = "exclusions"
-            comparisons.append(comp)
+        for match in exclusion_matches:
+            comparison = self._create_entity_comparison(match, EntityType.EXCLUSION)
+            comparisons.append(comparison)
 
-        # Enrich with summaries (parallel LLM calls)
-        await self._enrich_with_summaries(comparisons)
+        # Integration of cross-type matches
+        for match in cross_type_matches:
+            comparison = self._create_cross_type_comparison(match)
+            comparisons.append(comparison)
 
-        # Calculate summary stats
+        # Calculate summary
         summary = self._calculate_summary(
             doc1_eff_coverages, doc2_eff_coverages,
             doc1_eff_exclusions, doc2_eff_exclusions,
             comparisons
         )
-        
-        # Update summary with section counts
-        summary.section_coverage_comparisons = len(sec_coverage_matches)
-        summary.section_exclusion_comparisons = len(sec_exclusion_matches)
 
         # Generate overall explanation
         overall_explanation = await self._generate_overall_explanation(comparisons)
@@ -166,10 +147,8 @@ class EntityComparisonService:
             overall_confidence=Decimal("0.85"),  # Placeholder
             overall_explanation=overall_explanation,
             metadata={
-                "effective_cov_count": len(eff_coverage_matches),
-                "effective_excl_count": len(eff_exclusion_matches),
-                "section_cov_count": len(sec_coverage_matches),
-                "section_excl_count": len(sec_exclusion_matches),
+                "coverage_count": len(coverage_matches),
+                "exclusion_count": len(exclusion_matches),
             }
         )
 
@@ -193,6 +172,27 @@ class EntityComparisonService:
         except Exception as e:
             LOGGER.warning(f"Failed to get document name for {document_id}: {e}")
         return str(document_id)
+
+    def _is_endorsement_only(self, data: Dict[str, Any]) -> bool:
+        """Detect if data is from an endorsement-only document.
+
+        Endorsement documents only contain modifications to base policy,
+        not a complete list of all provisions. This affects how we interpret
+        unmatched entities from the base document.
+
+        Args:
+            data: Extracted/synthesized data dictionary
+
+        Returns:
+            True if this is an endorsement document, False otherwise
+        """
+        # Check synthesis metadata for endorsement_only method
+        synthesis_metadata = data.get("synthesis_metadata", {})
+        if not synthesis_metadata and "synthesis_result" in data:
+            synthesis_metadata = data["synthesis_result"].get("synthesis_metadata", {})
+
+        synthesis_method = synthesis_metadata.get("synthesis_method", "")
+        return synthesis_method == "endorsement_only"
 
     def _extract_coverages(self, data: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Extract effective coverages from extracted data."""
@@ -301,6 +301,15 @@ class EntityComparisonService:
                 entity_name = doc1_entity.get("exclusion_name") or doc1_entity.get("title") or "Unknown Exclusion"
             entity_id = doc1_entity.get("canonical_id") or doc1_entity.get("id")
 
+        # Determine severity based on match type
+        match_type = match.get("match_type")
+        if match_type == MatchType.MATCH:
+            severity = "low"
+        elif match_type == MatchType.PARTIAL_MATCH:
+            severity = "medium"
+        else:  # ADDED, REMOVED
+            severity = "high"
+
         return EntityComparison(
             entity_type=entity_type,
             match_type=match.get("match_type"),
@@ -320,6 +329,82 @@ class EntityComparisonService:
             doc2_extraction_id=doc2_entity.get("_extraction_id") if doc2_entity else None,
         )
 
+    def _create_cross_type_comparison(
+        self,
+        match: Dict[str, Any],
+    ) -> EntityComparison:
+        """Create an EntityComparison from a cross-type match result.
+
+        Cross-type matches indicate the same insurance concept is classified as
+        different entity types (Coverage vs Exclusion) in the two documents.
+
+        Args:
+            match: Cross-type match result with doc1_type, doc2_type fields
+
+        Returns:
+            EntityComparison with TYPE_RECLASSIFIED match type
+        """
+        doc1_entity = match.get("doc1_entity")
+        doc2_entity = match.get("doc2_entity")
+        doc1_type = match.get("doc1_type")
+        doc2_type = match.get("doc2_type")
+
+        # Extract names based on actual entity types
+        doc1_name = None
+        doc2_name = None
+        doc1_canonical_id = None
+        doc2_canonical_id = None
+
+        if doc1_entity:
+            if doc1_type == EntityType.COVERAGE:
+                doc1_name = doc1_entity.get("coverage_name") or doc1_entity.get("name")
+            else:
+                doc1_name = doc1_entity.get("exclusion_name") or doc1_entity.get("title")
+            doc1_canonical_id = doc1_entity.get("canonical_id")
+
+        if doc2_entity:
+            if doc2_type == EntityType.COVERAGE:
+                doc2_name = doc2_entity.get("coverage_name") or doc2_entity.get("name")
+            else:
+                doc2_name = doc2_entity.get("exclusion_name") or doc2_entity.get("title")
+            doc2_canonical_id = doc2_entity.get("canonical_id")
+
+        # Use doc1's entity type as the primary type for this comparison
+        # (could also be doc2_type - choice is arbitrary since they differ)
+        entity_type = doc1_type
+
+        # Enhance reasoning to indicate type mismatch
+        base_reasoning = match.get("reasoning", "Same concept classified as different entity type")
+        enhanced_reasoning = (
+            f"{base_reasoning} "
+            f"(Doc1: {doc1_type.value}, Doc2: {doc2_type.value})"
+        )
+
+        return EntityComparison(
+            entity_type=entity_type,
+            match_type=MatchType.TYPE_RECLASSIFIED,
+            entity_id=doc2_canonical_id or doc1_canonical_id,
+            entity_name=doc2_name or doc1_name or "Unknown",
+            doc1_content=doc1_entity,
+            doc2_content=doc2_entity,
+            doc1_name=doc1_name,
+            doc1_canonical_id=doc1_canonical_id,
+            doc2_name=doc2_name,
+            doc2_canonical_id=doc2_canonical_id,
+            confidence=match.get("confidence", Decimal("0.0")),
+            match_method=match.get("match_method", "cross_type_llm"),
+            field_differences=None,  # Type mismatch is conceptual, not field-level
+            reasoning=enhanced_reasoning,
+            severity="high",  # Misclassification is a data quality issue
+            # Contextual metadata
+            doc1_page_range=doc1_entity.get("_page_range") if doc1_entity else None,
+            doc2_page_range=doc2_entity.get("_page_range") if doc2_entity else None,
+            doc1_confidence=doc1_entity.get("_confidence") if doc1_entity else None,
+            doc2_confidence=doc2_entity.get("_confidence") if doc2_entity else None,
+            doc1_extraction_id=doc1_entity.get("_extraction_id") if doc1_entity else None,
+            doc2_extraction_id=doc2_entity.get("_extraction_id") if doc2_entity else None,
+        )
+
     def _calculate_summary(
         self,
         doc1_coverages: List[Dict],
@@ -330,37 +415,62 @@ class EntityComparisonService:
     ) -> EntityComparisonSummary:
         """Calculate summary statistics from comparisons."""
         coverage_matches = 0
+        coverage_partial_matches = 0
+        coverages_added = 0
+        coverages_removed = 0
+        coverages_unchanged = 0
+
         exclusion_matches = 0
-        total_added = 0
-        total_removed = 0
-        total_modified = 0
+        exclusion_partial_matches = 0
+        exclusions_added = 0
+        exclusions_removed = 0
+        exclusions_unchanged = 0
+
+        entities_reclassified = 0
 
         for c in comparisons:
-            # We only count effective source for these stats to maintain compatibility
-            if c.comparison_source != ComparisonSource.EFFECTIVE:
-                continue
-
-            if c.entity_type == EntityType.COVERAGE:
-                if c.match_type in [MatchType.MATCH, MatchType.PARTIAL_MATCH]:
+            if c.match_type == MatchType.TYPE_RECLASSIFIED:
+                entities_reclassified += 1
+            elif c.entity_type == EntityType.COVERAGE:
+                if c.match_type == MatchType.MATCH:
                     coverage_matches += 1
-            elif c.entity_type == EntityType.EXCLUSION:
-                if c.match_type in [MatchType.MATCH, MatchType.PARTIAL_MATCH]:
+                elif c.match_type == MatchType.PARTIAL_MATCH:
+                    coverage_partial_matches += 1
+                elif c.match_type == MatchType.ADDED:
+                    coverages_added += 1
+                elif c.match_type == MatchType.REMOVED:
+                    coverages_removed += 1
+                elif c.match_type == MatchType.UNCHANGED:
+                    coverages_unchanged += 1
+            else:  # EXCLUSION
+                if c.match_type == MatchType.MATCH:
                     exclusion_matches += 1
-
-            if c.match_type == MatchType.ADDED:
-                total_added += 1
-            elif c.match_type == MatchType.REMOVED:
-                total_removed += 1
-            elif c.match_type == MatchType.PARTIAL_MATCH:
-                total_modified += 1
+                elif c.match_type == MatchType.PARTIAL_MATCH:
+                    exclusion_partial_matches += 1
+                elif c.match_type == MatchType.ADDED:
+                    exclusions_added += 1
+                elif c.match_type == MatchType.REMOVED:
+                    exclusions_removed += 1
+                elif c.match_type == MatchType.UNCHANGED:
+                    exclusions_unchanged += 1
 
         return EntityComparisonSummary(
             total_comparisons=len([c for c in comparisons if c.comparison_source == ComparisonSource.EFFECTIVE]),
+            total_coverages_doc1=len(doc1_coverages),
+            total_coverages_doc2=len(doc2_coverages),
+            total_exclusions_doc1=len(doc1_exclusions),
+            total_exclusions_doc2=len(doc2_exclusions),
             coverage_matches=coverage_matches,
+            coverage_partial_matches=coverage_partial_matches,
+            coverages_added=coverages_added,
+            coverages_removed=coverages_removed,
+            coverages_unchanged=coverages_unchanged,
             exclusion_matches=exclusion_matches,
-            total_added=total_added,
-            total_removed=total_removed,
-            total_modified=total_modified
+            exclusion_partial_matches=exclusion_partial_matches,
+            exclusions_added=exclusions_added,
+            exclusions_removed=exclusions_removed,
+            exclusions_unchanged=exclusions_unchanged,
+            entities_reclassified=entities_reclassified,
         )
 
     async def _generate_overall_explanation(
@@ -368,19 +478,28 @@ class EntityComparisonService:
         comparisons: List[EntityComparison],
     ) -> str:
         """Generate an LLM-powered overall explanation of the comparison."""
-        # Focus on effective comparisons for overall explanation
-        effective_comps = [c for c in comparisons if c.comparison_source == ComparisonSource.EFFECTIVE]
-        if not effective_comps:
-            return "No significant effective coverage or exclusion changes identified."
+        if not comparisons:
+            return "No entities to compare."
+
+        # Filter material changes
+        material_changes = [
+            c for c in comparisons
+            if c.match_type in [MatchType.PARTIAL_MATCH, MatchType.ADDED, MatchType.REMOVED]
+        ]
+
+        if not material_changes:
+            return "All coverages and exclusions match between the two documents."
 
         # Prepare summary for LLM
         summary_lines = []
-        for c in effective_comps:
-            if c.match_type != MatchType.MATCH:
-                summary_lines.append(f"- {c.match_type.value.upper()} {c.entity_type.value}: {c.entity_name}")
-
-        if not summary_lines:
-            return "No differences found between the documents for effective coverages and exclusions."
+        for c in material_changes[:20]:  # Limit to 20 changes
+            entity_name = c.doc1_name or c.doc2_name or "Unknown"
+            if c.match_type == MatchType.ADDED:
+                summary_lines.append(f"- ADDED {c.entity_type.value}: {entity_name}")
+            elif c.match_type == MatchType.REMOVED:
+                summary_lines.append(f"- REMOVED {c.entity_type.value}: {entity_name}")
+            elif c.match_type == MatchType.PARTIAL_MATCH:
+                summary_lines.append(f"- MODIFIED {c.entity_type.value}: {entity_name}")
 
         prompt = f"""You are an insurance policy expert. Summarize the following differences between two insurance policies.
 Focus on the most important changes that affect coverage for the policyholder.

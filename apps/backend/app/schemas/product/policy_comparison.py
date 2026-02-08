@@ -18,6 +18,8 @@ class MatchType(str, Enum):
     NO_MATCH = "no_match"
     ADDED = "added"
     REMOVED = "removed"
+    TYPE_RECLASSIFIED = "type_reclassified"
+    UNCHANGED = "unchanged"
 
 
 class EntityType(str, Enum):
@@ -104,12 +106,25 @@ class EntityComparisonSummary(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     total_comparisons: int = Field(0, description="Total effective entities compared")
-    coverage_matches: int = Field(0, description="Number of exact coverage matches")
-    exclusion_matches: int = Field(0, description="Number of exact exclusion matches")
     
-    total_added: int = Field(0, description="Total entities added")
-    total_removed: int = Field(0, description="Total entities removed")
-    total_modified: int = Field(0, description="Total entities with partial matches")
+    total_coverages_doc1: int = Field(0, description="Total coverages in document 1")
+    total_coverages_doc2: int = Field(0, description="Total coverages in document 2")
+    total_exclusions_doc1: int = Field(0, description="Total exclusions in document 1")
+    total_exclusions_doc2: int = Field(0, description="Total exclusions in document 2")
+
+    coverage_matches: int = Field(0, description="Number of exact coverage matches")
+    coverage_partial_matches: int = Field(0, description="Number of partial coverage matches")
+    coverages_added: int = Field(0, description="Coverages added in document 2")
+    coverages_removed: int = Field(0, description="Coverages removed from document 1")
+    coverages_unchanged: int = Field(0, description="Base coverages not modified by endorsement")
+
+    exclusion_matches: int = Field(0, description="Number of exact exclusion matches")
+    exclusion_partial_matches: int = Field(0, description="Number of partial exclusion matches")
+    exclusions_added: int = Field(0, description="Exclusions added in document 2")
+    exclusions_removed: int = Field(0, description="Exclusions removed from document 1")
+    exclusions_unchanged: int = Field(0, description="Base exclusions not modified by endorsement")
+
+    entities_reclassified: int = Field(0, description="Entities classified as different types across documents")
 
     section_coverage_comparisons: int = Field(0, description="Number of section-level coverage comparisons")
     section_exclusion_comparisons: int = Field(0, description="Number of section-level exclusion comparisons")

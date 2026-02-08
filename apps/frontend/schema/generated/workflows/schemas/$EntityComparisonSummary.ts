@@ -4,41 +4,37 @@
 /* eslint-disable */
 export const $EntityComparisonSummary = {
     properties: {
-        total_coverages_doc1: {
+        total_comparisons: {
             type: 'number',
-        },
-        total_coverages_doc2: {
-            type: 'number',
-        },
-        total_exclusions_doc1: {
-            type: 'number',
-        },
-        total_exclusions_doc2: {
-            type: 'number',
+            description: `Total effective entities compared`,
         },
         coverage_matches: {
             type: 'number',
-        },
-        coverage_partial_matches: {
-            type: 'number',
-        },
-        coverages_added: {
-            type: 'number',
-        },
-        coverages_removed: {
-            type: 'number',
+            description: `Number of exact coverage matches`,
         },
         exclusion_matches: {
             type: 'number',
+            description: `Number of exact exclusion matches`,
         },
-        exclusion_partial_matches: {
+        total_added: {
             type: 'number',
+            description: `Total entities added`,
         },
-        exclusions_added: {
+        total_removed: {
             type: 'number',
+            description: `Total entities removed`,
         },
-        exclusions_removed: {
+        total_modified: {
             type: 'number',
+            description: `Total entities with partial matches`,
+        },
+        section_coverage_comparisons: {
+            type: 'number',
+            description: `Number of section-level coverage comparisons`,
+        },
+        section_exclusion_comparisons: {
+            type: 'number',
+            description: `Number of section-level exclusion comparisons`,
         },
     },
 } as const;
