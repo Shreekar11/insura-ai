@@ -1,7 +1,13 @@
 """Neo4j client configuration and connection management."""
 
-from typing import Optional
+import asyncio
+from typing import Any, Optional
 from neo4j import AsyncDriver, AsyncSession, AsyncGraphDatabase
+from neo4j.exceptions import (
+    ServiceUnavailable,
+    SessionExpired,
+    TransientError,
+)
 from app.core.config import settings
 from app.utils.logging import get_logger
 
@@ -44,7 +50,8 @@ class Neo4jClientManager:
     ENTITY_LABELS = [
         "Policy", "Coverage", "Organization", "Claim",
         "Endorsement", "Location", "Condition", "Definition",
-        "Exclusion", "Vehicle", "Driver",
+        "Exclusion", "Vehicle", "Driver", "VectorEmbedding",
+        "Evidence",  # Added in Phase 5
     ]
 
     @classmethod
@@ -102,6 +109,112 @@ class Neo4jClientManager:
                     LOGGER.error(f"Failed to create workflow index for {label}: {e}")
 
             LOGGER.info("Ensured indexes for all entity labels")
+
+    @classmethod
+    async def run_query(
+        cls,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+        database: str | None = None,
+        max_retries: int = 3,
+        retry_delay: float = 1.0,
+    ) -> list[dict[str, Any]]:
+        """
+        Execute a Cypher query with retry logic for transient failures.
+
+        Args:
+            query: Cypher query string
+            parameters: Query parameters dictionary
+            database: Database name (defaults to configured database)
+            max_retries: Maximum retry attempts for transient errors
+            retry_delay: Initial delay between retries in seconds (exponential backoff)
+
+        Returns:
+            List of result records as dictionaries
+
+        Raises:
+            ServiceUnavailable: Neo4j service is unavailable after retries
+            Exception: Non-transient errors
+        """
+        parameters = parameters or {}
+        db = database or settings.neo4j.database
+
+        for attempt in range(max_retries):
+            try:
+                async with cls.get_session(database=db) as session:
+                    result = await session.run(query, parameters)
+                    records = await result.data()
+                    return records
+
+            except (ServiceUnavailable, SessionExpired, TransientError) as e:
+                if attempt == max_retries - 1:
+                    LOGGER.error(
+                        f"Neo4j query failed after {max_retries} attempts",
+                        extra={
+                            "query": query[:100],
+                            "error": str(e),
+                            "attempts": max_retries,
+                        },
+                    )
+                    raise
+
+                # Exponential backoff
+                wait_time = retry_delay * (2**attempt)
+                LOGGER.warning(
+                    f"Neo4j transient error, retrying in {wait_time}s",
+                    extra={
+                        "attempt": attempt + 1,
+                        "max_retries": max_retries,
+                        "error": str(e),
+                    },
+                )
+                await asyncio.sleep(wait_time)
+
+            except Exception as e:
+                LOGGER.error(
+                    "Neo4j query failed with non-transient error",
+                    extra={
+                        "query": query[:100],
+                        "error": str(e),
+                        "error_type": type(e).__name__,
+                    },
+                )
+                raise
+
+        return []
+
+    @classmethod
+    async def execute_write_query(
+        cls,
+        query: str,
+        parameters: dict[str, Any] | None = None,
+        database: str | None = None,
+    ) -> dict[str, Any]:
+        """
+        Execute a write query (CREATE, MERGE, SET, DELETE) in a transaction.
+
+        Args:
+            query: Cypher write query
+            parameters: Query parameters
+            database: Database name
+
+        Returns:
+            Query execution summary
+        """
+        parameters = parameters or {}
+        db = database or settings.neo4j.database
+
+        async with cls.get_session(database=db) as session:
+            result = await session.run(query, parameters)
+            summary = await result.consume()
+
+            return {
+                "nodes_created": summary.counters.nodes_created,
+                "relationships_created": summary.counters.relationships_created,
+                "properties_set": summary.counters.properties_set,
+                "nodes_deleted": summary.counters.nodes_deleted,
+                "relationships_deleted": summary.counters.relationships_deleted,
+            }
 
 
 async def get_neo4j_driver() -> AsyncDriver:
