@@ -30,6 +30,7 @@ import {
 } from "@/contexts/pdf-highlight-context";
 import { PDFViewerPanel } from "@/components/custom/pdf-viewer/pdf-viewer-panel";
 import { ComparisonOutputSidebar } from "@/components/custom/comparison-output-sidebar";
+import { ProposalOutputSidebar } from "@/components/custom/proposal-output-sidebar";
 
 function WorkflowExecutionContent() {
   const { id } = useParams();
@@ -50,9 +51,11 @@ function WorkflowExecutionContent() {
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
   const [comparisonSidebarOpen, setComparisonSidebarOpen] = useState(false);
+  const [proposalSidebarOpen, setProposalSidebarOpen] = useState(false);
   const [selectedOutput, setSelectedOutput] = useState<{
     workflowId: string;
     documentId: string;
+    type?: "extraction" | "comparison" | "proposal";
   } | null>(null);
 
   // SSE Stream
@@ -195,12 +198,19 @@ function WorkflowExecutionContent() {
   const handleViewComparison = (wId: string) => {
     setComparisonSidebarOpen(true);
     setSidebarOpen(false);
+    setProposalSidebarOpen(false);
+  };
+
+  const handleViewProposal = (wId: string) => {
+    setProposalSidebarOpen(true);
+    setSidebarOpen(false);
+    setComparisonSidebarOpen(false);
   };
 
   // Determine layout state
   const layoutState = pdfViewerOpen
     ? "pdf-active"
-    : sidebarOpen || comparisonSidebarOpen
+    : sidebarOpen || comparisonSidebarOpen || proposalSidebarOpen
       ? "two-column"
       : "one-column";
 
@@ -288,6 +298,7 @@ function WorkflowExecutionContent() {
                     isComplete={isComplete}
                     onViewOutput={handleViewOutput}
                     onViewComparison={handleViewComparison}
+                    onViewProposal={handleViewProposal}
                   />
                 </div>
               )}
@@ -331,6 +342,26 @@ function WorkflowExecutionContent() {
             <ComparisonOutputSidebar
               open={comparisonSidebarOpen}
               onOpenChange={setComparisonSidebarOpen}
+              workflowId={workflowId}
+            />
+          </ResizablePanel>
+        </>
+      )}
+
+      {proposalSidebarOpen && (
+        <>
+          <ResizableHandle
+            withHandle
+            className={cn(layoutState === "pdf-active" && "hidden")}
+          />
+          <ResizablePanel
+            defaultSize={50}
+            minSize={20}
+            className="overflow-hidden"
+          >
+            <ProposalOutputSidebar
+              open={proposalSidebarOpen}
+              onOpenChange={setProposalSidebarOpen}
               workflowId={workflowId}
             />
           </ResizablePanel>

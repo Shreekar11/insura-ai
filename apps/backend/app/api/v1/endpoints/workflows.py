@@ -413,6 +413,39 @@ async def get_entity_comparison(
     )
 
 
+@router.get(
+    "/{workflow_id}/proposal",
+    response_model=ApiResponse,
+    summary="Get proposal results",
+    operation_id="get_proposal",
+)
+async def get_proposal(
+    request: Request,
+    workflow_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Retrieve proposal generation results for a workflow."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+
+    result = await workflow_service.get_proposal(workflow_id, user.id)
+    if not result:
+        error_detail = create_error_detail(
+            title="Proposal Results Not Found",
+            status=status.HTTP_404_NOT_FOUND,
+            detail=f"Proposal results not found for workflow {workflow_id}",
+            request=request
+        )
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
+
+    return create_api_response(
+        data=result,
+        message="Proposal retrieved successfully",
+        request=request
+    )
+
+
 @router.post(
     "/{workflow_id}/comparison",
     response_model=ApiResponse,

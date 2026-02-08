@@ -133,7 +133,6 @@ export function WorkflowDetailsSheet({
             {/* Stages Section */}
             <section>
               <div className="flex items-center gap-2 mb-4">
-                <IconLoader2 className="size-5 text-primary" />
                 <h3 className="font-semibold text-foreground">
                   Processing Stages
                 </h3>

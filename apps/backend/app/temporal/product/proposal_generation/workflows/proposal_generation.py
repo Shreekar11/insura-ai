@@ -232,7 +232,12 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Proposal generation completed successfully."}],
+            args=[workflow_id, "proposal:completed", {
+                "message": "Proposal generation completed successfully.",
+                "proposal_id": persist_result.get("id"),
+                "pdf_path": pdf_path,
+                "has_proposal": True
+            }],
             start_to_close_timeout=timedelta(seconds=10),
         )
         

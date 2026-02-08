@@ -12,6 +12,7 @@ export interface WorkflowEvent {
     message: string;
     has_output?: boolean;
     has_comparison?: boolean;
+    has_proposal?: boolean;
     comparison_summary?: {
       coverage_matches: number;
       coverage_partial_matches: number;
@@ -67,7 +68,8 @@ export function useWorkflowStream(workflowId: string | null) {
       "stage:started",
       "stage:completed",
       "stage:failed",
-      "comparison:completed"
+      "comparison:completed",
+      "proposal:completed"
     ];
 
     eventTypes.forEach((type) => {

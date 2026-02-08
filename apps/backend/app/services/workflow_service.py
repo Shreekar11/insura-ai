@@ -12,6 +12,7 @@ from app.repositories.workflow_repository import (
     WorkflowDocumentRepository,
 )
 from app.repositories.stages_repository import StagesRepository
+from app.repositories.proposal_repository import ProposalRepository
 from fastapi import UploadFile
 from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
 from app.utils.logging import get_logger
@@ -49,6 +50,7 @@ class WorkflowService(BaseService):
         self.extraction_repo = SectionExtractionRepository(session)
         self.step_entity_output_repo = StepEntityOutputRepository(session)
         self.step_section_output_repo = StepSectionOutputRepository(session)
+        self.proposal_repo = ProposalRepository(session)
         self.storage_service = StorageService()
 
     async def run(self, *args, **kwargs) -> Any:
@@ -1141,6 +1143,46 @@ class WorkflowService(BaseService):
         )
 
         return result.model_dump(mode="json")
+
+    async def get_proposal(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get proposal results for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Proposal data or None if not found/access denied
+        """
+        try:
+            # Check access
+            workflow = await self.wf_repo.get_by_id(workflow_id)
+            if not workflow or workflow.user_id != user_id:
+                return None
+
+            proposals = await self.proposal_repo.get_by_workflow_id(workflow_id)
+            if not proposals:
+                return None
+
+            # Return the latest proposal
+            proposal = proposals[-1]
+            
+            # Merging proposal_json with other fields for frontend convenience
+            data = proposal.proposal_json
+            data["proposal_id"] = str(proposal.id)
+            data["pdf_path"] = proposal.pdf_path
+            data["executive_summary"] = proposal.executive_summary
+            data["created_at"] = proposal.created_at.isoformat()
+            
+            return data
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get proposal for {workflow_id}: {e}", exc_info=True)
+            return None
 
     async def _create_workflow_logic(
         self,

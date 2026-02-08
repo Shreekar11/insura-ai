@@ -785,6 +785,74 @@
         ]
       }
     },
+    "/api/v1/workflows/{workflow_id}/proposal": {
+      "get": {
+        "summary": "Get proposal results",
+        "operationId": "get_proposal",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Proposal results",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "allOf": [
+                    { "$ref": "#/components/schemas/ApiResponse" },
+                    {
+                      "type": "object",
+                      "properties": {
+                        "data": {
+                          "$ref": "#/components/schemas/ProposalResponse"
+                        }
+                      }
+                    }
+                  ]
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Unauthorized",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "404": {
+            "description": "Proposal results not found",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          },
+          "500": {
+            "description": "Internal server error",
+            "content": {
+              "application/json": {
+                "schema": { "$ref": "#/components/schemas/ErrorDetail" }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    },
     "/api/v1/workflows/extract": {
       "post": {
         "summary": "Start document extraction",
@@ -1476,6 +1544,90 @@
           "severity": {
             "type": "string",
             "enum": ["low", "medium", "high"]
+          }
+        }
+      },
+      "ProposalResponse": {
+        "type": "object",
+        "properties": {
+          "proposal_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "workflow_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "document_ids": {
+            "type": "array",
+            "items": { "type": "string", "format": "uuid" }
+          },
+          "insured_name": { "type": "string" },
+          "carrier_name": { "type": "string" },
+          "policy_type": { "type": "string" },
+          "executive_summary": { "type": "string" },
+          "sections": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProposalSection" }
+          },
+          "comparison_table": {
+            "type": "array",
+            "items": { "$ref": "#/components/schemas/ProposalComparisonRow" }
+          },
+          "requires_hitl_review": { "type": "boolean" },
+          "hitl_items": {
+            "type": "array",
+            "items": { "type": "string" }
+          },
+          "quality_score": {
+            "type": "number",
+            "nullable": true
+          },
+          "pdf_path": {
+            "type": "string",
+            "nullable": true
+          },
+          "metadata": { "type": "object" },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "ProposalSection": {
+        "type": "object",
+        "properties": {
+          "section_type": { "type": "string" },
+          "title": { "type": "string" },
+          "narrative": { "type": "string" },
+          "key_findings": {
+            "type": "array",
+            "items": { "type": "object" }
+          },
+          "raw_data": {
+            "type": "object",
+            "nullable": true
+          },
+          "requires_review": { "type": "boolean" },
+          "review_reason": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ProposalComparisonRow": {
+        "type": "object",
+        "properties": {
+          "category": { "type": "string" },
+          "label": { "type": "string" },
+          "expiring_value": { "nullable": true },
+          "renewal_value": { "nullable": true },
+          "delta_type": { "type": "string" },
+          "delta_flag": { "type": "string" },
+          "is_canonical": { "type": "boolean" },
+          "reasoning": {
+            "type": "string",
+            "nullable": true
           }
         }
       },

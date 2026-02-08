@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { ApiResponse } from '../models/ApiResponse';
 import type { EntityComparisonResponse } from '../models/EntityComparisonResponse';
+import type { ProposalResponse } from '../models/ProposalResponse';
 import type { WorkflowCreateRequest } from '../models/WorkflowCreateRequest';
 import type { WorkflowDefinitionResponse } from '../models/WorkflowDefinitionResponse';
 import type { WorkflowExecutionRequest } from '../models/WorkflowExecutionRequest';
@@ -305,6 +306,30 @@ export class DefaultService {
             errors: {
                 400: `Comparison failed`,
                 401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get proposal results
+     * @param workflowId
+     * @returns any Proposal results
+     * @throws ApiError
+     */
+    public static getProposal(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: ProposalResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/proposal',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Proposal results not found`,
                 500: `Internal server error`,
             },
         });

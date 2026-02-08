@@ -20,6 +20,7 @@ interface WorkflowTimelineProps {
   isComplete: boolean;
   onViewOutput: (workflowId: string, documentId: string) => void;
   onViewComparison?: (workflowId: string) => void;
+  onViewProposal?: (workflowId: string) => void;
 }
 
 interface WorkflowStep {
@@ -31,6 +32,7 @@ interface WorkflowStep {
   workflowId?: string;
   hasOutput?: boolean;
   hasComparison?: boolean;
+  hasProposal?: boolean;
 }
 
 export function WorkflowTimeline({
@@ -40,6 +42,7 @@ export function WorkflowTimeline({
   isComplete,
   onViewOutput,
   onViewComparison,
+  onViewProposal,
 }: WorkflowTimelineProps) {
   const scrollRef = useRef<HTMLDivElement>(null);
 
@@ -57,7 +60,9 @@ export function WorkflowTimeline({
       let stepKey = "";
 
       // Logic to unify events into stable steps
-      if (event_type === "comparison:completed") {
+      if (event_type === "proposal:completed") {
+        stepKey = `global:proposal`;
+      } else if (event_type === "comparison:completed") {
         stepKey = `global:comparison`;
       } else if (stageName === "processed") {
         stepKey = `${docId}:processed`;
@@ -93,20 +98,25 @@ export function WorkflowTimeline({
       const hasOutput = !!data?.has_output;
       const hasComparison =
         !!data?.has_comparison || event_type === "comparison:completed";
+      const hasProposal =
+        !!data?.has_proposal || event_type === "proposal:completed";
 
       if (!stepMap.has(stepKey)) {
         orderedKeys.push(stepKey);
       }
 
+      const existing = stepMap.get(stepKey);
       stepMap.set(stepKey, {
         id: stepKey,
-        message: message || "Processing...",
+        message: message || existing?.message || "Processing...",
         status,
         timestamp,
         docId,
-        workflowId: data?.workflow_id || event.workflow_id,
-        hasOutput,
-        hasComparison,
+        workflowId:
+          data?.workflow_id || event.workflow_id || existing?.workflowId,
+        hasOutput: hasOutput || existing?.hasOutput,
+        hasComparison: hasComparison || existing?.hasComparison,
+        hasProposal: hasProposal || existing?.hasProposal,
       });
     });
 
@@ -275,6 +285,24 @@ export function WorkflowTimeline({
                               </Button>
                             )}
                             {isCompleted &&
+                              step.hasProposal &&
+                              onViewProposal && (
+                                <Button
+                                  variant="outline"
+                                  size="sm"
+                                  className="h-7 rounded text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (step.workflowId) {
+                                      onViewProposal(step.workflowId);
+                                    }
+                                  }}
+                                >
+                                  View Proposal
+                                  <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
+                                </Button>
+                              )}
+                            {isCompleted &&
                               step.hasComparison &&
                               onViewComparison && (
                                 <Button
@@ -288,7 +316,7 @@ export function WorkflowTimeline({
                                     }
                                   }}
                                 >
-                                  View Output
+                                  View Comparison
                                   <ArrowRight className="size-3 ml-1 group-hover/btn:translate-x-0.5 transition-transform" />
                                 </Button>
                               )}
