@@ -13,7 +13,7 @@ instance, with reset() called at the start of each document classification.
 The pipeline now builds a DocumentProfile, deriving document type and section boundaries from rule-based page analysis.
 """
 
-from typing import List, Dict, Tuple
+from typing import List, Dict, Tuple, Optional, Any
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -104,22 +104,37 @@ class PageAnalysisPipeline:
         return page_signals_list, doc_type, confidence
 
     async def classify_pages(
-        self, 
-        document_id: UUID, 
+        self,
+        document_id: UUID,
         page_signals: List[PageSignals],
         doc_type: DocumentType = DocumentType.UNKNOWN
     ) -> List[PageClassification]:
-        """Classify pages and detect duplicates."""
+        """Classify pages with endorsement continuation awareness and detect duplicates.
+
+        Uses batch classification to enable cross-page continuation detection.
+        Semantic role classification is ONLY applied for POLICY_BUNDLE documents.
+
+        Args:
+            document_id: Document UUID
+            page_signals: List of PageSignals for all pages
+            doc_type: Document type context (auto-detected if UNKNOWN)
+
+        Returns:
+            List of PageClassification with continuation tracking
+        """
         # Pre-scan for base policy mode if doc_type is unknown
         if doc_type == DocumentType.UNKNOWN and page_signals:
             all_top_texts = [" ".join(s.top_lines) for s in page_signals[:20]]
             if self.classifier._is_base_policy(all_top_texts):
                 doc_type = DocumentType.POLICY
                 LOGGER.info(f"Detected Base Policy mode for document {document_id}")
+
         self.detector.reset()
-        
-        classifications = []
-        
+
+        # First pass: detect duplicates and filter signals
+        non_duplicate_signals = []
+        duplicate_classifications = []
+
         for signals in page_signals:
             is_dup, dup_of = self.detector.is_duplicate(signals)
             if is_dup:
@@ -131,13 +146,39 @@ class PageAnalysisPipeline:
                     duplicate_of=dup_of,
                     reasoning=f"Duplicate of page {dup_of}"
                 )
+                duplicate_classifications.append((signals.page_number, classification))
             else:
-                classification = self.classifier.classify(signals, doc_type=doc_type)
-            
+                non_duplicate_signals.append(signals)
+
+        # Second pass: batch classify non-duplicate pages with continuation awareness
+        batch_classifications = self.classifier.classify_batch(
+            non_duplicate_signals, doc_type=doc_type
+        )
+
+        # Merge duplicate and batch classifications in page order
+        batch_map = {c.page_number: c for c in batch_classifications}
+        dup_map = {page_num: c for page_num, c in duplicate_classifications}
+
+        classifications = []
+        for signals in page_signals:
+            if signals.page_number in dup_map:
+                classification = dup_map[signals.page_number]
+            else:
+                classification = batch_map[signals.page_number]
+
             # Save to database
             await self.repository.save_page_classification(document_id, classification)
             classifications.append(classification)
-            
+
+        LOGGER.info(
+            f"Classified {len(classifications)} pages for document {document_id}",
+            extra={
+                "doc_type": doc_type.value,
+                "duplicates": len(duplicate_classifications),
+                "continuations": sum(1 for c in classifications if c.is_continuation),
+            }
+        )
+
         return classifications
 
     async def build_document_profile(

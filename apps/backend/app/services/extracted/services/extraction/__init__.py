@@ -6,6 +6,10 @@ This package is organized into submodules:
 Base classes:
 - BaseExtractor: Abstract base class for all extractors
 - ExtractorFactory: Factory for creating extractors dynamically
+
+Two-document pipeline:
+- BaseFormExtractor: Extracts standard provisions from ISO base forms
+- DocumentTypeClassifier: Identifies base forms vs endorsements
 """
 
 from app.services.extracted.services.extraction.base_extractor import BaseExtractor
@@ -16,12 +20,19 @@ from app.services.extracted.services.extraction.section import (
     SectionExtractionResult,
     DocumentExtractionResult,
 )
+from app.services.extracted.services.extraction.base_form_extractor import BaseFormExtractor
+from app.services.extracted.services.document_type_classifier import DocumentTypeClassifier
 
 __all__ = [
+    # Base classes
     "BaseExtractor",
     "ExtractorFactory",
     "EntityResolver",
+    # Section extraction
     "SectionExtractionOrchestrator",
     "SectionExtractionResult",
     "DocumentExtractionResult",
+    # Two-document pipeline
+    "BaseFormExtractor",
+    "DocumentTypeClassifier",
 ]

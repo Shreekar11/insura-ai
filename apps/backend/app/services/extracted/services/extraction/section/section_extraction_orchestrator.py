@@ -44,6 +44,7 @@ from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.step_repository import StepSectionOutputRepository, StepEntityOutputRepository
+from app.services.extracted.services.synthesis import SynthesisOrchestrator
 
 LOGGER = get_logger(__name__)
 
@@ -84,22 +85,28 @@ class SectionExtractionResult:
 @dataclass
 class DocumentExtractionResult:
     """Complete extraction result for a document.
-    
+
     Attributes:
         document_id: Document ID
         section_results: Results per section
         all_entities: Aggregated entities across sections
         total_tokens: Total tokens processed
         total_processing_time_ms: Total processing time
+        effective_coverages: Synthesized coverage-centric output
+        effective_exclusions: Synthesized exclusion-centric output
+        synthesis_metadata: Metadata about synthesis process
     """
     document_id: Optional[UUID] = None
     section_results: List[SectionExtractionResult] = field(default_factory=list)
     all_entities: List[Dict[str, Any]] = field(default_factory=list)
     total_tokens: int = 0
     total_processing_time_ms: int = 0
-    
+    effective_coverages: List[Dict[str, Any]] = field(default_factory=list)
+    effective_exclusions: List[Dict[str, Any]] = field(default_factory=list)
+    synthesis_metadata: Dict[str, Any] = field(default_factory=dict)
+
     def get_section_result(
-        self, 
+        self,
         section_type: SectionType
     ) -> Optional[SectionExtractionResult]:
         """Get result for a specific section."""
@@ -107,7 +114,7 @@ class DocumentExtractionResult:
             if result.section_type == section_type:
                 return result
         return None
-    
+
     def to_dict(self) -> Dict[str, Any]:
         """Convert to dictionary."""
         return {
@@ -116,6 +123,9 @@ class DocumentExtractionResult:
             "all_entities": self.all_entities,
             "total_tokens": self.total_tokens,
             "total_processing_time_ms": self.total_processing_time_ms,
+            "effective_coverages": self.effective_coverages,
+            "effective_exclusions": self.effective_exclusions,
+            "synthesis_metadata": self.synthesis_metadata,
         }
 
 
@@ -201,6 +211,8 @@ class SectionExtractionOrchestrator:
             SectionType.DECLARATIONS: DeclarationsExtractor,
             SectionType.DEFINITIONS: DefinitionsExtractor,
             SectionType.COVERAGES: CoveragesExtractor,
+            SectionType.COVERAGE_GRANT: CoveragesExtractor,  # Coverage grants use CoveragesExtractor
+            SectionType.COVERAGE_EXTENSION: CoveragesExtractor,  # Coverage extensions use CoveragesExtractor
             SectionType.CONDITIONS: ConditionsExtractor,
             SectionType.EXCLUSIONS: ExclusionsExtractor,
             SectionType.ENDORSEMENTS: EndorsementsExtractor,
@@ -252,6 +264,14 @@ class SectionExtractionOrchestrator:
             SectionType.DECLARATIONS: ["declaration", "dec", "policy declarations"],
             SectionType.DEFINITIONS: ["definition", "glossary", "definitions", "policy definitions"],
             SectionType.COVERAGES: ["coverage", "coverages", "insurance coverage"],
+            SectionType.COVERAGE_GRANT: [
+                "coverage_grant", "liability coverage", "physical damage coverage",
+                "covered autos liability", "section ii", "section iii"
+            ],
+            SectionType.COVERAGE_EXTENSION: [
+                "coverage_extension", "coverage extension", "additional coverages",
+                "supplementary payments", "optional coverages"
+            ],
             SectionType.CONDITIONS: ["condition", "policy conditions"],
             SectionType.EXCLUSIONS: ["exclusion", "policy exclusions"],
             SectionType.ENDORSEMENTS: ["endorsement", "endorsement forms"],
@@ -363,10 +383,56 @@ class SectionExtractionOrchestrator:
             total_processing_time_ms=total_time_ms,
         )
 
+        # Run synthesis to produce effective coverages/exclusions
+        if section_results:
+            try:
+                synthesis_orchestrator = SynthesisOrchestrator()
+                synthesis_result = synthesis_orchestrator.synthesize(result.to_dict())
+
+                # Store synthesis result in the DocumentExtractionResult
+                result.effective_coverages = synthesis_result.get("effective_coverages", [])
+                result.effective_exclusions = synthesis_result.get("effective_exclusions", [])
+                result.synthesis_metadata = {
+                    "overall_confidence": synthesis_result.get("overall_confidence", 0.0),
+                    "synthesis_method": synthesis_result.get("synthesis_method", "endorsement_only"),
+                    "source_endorsement_count": synthesis_result.get("source_endorsement_count", 0),
+                }
+
+                # Create synthesized section results for coverages and exclusions
+                # This enables coverage-centric output where endorsements
+                # are projected into coverage and exclusion sections
+                synthesized_sections = self._create_synthesized_section_results(
+                    effective_coverages=result.effective_coverages,
+                    effective_exclusions=result.effective_exclusions,
+                    synthesis_confidence=synthesis_result.get("overall_confidence", 0.0),
+                )
+
+                # Add synthesized sections to results
+                for synth_section in synthesized_sections:
+                    result.section_results.append(synth_section)
+
+                LOGGER.info(
+                    "Synthesis completed",
+                    extra={
+                        "effective_coverages": len(result.effective_coverages),
+                        "effective_exclusions": len(result.effective_exclusions),
+                        "synthesized_sections": len(synthesized_sections),
+                        "confidence": synthesis_result.get("overall_confidence", 0.0),
+                    }
+                )
+
+                # Citation creation is deferred to the indexing stage (after chunk
+                # embeddings are generated) so Tier 2 semantic search has data.
+            except Exception as e:
+                LOGGER.warning(f"Synthesis failed, continuing without: {e}")
+                result.effective_coverages = []
+                result.effective_exclusions = []
+                result.synthesis_metadata = {"error": str(e)}
+
         # Persist extraction results
         if workflow_id and document_id:
             await self._persist_step_outputs(result, workflow_id)
-        
+
         LOGGER.info(
             "Section extraction completed",
             extra={
@@ -376,7 +442,7 @@ class SectionExtractionOrchestrator:
                 "total_tokens": total_tokens,
             }
         )
-        
+
         return result
     
     async def _persist_step_outputs(
@@ -499,28 +565,74 @@ class SectionExtractionOrchestrator:
         # Determine if we should use a projection extractor based on semantic role
         # Check first chunk's metadata for semantic role if available
         extractor_key = super_chunk.section_type.value
-        
+
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
-            from app.models.page_analysis_models import SemanticRole
-            
+
+            # Normalize semantic role to string for reliable comparison
+            semantic_role_str = (
+                metadata.semantic_role.value
+                if hasattr(metadata.semantic_role, 'value')
+                else str(metadata.semantic_role) if metadata.semantic_role else None
+            )
+
+            # Check if this is an endorsement-based chunk (either by original_section_type or section_type)
+            is_endorsement_source = (
+                metadata.original_section_type == SectionType.ENDORSEMENTS or
+                metadata.section_type == SectionType.ENDORSEMENTS
+            )
+
+            # Determine routing based on semantic role and effects
+            # Priority: semantic_role > coverage_effects/exclusion_effects
+
             # Check for Endorsement Coverage Projection
-            if (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                metadata.effective_section_type == SectionType.COVERAGES and
-                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
-                extractor_key = "endorsement_coverage_projection"
-                LOGGER.info(
-                    f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}"
-                )
-            
+            is_coverage_modifier = (
+                semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
+                (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
+            )
+
             # Check for Endorsement Exclusion Projection
-            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                  metadata.effective_section_type == SectionType.EXCLUSIONS and
-                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
-                extractor_key = "endorsement_exclusion_projection"
-                LOGGER.info(
-                    f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}"
-                )
+            is_exclusion_modifier = (
+                semantic_role_str in (SemanticRole.EXCLUSION_MODIFIER.value, "exclusion_modifier") or
+                (metadata.exclusion_effects and any(e for e in metadata.exclusion_effects))
+            )
+
+            # Handle "both" semantic role - prioritize coverage projection but log both
+            is_both_modifier = semantic_role_str in (SemanticRole.BOTH.value, "both")
+
+            if is_endorsement_source:
+                if is_both_modifier:
+                    # For "both" role, choose based on effective_section_type or default to coverage
+                    if metadata.effective_section_type == SectionType.EXCLUSIONS:
+                        extractor_key = "endorsement_exclusion_projection"
+                        LOGGER.info(
+                            f"Routing to EndorsementExclusionProjectionExtractor for BOTH modifier "
+                            f"(effective_type=exclusions) on pages {super_chunk.page_range}"
+                        )
+                    else:
+                        extractor_key = "endorsement_coverage_projection"
+                        LOGGER.info(
+                            f"Routing to EndorsementCoverageProjectionExtractor for BOTH modifier "
+                            f"on pages {super_chunk.page_range}"
+                        )
+                elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
+                    extractor_key = "endorsement_coverage_projection"
+                    LOGGER.info(
+                        f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, coverage_effects={metadata.coverage_effects}"
+                    )
+                elif is_exclusion_modifier and metadata.effective_section_type == SectionType.EXCLUSIONS:
+                    extractor_key = "endorsement_exclusion_projection"
+                    LOGGER.info(
+                        f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, exclusion_effects={metadata.exclusion_effects}"
+                    )
+                else:
+                    # Endorsement without semantic projection - use standard endorsement extractor
+                    LOGGER.info(
+                        f"Using standard EndorsementsExtractor for pages {super_chunk.page_range}, "
+                        f"semantic_role={semantic_role_str}, effective_type={metadata.effective_section_type}"
+                    )
         
         # Get section-specific extractor from factory
         extractor = self.factory.get_extractor(extractor_key)
@@ -571,7 +683,23 @@ class SectionExtractionOrchestrator:
             else:
                 # Fallback to old method
                 extracted_data = self._extract_section_data(parsed, super_chunk.section_type)
-            
+
+            # Inject page_numbers into extracted items for citation support
+            # This ensures each coverage/exclusion has page info for source mapping
+            if super_chunk.page_range:
+                extracted_data = self._inject_page_numbers(
+                    extracted_data,
+                    super_chunk.page_range,
+                    super_chunk.section_type.value
+                )
+
+            # Tag projection type for downstream synthesis routing
+            # This preserves which projection extractor produced the data
+            if extractor_key == "endorsement_coverage_projection":
+                extracted_data["_projection_type"] = "coverage"
+            elif extractor_key == "endorsement_exclusion_projection":
+                extracted_data["_projection_type"] = "exclusion"
+
             entities = parsed.get("entities", [])
             confidence = float(parsed.get("confidence", 0.0))
             
@@ -668,6 +796,92 @@ class SectionExtractionOrchestrator:
             )
             raise
 
+    def _inject_page_numbers(
+        self,
+        extracted_data: Dict[str, Any],
+        page_range: List[int],
+        section_type: str,
+    ) -> Dict[str, Any]:
+        """Inject page_numbers into extracted items for citation support.
+
+        This method adds page_numbers to each extracted coverage, exclusion,
+        or other item so that citations can map back to source PDF locations.
+
+        Args:
+            extracted_data: Dict of extracted fields from LLM
+            page_range: List of page numbers from the source chunk
+            section_type: Type of section (COVERAGES, EXCLUSIONS, etc.)
+
+        Returns:
+            extracted_data with page_numbers injected into items
+        """
+        if not page_range:
+            LOGGER.warning(
+                f"[PAGE-INJECT] No page_range provided for {section_type}, skipping injection"
+            )
+            return extracted_data
+
+        # Fields that contain lists of items to inject page_numbers into
+        item_fields = [
+            "coverages",
+            "exclusions",
+            "conditions",
+            "endorsements",
+            "definitions",
+            "modifications",
+        ]
+
+        injection_stats = {}
+
+        for field in item_fields:
+            items = extracted_data.get(field, [])
+            if isinstance(items, list) and items:
+                injected_count = 0
+                for item in items:
+                    if isinstance(item, dict):
+                        # Only inject if not already present
+                        if "page_numbers" not in item or not item.get("page_numbers"):
+                            item["page_numbers"] = list(page_range)
+                            injected_count += 1
+                        # Also inject source_text if description is available
+                        if "source_text" not in item and "description" in item:
+                            item["source_text"] = item["description"]
+
+                if injected_count > 0:
+                    injection_stats[field] = {
+                        "total_items": len(items),
+                        "injected": injected_count,
+                    }
+
+        LOGGER.info(
+            f"[PAGE-INJECT] Injected page_numbers into {section_type} extracted data",
+            extra={
+                "section_type": section_type,
+                "page_range": page_range,
+                "injection_stats": injection_stats,
+                "fields_with_items": [f for f in item_fields if extracted_data.get(f)],
+            }
+        )
+
+        # Log sample item for verification
+        for field in item_fields:
+            items = extracted_data.get(field, [])
+            if isinstance(items, list) and items and isinstance(items[0], dict):
+                sample = items[0]
+                LOGGER.debug(
+                    f"[PAGE-INJECT] Sample {field} item after injection",
+                    extra={
+                        "field": field,
+                        "has_page_numbers": "page_numbers" in sample,
+                        "page_numbers": sample.get("page_numbers"),
+                        "has_source_text": "source_text" in sample,
+                        "item_keys": list(sample.keys()),
+                    }
+                )
+                break
+
+        return extracted_data
+
     async def _run_extraction_call(
         self,
         extractor: Any,
@@ -692,6 +906,68 @@ class SectionExtractionOrchestrator:
         
         return parse_json_safely(response)
 
+    def _group_chunks_by_endorsement(
+        self,
+        chunks: List[HybridChunk],
+    ) -> List[List[HybridChunk]]:
+        """Group chunks that belong to the same multi-page endorsement.
+
+        This ensures that all pages of a single endorsement are processed together,
+        maintaining context for accurate extraction.
+
+        Args:
+            chunks: List of chunks from endorsement section
+
+        Returns:
+            List of chunk groups, each group contains chunks from same endorsement
+        """
+        if not chunks:
+            return []
+
+        # Sort chunks by their primary page number
+        sorted_chunks = sorted(chunks, key=lambda c: c.metadata.page_number)
+
+        # Group chunks by contiguous page ranges
+        # Chunks with overlapping or adjacent page ranges are grouped together
+        groups = []
+        current_group = []
+        current_max_page = -1
+
+        for chunk in sorted_chunks:
+            page_range = chunk.metadata.page_range or [chunk.metadata.page_number]
+            min_page = min(page_range)
+            max_page = max(page_range)
+
+            # Check if this chunk is contiguous with current group
+            # Allow for 1-page gap to handle page boundaries
+            if current_group and min_page <= current_max_page + 1:
+                # This chunk is contiguous - add to current group
+                current_group.append(chunk)
+                current_max_page = max(current_max_page, max_page)
+            else:
+                # New endorsement starts - save current group and start new one
+                if current_group:
+                    groups.append(current_group)
+                current_group = [chunk]
+                current_max_page = max_page
+
+        # Don't forget the last group
+        if current_group:
+            groups.append(current_group)
+
+        LOGGER.debug(
+            f"Grouped {len(chunks)} chunks into {len(groups)} endorsement groups",
+            extra={
+                "group_sizes": [len(g) for g in groups],
+                "group_page_ranges": [
+                    [min(c.metadata.page_number for c in g), max(c.metadata.page_number for c in g)]
+                    for g in groups
+                ],
+            }
+        )
+
+        return groups
+
     async def _extract_section_batched(
         self,
         super_chunk: SectionSuperChunk,
@@ -699,55 +975,129 @@ class SectionExtractionOrchestrator:
         workflow_id: UUID,
     ) -> SectionExtractionResult:
         """Extract data from a section in multiple batches.
-        
+
+        For endorsement sections, chunks are first grouped by endorsement to ensure
+        multi-page endorsements are processed together for accurate extraction.
+
         Args:
             super_chunk: Large section super-chunk to extract
             document_id: Document ID
             workflow_id: Workflow ID
-            
+
         Returns:
             SectionExtractionResult (aggregated)
         """
         start_time = time.time()
-        
+
         # Determine extractor to use (same logic as single extraction)
         extractor_key = super_chunk.section_type.value
+        is_endorsement_projection = False
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
-            if (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                metadata.effective_section_type == SectionType.COVERAGES and
-                metadata.semantic_role == SemanticRole.COVERAGE_MODIFIER):
-                extractor_key = "endorsement_coverage_projection"
-            elif (metadata.original_section_type == SectionType.ENDORSEMENTS and 
-                  metadata.effective_section_type == SectionType.EXCLUSIONS and
-                  metadata.semantic_role == SemanticRole.EXCLUSION_MODIFIER):
-                extractor_key = "endorsement_exclusion_projection"
+
+            # Normalize semantic role to string for reliable comparison
+            semantic_role_str = (
+                metadata.semantic_role.value
+                if hasattr(metadata.semantic_role, 'value')
+                else str(metadata.semantic_role) if metadata.semantic_role else None
+            )
+
+            # Check if this is an endorsement-based chunk
+            is_endorsement_source = (
+                metadata.original_section_type == SectionType.ENDORSEMENTS or
+                metadata.section_type == SectionType.ENDORSEMENTS
+            )
+
+            # Determine routing based on semantic role and effects
+            is_coverage_modifier = (
+                semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
+                (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
+            )
+            is_exclusion_modifier = (
+                semantic_role_str in (SemanticRole.EXCLUSION_MODIFIER.value, "exclusion_modifier") or
+                (metadata.exclusion_effects and any(e for e in metadata.exclusion_effects))
+            )
+            is_both_modifier = semantic_role_str in (SemanticRole.BOTH.value, "both")
+
+            if is_endorsement_source:
+                if is_both_modifier:
+                    if metadata.effective_section_type == SectionType.EXCLUSIONS:
+                        extractor_key = "endorsement_exclusion_projection"
+                        is_endorsement_projection = True
+                    else:
+                        extractor_key = "endorsement_coverage_projection"
+                        is_endorsement_projection = True
+                elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
+                    extractor_key = "endorsement_coverage_projection"
+                    is_endorsement_projection = True
+                elif is_exclusion_modifier and metadata.effective_section_type == SectionType.EXCLUSIONS:
+                    extractor_key = "endorsement_exclusion_projection"
+                    is_endorsement_projection = True
+
+            LOGGER.info(
+                f"Batched extraction routing: extractor_key={extractor_key}, "
+                f"is_endorsement_projection={is_endorsement_projection}, "
+                f"semantic_role={semantic_role_str}, pages={super_chunk.page_range}"
+            )
 
         extractor = self.factory.get_extractor(extractor_key) or self.factory.get_extractor("default")
-        
-        # Split chunks into batches
-        chunk_batches = []
-        current_batch = []
-        current_tokens = 0
-        
-        for chunk in super_chunk.chunks:
-            if current_batch and (current_tokens + chunk.metadata.token_count > BATCH_TOKEN_THRESHOLD or 
-                                len(current_batch) >= BATCH_CHUNK_THRESHOLD):
+
+        # For endorsement projections, group by endorsement first to keep multi-page endorsements together
+        if is_endorsement_projection or super_chunk.section_type == SectionType.ENDORSEMENTS:
+            endorsement_groups = self._group_chunks_by_endorsement(super_chunk.chunks)
+
+            # Create batches from endorsement groups, keeping each endorsement together
+            chunk_batches = []
+            current_batch = []
+            current_tokens = 0
+
+            for endo_group in endorsement_groups:
+                group_tokens = sum(c.metadata.token_count for c in endo_group)
+
+                # If adding this endorsement exceeds threshold, finalize current batch first
+                if current_batch and (current_tokens + group_tokens > BATCH_TOKEN_THRESHOLD or
+                                    len(current_batch) + len(endo_group) > BATCH_CHUNK_THRESHOLD):
+                    chunk_batches.append(current_batch)
+                    current_batch = []
+                    current_tokens = 0
+
+                # Add entire endorsement group together (never split a single endorsement)
+                current_batch.extend(endo_group)
+                current_tokens += group_tokens
+
+            if current_batch:
                 chunk_batches.append(current_batch)
-                current_batch = []
-                current_tokens = 0
-            
-            current_batch.append(chunk)
-            current_tokens += chunk.metadata.token_count
-            
-        if current_batch:
-            chunk_batches.append(current_batch)
+
+            LOGGER.info(
+                f"Created {len(chunk_batches)} batches from {len(endorsement_groups)} endorsement groups "
+                f"for section {super_chunk.section_type.value}"
+            )
+        else:
+            # Standard batching for non-endorsement sections
+            chunk_batches = []
+            current_batch = []
+            current_tokens = 0
+
+            for chunk in super_chunk.chunks:
+                if current_batch and (current_tokens + chunk.metadata.token_count > BATCH_TOKEN_THRESHOLD or
+                                    len(current_batch) >= BATCH_CHUNK_THRESHOLD):
+                    chunk_batches.append(current_batch)
+                    current_batch = []
+                    current_tokens = 0
+
+                current_batch.append(chunk)
+                current_tokens += chunk.metadata.token_count
+
+            if current_batch:
+                chunk_batches.append(current_batch)
             
         LOGGER.info(f"Split section {super_chunk.section_type.value} into {len(chunk_batches)} batches")
-        
+
         parsed_results = []
         total_input_tokens = 0
-        
+        failed_batches = []
+        successful_batches = 0
+
         for i, batch in enumerate(chunk_batches):
             batch_super_chunk = SectionSuperChunk(
                 section_type=super_chunk.section_type,
@@ -755,28 +1105,87 @@ class SectionExtractionOrchestrator:
                 chunks=batch,
                 document_id=document_id,
             )
-            
+
+            # Get page range for this batch for logging
+            batch_pages = []
+            for chunk in batch:
+                if chunk.metadata.page_range:
+                    batch_pages.extend(chunk.metadata.page_range)
+                else:
+                    batch_pages.append(chunk.metadata.page_number)
+            batch_page_range = f"{min(batch_pages)}-{max(batch_pages)}" if batch_pages else "unknown"
+
             try:
-                LOGGER.debug(f"Processing batch {i+1}/{len(chunk_batches)} for {super_chunk.section_type.value}")
+                LOGGER.debug(
+                    f"Processing batch {i+1}/{len(chunk_batches)} for {super_chunk.section_type.value} "
+                    f"(pages {batch_page_range}, {batch_super_chunk.total_tokens} tokens)"
+                )
                 parsed = await self._run_extraction_call(extractor, batch_super_chunk)
                 if parsed:
                     parsed_results.append(parsed)
+                    successful_batches += 1
+
+                    # Log extraction summary for this batch
+                    if is_endorsement_projection:
+                        mods_count = len(parsed.get("modifications", []))
+                        endo_num = parsed.get("endorsement_number", "unknown")
+                        LOGGER.debug(
+                            f"Batch {i+1} extracted {mods_count} modifications from endorsement {endo_num}"
+                        )
+                else:
+                    LOGGER.warning(
+                        f"Batch {i+1} returned empty result for {super_chunk.section_type.value}"
+                    )
+                    failed_batches.append({"batch": i+1, "pages": batch_page_range, "reason": "empty_result"})
+
                 total_input_tokens += batch_super_chunk.total_tokens
+
             except Exception as e:
-                LOGGER.error(f"Batch {i+1} failed for {super_chunk.section_type.value}: {e}")
+                LOGGER.error(
+                    f"Batch {i+1} failed for {super_chunk.section_type.value} (pages {batch_page_range}): {e}",
+                    exc_info=True
+                )
+                failed_batches.append({"batch": i+1, "pages": batch_page_range, "reason": str(e)})
+
+        # Log summary
+        if failed_batches:
+            LOGGER.warning(
+                f"Section {super_chunk.section_type.value}: {successful_batches}/{len(chunk_batches)} batches succeeded, "
+                f"{len(failed_batches)} failed",
+                extra={"failed_batches": failed_batches}
+            )
         
         if not parsed_results:
             return SectionExtractionResult(section_type=super_chunk.section_type)
-            
-        # Aggregate results
-        aggregated_parsed = self._aggregate_batch_results(parsed_results, super_chunk.section_type)
+
+        # Aggregate results - pass is_endorsement_projection flag for proper handling
+        aggregated_parsed = self._aggregate_batch_results(
+            parsed_results,
+            super_chunk.section_type,
+            is_endorsement_projection=is_endorsement_projection
+        )
         
         # Extract fields using extractor
         if hasattr(extractor, 'extract_fields'):
             extracted_data = extractor.extract_fields(aggregated_parsed)
         else:
             extracted_data = self._extract_section_data(aggregated_parsed, super_chunk.section_type)
-            
+
+        # Inject page numbers into extracted items for citation support (batched extraction path)
+        if super_chunk.page_range:
+            extracted_data = self._inject_page_numbers(
+                extracted_data,
+                super_chunk.page_range,
+                super_chunk.section_type.value
+            )
+
+        # Tag projection type for downstream synthesis routing (batched path)
+        # This preserves which projection extractor produced the data
+        if extractor_key == "endorsement_coverage_projection":
+            extracted_data["_projection_type"] = "coverage"
+        elif extractor_key == "endorsement_exclusion_projection":
+            extracted_data["_projection_type"] = "exclusion"
+
         entities = aggregated_parsed.get("entities", [])
         confidence = float(aggregated_parsed.get("confidence", 0.0))
         
@@ -832,55 +1241,71 @@ class SectionExtractionOrchestrator:
         self,
         parsed_results: List[Dict[str, Any]],
         section_type: SectionType,
+        is_endorsement_projection: bool = False,
     ) -> Dict[str, Any]:
         """Aggregate results from multiple extraction batches.
-        
+
+        Handles both regular section extraction and endorsement projection results.
+        For endorsement projections, each batch may contain results from different
+        endorsements that should be preserved separately.
+
         Args:
             parsed_results: List of parsed JSON records from LLM calls
             section_type: The section type
-            
+            is_endorsement_projection: Whether this is an endorsement projection extraction
+
         Returns:
             Single aggregated dictionary
         """
         if not parsed_results:
             return {}
-            
+
         if len(parsed_results) == 1:
             return parsed_results[0]
-            
+
         aggregated = {
             "entities": [],
             "confidence": 0.0,
         }
-        
+
+        # Handle endorsement projection results differently
+        # These return per-endorsement results with "modifications" key
+        if is_endorsement_projection:
+            return self._aggregate_endorsement_projection_results(parsed_results)
+
         # List items to aggregate for specific section types
+        # Coverage-related sections (COVERAGE_GRANT, COVERAGE_EXTENSION) also extract coverages
         list_keys = {
             SectionType.COVERAGES: "coverages",
+            SectionType.COVERAGE_GRANT: "coverages",  # Coverage grants extract to coverages
+            SectionType.COVERAGE_EXTENSION: "coverages",  # Coverage extensions extract to coverages
             SectionType.CONDITIONS: "conditions",
             SectionType.EXCLUSIONS: "exclusions",
             SectionType.ENDORSEMENTS: "endorsements",
             SectionType.DEDUCTIBLES: "deductibles",
             SectionType.DEFINITIONS: "definitions",
         }
-        
+
         target_list_key = list_keys.get(section_type)
         if target_list_key:
             aggregated[target_list_key] = []
-            
+
         confidences = []
-        
+        extraction_counts = []  # Track number of items per batch for weighted confidence
+
         for res in parsed_results:
             # Aggregate entities
             if "entities" in res and isinstance(res["entities"], list):
                 aggregated["entities"].extend(res["entities"])
-            
+
             # Aggregate specific lists
             if target_list_key and target_list_key in res and isinstance(res[target_list_key], list):
-                aggregated[target_list_key].extend(res[target_list_key])
+                items = res[target_list_key]
+                aggregated[target_list_key].extend(items)
+                extraction_counts.append(len(items))
             elif not target_list_key:
                 # For non-list sections, we might have nested fields or keys
                 # e.g. Declarations. We merge top-level keys if they don't exist.
-                # If target_list_key is None, we try to merge 'fields' or other keys
                 for k, v in res.items():
                     if k not in ["entities", "confidence"]:
                         if k not in aggregated:
@@ -889,21 +1314,254 @@ class SectionExtractionOrchestrator:
                             aggregated[k].extend(v)
                         elif isinstance(aggregated[k], dict) and isinstance(v, dict):
                             aggregated[k].update(v)
-            
+                extraction_counts.append(1)
+
             # Collect confidence
             if "confidence" in res:
                 try:
                     confidences.append(float(res["confidence"]))
                 except (ValueError, TypeError):
                     pass
-        
-        # Average confidence
-        if confidences:
+
+        # Weighted average confidence by number of extractions
+        if confidences and extraction_counts and len(confidences) == len(extraction_counts):
+            total_extractions = sum(extraction_counts)
+            if total_extractions > 0:
+                weighted_conf = sum(c * n for c, n in zip(confidences, extraction_counts))
+                aggregated["confidence"] = weighted_conf / total_extractions
+            else:
+                aggregated["confidence"] = sum(confidences) / len(confidences)
+        elif confidences:
             aggregated["confidence"] = sum(confidences) / len(confidences)
-            
+
+        # Deduplicate entities
+        aggregated["entities"] = self._deduplicate_entities(aggregated["entities"])
+
         return aggregated
 
-    
+    def _aggregate_endorsement_projection_results(
+        self,
+        parsed_results: List[Dict[str, Any]],
+    ) -> Dict[str, Any]:
+        """Aggregate endorsement projection results from multiple batches.
+
+        Each batch may contain results from one or more endorsements. This method
+        preserves per-endorsement identity while aggregating all modifications.
+
+        The projection prompts return:
+        {
+            "endorsement_number": "...",
+            "endorsement_name": "...",
+            "modifications": [...],
+            "entities": [...],
+            "confidence": 0.0
+        }
+
+        We aggregate into:
+        {
+            "endorsements": [
+                {"endorsement_number": "...", "endorsement_name": "...", "modifications": [...]}
+            ],
+            "all_modifications": [...],  # Flattened for easy access
+            "entities": [...],
+            "confidence": 0.0
+        }
+
+        Args:
+            parsed_results: List of parsed JSON records from endorsement projection calls
+
+        Returns:
+            Aggregated dictionary with preserved endorsement identity
+        """
+        aggregated = {
+            "endorsements": [],
+            "all_modifications": [],
+            "entities": [],
+            "confidence": 0.0,
+        }
+
+        confidences = []
+        modification_counts = []
+
+        for res in parsed_results:
+            # Extract endorsement-level info
+            endorsement_number = res.get("endorsement_number")
+            endorsement_name = res.get("endorsement_name")
+            form_edition_date = res.get("form_edition_date")
+            modifications = res.get("modifications", [])
+
+            # Create endorsement record with its modifications
+            if endorsement_number or modifications:
+                endorsement_record = {
+                    "endorsement_number": endorsement_number,
+                    "endorsement_name": endorsement_name,
+                    "form_edition_date": form_edition_date,
+                    "modifications": modifications,
+                }
+                aggregated["endorsements"].append(endorsement_record)
+
+                # Also add to flattened list with endorsement reference
+                for mod in modifications:
+                    mod_with_ref = {**mod, "source_endorsement": endorsement_number}
+                    aggregated["all_modifications"].append(mod_with_ref)
+
+                modification_counts.append(len(modifications))
+
+            # Aggregate entities
+            if "entities" in res and isinstance(res["entities"], list):
+                aggregated["entities"].extend(res["entities"])
+
+            # Collect confidence
+            if "confidence" in res:
+                try:
+                    confidences.append(float(res["confidence"]))
+                except (ValueError, TypeError):
+                    pass
+
+        # Weighted average confidence by number of modifications
+        if confidences and modification_counts and len(confidences) == len(modification_counts):
+            total_mods = sum(modification_counts)
+            if total_mods > 0:
+                weighted_conf = sum(c * n for c, n in zip(confidences, modification_counts))
+                aggregated["confidence"] = weighted_conf / total_mods
+            else:
+                aggregated["confidence"] = sum(confidences) / len(confidences) if confidences else 0.0
+        elif confidences:
+            aggregated["confidence"] = sum(confidences) / len(confidences)
+
+        # Deduplicate entities by ID to prevent duplicates across batches
+        aggregated["entities"] = self._deduplicate_entities(aggregated["entities"])
+
+        LOGGER.debug(
+            f"Aggregated {len(parsed_results)} endorsement projection batches: "
+            f"{len(aggregated['endorsements'])} endorsements, "
+            f"{len(aggregated['all_modifications'])} total modifications, "
+            f"{len(aggregated['entities'])} unique entities"
+        )
+
+        return aggregated
+
+    def _deduplicate_entities(
+        self,
+        entities: List[Dict[str, Any]],
+    ) -> List[Dict[str, Any]]:
+        """Deduplicate entities by ID, keeping the one with highest confidence.
+
+        Args:
+            entities: List of entity dictionaries
+
+        Returns:
+            Deduplicated list of entities
+        """
+        if not entities:
+            return []
+
+        # Group by entity ID
+        entity_map: Dict[str, Dict[str, Any]] = {}
+
+        for entity in entities:
+            entity_id = entity.get("id")
+            if not entity_id:
+                # No ID - keep as is (add to list without dedup)
+                entity_id = f"_no_id_{len(entity_map)}"
+
+            existing = entity_map.get(entity_id)
+            if existing:
+                # Keep the one with higher confidence
+                existing_conf = existing.get("confidence", 0.0)
+                new_conf = entity.get("confidence", 0.0)
+                if new_conf > existing_conf:
+                    entity_map[entity_id] = entity
+            else:
+                entity_map[entity_id] = entity
+
+        return list(entity_map.values())
+
+    def _create_synthesized_section_results(
+        self,
+        effective_coverages: List[Dict[str, Any]],
+        effective_exclusions: List[Dict[str, Any]],
+        synthesis_confidence: float,
+    ) -> List[SectionExtractionResult]:
+        """Create synthesized section results from effective coverages and exclusions.
+
+        This method transforms endorsement-centric extraction into coverage-centric
+        and exclusion-centric section results, following the approach
+        where endorsements are projected into coverage and exclusion sections.
+
+        Args:
+            effective_coverages: List of synthesized coverage objects
+            effective_exclusions: List of synthesized exclusion objects
+            synthesis_confidence: Overall confidence from synthesis
+
+        Returns:
+            List of SectionExtractionResult for coverages and exclusions
+        """
+        synthesized_sections = []
+
+        # Create coverages section if we have effective coverages
+        if effective_coverages:
+            # Extract entities from coverages for entity aggregation
+            coverage_entities = []
+            for cov in effective_coverages:
+                entity_id = f"coverage_{cov.get('coverage_name', 'unknown').replace(' ', '_').lower()}"
+                coverage_entities.append({
+                    "id": entity_id,
+                    "type": "Coverage",
+                    "attributes": {
+                        "name": cov.get("coverage_name"),
+                        "coverage_type": cov.get("coverage_type"),
+                    },
+                    "confidence": cov.get("confidence", synthesis_confidence),
+                })
+
+            coverages_result = SectionExtractionResult(
+                section_type=SectionType.COVERAGES,
+                extracted_data={"coverages": effective_coverages},
+                entities=coverage_entities,
+                confidence=synthesis_confidence,
+                token_count=0,  # Synthesized, not directly extracted
+                processing_time_ms=0,
+            )
+            synthesized_sections.append(coverages_result)
+
+            LOGGER.debug(
+                f"Created synthesized coverages section with {len(effective_coverages)} coverages"
+            )
+
+        # Create exclusions section if we have effective exclusions
+        if effective_exclusions:
+            # Extract entities from exclusions for entity aggregation
+            exclusion_entities = []
+            for excl in effective_exclusions:
+                entity_id = f"exclusion_{excl.get('exclusion_name', 'unknown').replace(' ', '_').lower()}"
+                exclusion_entities.append({
+                    "id": entity_id,
+                    "type": "Exclusion",
+                    "attributes": {
+                        "name": excl.get("exclusion_name"),
+                        "effective_state": excl.get("effective_state"),
+                        "severity": excl.get("severity"),
+                    },
+                    "confidence": excl.get("confidence", synthesis_confidence),
+                })
+
+            exclusions_result = SectionExtractionResult(
+                section_type=SectionType.EXCLUSIONS,
+                extracted_data={"exclusions": effective_exclusions},
+                entities=exclusion_entities,
+                confidence=synthesis_confidence,
+                token_count=0,  # Synthesized, not directly extracted
+                processing_time_ms=0,
+            )
+            synthesized_sections.append(exclusions_result)
+
+            LOGGER.debug(
+                f"Created synthesized exclusions section with {len(effective_exclusions)} exclusions"
+            )
+
+        return synthesized_sections
+
     def _extract_section_data(
         self,
         parsed: Dict[str, Any],

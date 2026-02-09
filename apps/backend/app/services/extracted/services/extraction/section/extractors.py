@@ -97,11 +97,11 @@ class DefinitionsExtractor(BaseExtractor):
 
 class CoveragesExtractor(BaseExtractor):
     """Extractor for coverages section."""
-    
+
     def get_extraction_prompt(self) -> str:
         """Get the extraction prompt for coverages."""
         return COVERAGES_EXTRACTION_PROMPT
-    
+
     async def run(
         self,
         text: str,
@@ -121,19 +121,31 @@ class CoveragesExtractor(BaseExtractor):
         except Exception as e:
             LOGGER.error(f"Coverages extraction failed: {e}", exc_info=True)
             return []
-    
+
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields from parsed response."""
-        return {"coverages": parsed.get("coverages", [])}
+        """Extract fields from parsed response.
+
+        Handles both nested structure ({"fields": {"coverages": [...]}})
+        and flat structure ({"coverages": [...]}).
+        """
+        # Try nested structure first (LLM standard response)
+        fields = parsed.get("fields", {})
+        coverages = fields.get("coverages", [])
+
+        # Fallback to flat structure
+        if not coverages:
+            coverages = parsed.get("coverages", [])
+
+        return {"coverages": coverages}
 
 
 class ConditionsExtractor(BaseExtractor):
     """Extractor for conditions section."""
-    
+
     def get_extraction_prompt(self) -> str:
         """Get the extraction prompt for conditions."""
         return CONDITIONS_EXTRACTION_PROMPT
-    
+
     async def run(
         self,
         text: str,
@@ -153,19 +165,31 @@ class ConditionsExtractor(BaseExtractor):
         except Exception as e:
             LOGGER.error(f"Conditions extraction failed: {e}", exc_info=True)
             return []
-    
+
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields from parsed response."""
-        return {"conditions": parsed.get("conditions", [])}
+        """Extract fields from parsed response.
+
+        Handles both nested structure ({"fields": {"conditions": [...]}})
+        and flat structure ({"conditions": [...]}).
+        """
+        # Try nested structure first (LLM standard response)
+        fields = parsed.get("fields", {})
+        conditions = fields.get("conditions", [])
+
+        # Fallback to flat structure
+        if not conditions:
+            conditions = parsed.get("conditions", [])
+
+        return {"conditions": conditions}
 
 
 class ExclusionsExtractor(BaseExtractor):
     """Extractor for exclusions section."""
-    
+
     def get_extraction_prompt(self) -> str:
         """Get the extraction prompt for exclusions."""
         return EXCLUSIONS_EXTRACTION_PROMPT
-    
+
     async def run(
         self,
         text: str,
@@ -185,19 +209,31 @@ class ExclusionsExtractor(BaseExtractor):
         except Exception as e:
             LOGGER.error(f"Exclusions extraction failed: {e}", exc_info=True)
             return []
-    
+
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields from parsed response."""
-        return {"exclusions": parsed.get("exclusions", [])}
+        """Extract fields from parsed response.
+
+        Handles both nested structure ({"fields": {"exclusions": [...]}})
+        and flat structure ({"exclusions": [...]}).
+        """
+        # Try nested structure first (LLM standard response)
+        fields = parsed.get("fields", {})
+        exclusions = fields.get("exclusions", [])
+
+        # Fallback to flat structure
+        if not exclusions:
+            exclusions = parsed.get("exclusions", [])
+
+        return {"exclusions": exclusions}
 
 
 class EndorsementsExtractor(BaseExtractor):
     """Extractor for endorsements section."""
-    
+
     def get_extraction_prompt(self) -> str:
         """Get the extraction prompt for endorsements."""
         return ENDORSEMENTS_EXTRACTION_PROMPT
-    
+
     async def run(
         self,
         text: str,
@@ -217,10 +253,22 @@ class EndorsementsExtractor(BaseExtractor):
         except Exception as e:
             LOGGER.error(f"Endorsements extraction failed: {e}", exc_info=True)
             return []
-    
+
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields from parsed response."""
-        return {"endorsements": parsed.get("endorsements", [])}
+        """Extract fields from parsed response.
+
+        Handles both nested structure ({"fields": {"endorsements": [...]}})
+        and flat structure ({"endorsements": [...]}).
+        """
+        # Try nested structure first (LLM standard response)
+        fields = parsed.get("fields", {})
+        endorsements = fields.get("endorsements", [])
+
+        # Fallback to flat structure
+        if not endorsements:
+            endorsements = parsed.get("endorsements", [])
+
+        return {"endorsements": endorsements}
 
 
 class InsuringAgreementExtractor(BaseExtractor):
@@ -289,11 +337,11 @@ class PremiumSummaryExtractor(BaseExtractor):
 
 class DeductiblesExtractor(BaseExtractor):
     """Extractor for deductibles section."""
-    
+
     def get_extraction_prompt(self) -> str:
         """Get the extraction prompt for deductibles."""
         return DEDUCTIBLES_EXTRACTION_PROMPT
-    
+
     async def run(
         self,
         text: str,
@@ -313,10 +361,22 @@ class DeductiblesExtractor(BaseExtractor):
         except Exception as e:
             LOGGER.error(f"Deductibles extraction failed: {e}", exc_info=True)
             return []
-    
+
     def extract_fields(self, parsed: Dict[str, Any]) -> Dict[str, Any]:
-        """Extract fields from parsed response."""
-        return {"deductibles": parsed.get("deductibles", [])}
+        """Extract fields from parsed response.
+
+        Handles both nested structure ({"fields": {"deductibles": [...]}})
+        and flat structure ({"deductibles": [...]}).
+        """
+        # Try nested structure first (LLM standard response)
+        fields = parsed.get("fields", {})
+        deductibles = fields.get("deductibles", [])
+
+        # Fallback to flat structure
+        if not deductibles:
+            deductibles = parsed.get("deductibles", [])
+
+        return {"deductibles": deductibles}
 
 
 class PremiumExtractor(BaseExtractor):

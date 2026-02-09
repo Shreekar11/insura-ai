@@ -125,6 +125,8 @@ class GraphService(BaseService):
                     "stats": stats
                 }
             )
+            
+            await self.db_session.commit()
 
             return stats
 

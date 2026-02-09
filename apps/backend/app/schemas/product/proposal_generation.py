@@ -12,6 +12,8 @@ class ProposalSection(BaseModel):
     narrative: str
     key_findings: List[Dict[str, Any]]
     raw_data: Optional[Dict[str, Any]] = None
+    requires_review: bool = False
+    review_reason: Optional[str] = None
 
 class ProposalComparisonRow(BaseModel):
     """A single row in a comparison table."""
@@ -22,6 +24,7 @@ class ProposalComparisonRow(BaseModel):
     delta_type: str
     delta_flag: str
     is_canonical: bool = False
+    reasoning: Optional[str] = None
 
 class Proposal(BaseModel):
     """Full insurance proposal model."""
@@ -36,6 +39,10 @@ class Proposal(BaseModel):
     executive_summary: str
     sections: List[ProposalSection]
     comparison_table: List[ProposalComparisonRow]
+    
+    requires_hitl_review: bool = False
+    hitl_items: List[str] = Field(default_factory=list)
+    quality_score: Optional[float] = None
     
     metadata: Dict[str, Any] = Field(default_factory=dict)
     created_at: datetime = Field(default_factory=datetime.now)

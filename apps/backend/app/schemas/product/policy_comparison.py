@@ -2,8 +2,165 @@
 
 from pydantic import BaseModel, Field, ConfigDict
 from uuid import UUID
-from typing import Optional, Literal
+from typing import Optional, Literal, List, Dict, Any
 from decimal import Decimal
+from enum import Enum
+
+
+# =====================================================
+# Entity-Level Comparison Schemas
+# =====================================================
+
+class MatchType(str, Enum):
+    """Result of entity matching."""
+    MATCH = "match"
+    PARTIAL_MATCH = "partial_match"
+    NO_MATCH = "no_match"
+    ADDED = "added"
+    REMOVED = "removed"
+    TYPE_RECLASSIFIED = "type_reclassified"
+    UNCHANGED = "unchanged"
+
+
+class EntityType(str, Enum):
+    """Types of insurance entities that can be compared."""
+    COVERAGE = "coverage"
+    EXCLUSION = "exclusion"
+    SECTION_COVERAGE = "section_coverage"
+    SECTION_EXCLUSION = "section_exclusion"
+
+
+class ComparisonSource(str, Enum):
+    """Source of the comparison data."""
+    EFFECTIVE = "effective"
+    SECTION = "section"
+
+
+class EntityComparison(BaseModel):
+    """Comparison result for a single entity (coverage/exclusion)."""
+    model_config = ConfigDict(from_attributes=True)
+
+    entity_type: EntityType = Field(..., description="Type of entity")
+    comparison_source: ComparisonSource = Field(
+        default=ComparisonSource.EFFECTIVE,
+        description="Source of the comparison data"
+    )
+    section_type: Optional[str] = Field(
+        None,
+        description="Section type when source is SECTION"
+    )
+
+    entity_id: Optional[str] = Field(None, description="Canonical ID for matching across docs")
+    entity_name: str = Field(..., description="Display name of the entity")
+
+    match_type: MatchType = Field(..., description="Level of match between documents")
+    confidence: Decimal = Field(
+        default=Decimal("1.0"),
+        description="Confidence score for the match"
+    )
+
+    # Field-level differences (for PARTIAL_MATCH)
+    field_differences: Optional[List[Dict[str, Any]]] = Field(
+        None,
+        description="List of field-level differences between matched entities"
+    )
+
+    # LLM-generated summaries
+    reasoning: Optional[str] = Field(
+        None,
+        description="LLM-generated explanation of the match/difference"
+    )
+    doc1_summary: Optional[str] = Field(
+        None,
+        description="Concise summary of the entity in document 1"
+    )
+    doc2_summary: Optional[str] = Field(
+        None,
+        description="Concise summary of the entity in document 2"
+    )
+    comparison_summary: Optional[str] = Field(
+        None,
+        description="Broker-friendly summarized comparison between the entities"
+    )
+    
+    # Raw data for front-end consumption
+    doc1_content: Optional[Dict[str, Any]] = Field(None, description="Raw data from document 1")
+    doc2_content: Optional[Dict[str, Any]] = Field(None, description="Raw data from document 2")
+
+    # Metadata for navigation and verification
+    doc1_page_range: Optional[Dict[str, Any]] = Field(None, description="Page range in document 1")
+    doc2_page_range: Optional[Dict[str, Any]] = Field(None, description="Page range in document 2")
+    doc1_confidence: Optional[Decimal] = Field(None, description="Extraction confidence for document 1")
+    doc2_confidence: Optional[Decimal] = Field(None, description="Extraction confidence for document 2")
+    doc1_extraction_id: Optional[UUID] = Field(None, description="Original extraction ID in document 1")
+    doc2_extraction_id: Optional[UUID] = Field(None, description="Original extraction ID in document 2")
+
+    severity: Literal["low", "medium", "high"] = Field(
+        default="low",
+        description="Severity of the difference (for PARTIAL_MATCH, ADDED, REMOVED)"
+    )
+
+
+class EntityComparisonSummary(BaseModel):
+    """Summary of entity-level comparison results."""
+    model_config = ConfigDict(from_attributes=True)
+
+    total_comparisons: int = Field(0, description="Total effective entities compared")
+    
+    total_coverages_doc1: int = Field(0, description="Total coverages in document 1")
+    total_coverages_doc2: int = Field(0, description="Total coverages in document 2")
+    total_exclusions_doc1: int = Field(0, description="Total exclusions in document 1")
+    total_exclusions_doc2: int = Field(0, description="Total exclusions in document 2")
+
+    coverage_matches: int = Field(0, description="Number of exact coverage matches")
+    coverage_partial_matches: int = Field(0, description="Number of partial coverage matches")
+    coverages_added: int = Field(0, description="Coverages added in document 2")
+    coverages_removed: int = Field(0, description="Coverages removed from document 1")
+    coverages_unchanged: int = Field(0, description="Base coverages not modified by endorsement")
+
+    exclusion_matches: int = Field(0, description="Number of exact exclusion matches")
+    exclusion_partial_matches: int = Field(0, description="Number of partial exclusion matches")
+    exclusions_added: int = Field(0, description="Exclusions added in document 2")
+    exclusions_removed: int = Field(0, description="Exclusions removed from document 1")
+    exclusions_unchanged: int = Field(0, description="Base exclusions not modified by endorsement")
+
+    entities_reclassified: int = Field(0, description="Entities classified as different types across documents")
+
+    section_coverage_comparisons: int = Field(0, description="Number of section-level coverage comparisons")
+    section_exclusion_comparisons: int = Field(0, description="Number of section-level exclusion comparisons")
+
+
+class EntityComparisonResult(BaseModel):
+    """Complete entity-level comparison result."""
+    model_config = ConfigDict(from_attributes=True)
+
+    workflow_id: UUID = Field(..., description="UUID of the workflow execution")
+    doc1_id: UUID = Field(..., description="UUID of document 1 (base/expiring)")
+    doc2_id: UUID = Field(..., description="UUID of document 2 (endorsement/renewal)")
+    doc1_name: str = Field(..., description="Display name of document 1")
+    doc2_name: str = Field(..., description="Display name of document 2")
+
+    summary: EntityComparisonSummary = Field(..., description="Summary statistics")
+    comparisons: List[EntityComparison] = Field(
+        default_factory=list,
+        description="List of entity comparisons"
+    )
+
+    overall_confidence: Decimal = Field(
+        default=Decimal("0.0"),
+        ge=0.0,
+        le=1.0,
+        description="Overall confidence score for the comparison"
+    )
+    overall_explanation: Optional[str] = Field(
+        None,
+        description="LLM-generated summary of all entity-level differences"
+    )
+
+    metadata: Dict[str, Any] = Field(
+        default_factory=dict,
+        description="Additional metadata (processing time, model used, etc.)"
+    )
 
 
 class PolicyComparisonRequest(BaseModel):

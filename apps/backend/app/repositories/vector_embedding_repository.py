@@ -393,3 +393,47 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
             "total_embeddings": total_count,
             "by_section_type": section_counts
         }
+
+    async def search_chunk_embeddings(
+        self,
+        embedding: List[float],
+        document_id: UUID,
+        top_k: int = 5,
+        max_distance: Optional[float] = None,
+        section_type: Optional[str] = None,
+    ) -> List[Tuple[Any, float]]:
+        """Search chunk-level embeddings for semantic citation resolution.
+
+        Filters to entity_type='chunk' and returns results with distances,
+        including the source_chunk_id for linking back to document chunks.
+
+        Args:
+            embedding: Query embedding vector (384 dimensions)
+            document_id: Document to search within
+            top_k: Number of results to return
+            max_distance: Optional maximum cosine distance threshold
+            section_type: Optional section type filter
+
+        Returns:
+            List of (VectorEmbedding, distance) tuples ordered by similarity
+        """
+        query = select(
+            self.model,
+            self.model.embedding.cosine_distance(embedding).label('distance')
+        ).where(
+            self.model.document_id == document_id,
+            self.model.entity_type == "chunk",
+        )
+
+        if section_type:
+            query = query.where(self.model.section_type == section_type)
+
+        if max_distance is not None:
+            query = query.where(
+                self.model.embedding.cosine_distance(embedding) <= max_distance
+            )
+
+        query = query.order_by('distance').limit(top_k)
+
+        result = await self.session.execute(query)
+        return [(row.VectorEmbedding, row.distance) for row in result]

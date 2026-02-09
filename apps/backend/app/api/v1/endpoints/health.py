@@ -1,39 +1,37 @@
 """Health check API endpoints."""
 
-from fastapi import APIRouter
+from fastapi import APIRouter, Request
 from app.core.config import settings
 from app.core.database import db_client
 from app.utils.logging import get_logger
-from temporalio.client import Client
-import os
-
-from pydantic import BaseModel, Field
+from app.schemas.generated.health import HealthCheckResponse, ApiResponse
+from app.utils.responses import create_api_response
 
 LOGGER = get_logger(__name__)
 
 router = APIRouter()
 
-class HealthCheckResponse(BaseModel):
-    status: str = Field(..., description="Health check status")
-    version: str = Field(..., description="Running application version")
-    service: str = Field(..., description="Service name")
-
 @router.get(
     "/",
-    response_model=HealthCheckResponse,
+    response_model=ApiResponse,
     tags=["Health"],
     summary="Health check endpoint",
     description="Check if the service is running and healthy",
     operation_id="get_service_health_status",
 )
-async def health_check() -> HealthCheckResponse:
+async def health_check(request: Request) -> ApiResponse:
     """Health check endpoint."""
     # Check database health
     db_health = await db_client.health_check()
     
-    return HealthCheckResponse(
+    data = HealthCheckResponse(
         status="healthy" if db_health["status"] == "healthy" else "degraded",
         version=settings.app_version,
         service=settings.app_name,
     )
-
+    
+    return create_api_response(
+        data=data,
+        message="Service health status retrieved successfully",
+        request=request
+    )

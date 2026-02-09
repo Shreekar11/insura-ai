@@ -4,7 +4,7 @@ This service extracts lightweight signals from PDF pages without performing full
 enabling fast page classification and filtering.
 """
 
-from typing import List, Optional
+from typing import List, Optional, Dict, Any
 from app.services.processed.services.analysis.lightweight_page_analyzer import LightweightPageAnalyzer
 from app.services.processed.services.analysis.markdown_page_analyzer import MarkdownPageAnalyzer
 from app.models.page_analysis_models import PageSignals

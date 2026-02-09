@@ -4,6 +4,7 @@ This module contains services for:
 - Section extraction orchestration (using factory pattern)
 - Section-specific extractors
 - Cross-section validation and reconciliation
+- Two-document pipeline endorsement provision extraction
 """
 
 from app.services.extracted.services.extraction.section.section_extraction_orchestrator import (
@@ -20,12 +21,21 @@ from app.services.extracted.services.extraction.section.extractors import (
     InsuringAgreementExtractor,
     PremiumSummaryExtractor,
     DefaultSectionExtractor,
+    EndorsementCoverageProjectionExtractor,
+    EndorsementExclusionProjectionExtractor,
+)
+from app.services.extracted.services.extraction.section.endorsement_provision_extractor import (
+    EndorsementProvisionExtractor,
+    EndorsementProvision,
+    EndorsementProvisionResult,
 )
 
 __all__ = [
+    # Orchestration
     "SectionExtractionOrchestrator",
     "SectionExtractionResult",
     "DocumentExtractionResult",
+    # Section extractors
     "DeclarationsExtractor",
     "CoveragesExtractor",
     "ConditionsExtractor",
@@ -34,5 +44,12 @@ __all__ = [
     "InsuringAgreementExtractor",
     "PremiumSummaryExtractor",
     "DefaultSectionExtractor",
+    # Endorsement projection extractors
+    "EndorsementCoverageProjectionExtractor",
+    "EndorsementExclusionProjectionExtractor",
+    # Two-document pipeline
+    "EndorsementProvisionExtractor",
+    "EndorsementProvision",
+    "EndorsementProvisionResult",
 ]
 

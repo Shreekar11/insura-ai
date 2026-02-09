@@ -127,3 +127,34 @@ class WorkflowOutputRepository(BaseRepository[WorkflowOutput]):
         stmt = select(WorkflowOutput).where(WorkflowOutput.id == output_id)
         result = await self.session.execute(stmt)
         return result.scalar_one_or_none()
+
+    async def update_entity_comparison(
+        self,
+        workflow_id: UUID,
+        entity_comparison: dict,
+    ) -> Optional[WorkflowOutput]:
+        """Update workflow output with entity comparison results.
+        
+        Stores the entity comparison in output_metadata for retrieval
+        via get_entity_comparison API.
+        
+        Args:
+            workflow_id: UUID of the workflow execution
+            entity_comparison: Entity comparison result dict
+            
+        Returns:
+            Updated WorkflowOutput instance if found, None otherwise
+        """
+        output = await self.get_by_workflow_id(workflow_id)
+        if not output:
+            return None
+        
+        if output.output_metadata is None:
+            output.output_metadata = {}
+        
+        metadata = dict(output.output_metadata)
+        metadata["entity_comparison"] = entity_comparison
+        output.output_metadata = metadata
+        
+        await self.session.flush()
+        return output

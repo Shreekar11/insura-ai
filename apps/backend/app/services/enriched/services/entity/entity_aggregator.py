@@ -1,11 +1,12 @@
 """Document entity aggregator service.
 
 This service aggregates entities from all chunks of a document and performs
-deduplication to prepare for canonical entity resolution.
+deduplication and quality filtering to prepare for canonical entity resolution.
 """
 
 import hashlib
-from typing import List, Dict, Any, Optional
+import re
+from typing import List, Dict, Any, Optional, Tuple
 from uuid import UUID
 from dataclasses import dataclass
 
@@ -18,6 +19,40 @@ from app.repositories.section_extraction_repository import SectionExtractionRepo
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
+
+
+# Quality filtering thresholds
+MIN_CONFIDENCE_THRESHOLD = 0.85  # Minimum confidence for entity acceptance
+MIN_NAME_LENGTH = 5  # Minimum length for coverage/exclusion names
+
+# Generic terms that should be filtered out (case-insensitive)
+GENERIC_TERMS = frozenset([
+    "the policy",
+    "policy",
+    "this policy",
+    "the insured",
+    "insured",
+    "coverage",
+    "exclusion",
+    "endorsement",
+    "schedule",
+    "declarations",
+    "form",
+    "section",
+    "paragraph",
+    "item",
+    "part",
+    "provision",
+])
+
+# Patterns that indicate a section reference rather than an entity name
+SECTION_REFERENCE_PATTERNS = [
+    r'^SECTION\s+[IVX\d]+',  # SECTION I, SECTION IV, etc.
+    r'^PART\s+[A-Z\d]+',  # PART A, PART 1, etc.
+    r'^PARAGRAPH\s+[A-Z\d\.]+',  # PARAGRAPH B.2, etc.
+    r'^\d+\.\s+[A-Z]',  # Numbered items like "1. A"
+    r'^[A-Z]\.\d+',  # A.1, B.2 format
+]
 
 
 @dataclass
@@ -210,9 +245,27 @@ class EntityAggregator:
             # Create placeholder chunks list for coverage metrics (only count matters)
             chunks = [None] * len(chunk_id_set) if chunk_id_set else []
         
+        # Filter low-quality entities before deduplication
+        filtered_entities, filter_stats = self._filter_low_quality_entities(all_entities)
+
         # Deduplicate entities
-        unique_entities = self._deduplicate_entities(all_entities)
-                
+        unique_entities = self._deduplicate_entities(filtered_entities)
+
+        # Log filtering statistics
+        if filter_stats["total_filtered"] > 0:
+            LOGGER.info(
+                f"Entity quality filtering applied",
+                extra={
+                    "document_id": str(document_id),
+                    "original_count": len(all_entities),
+                    "filtered_count": filter_stats["total_filtered"],
+                    "low_confidence": filter_stats["low_confidence"],
+                    "generic_names": filter_stats["generic_names"],
+                    "section_references": filter_stats["section_references"],
+                    "short_names": filter_stats["short_names"],
+                }
+            )
+
         # Calculate total chunks - use chunk_mappings count if chunks is None
         total_chunks = len(chunks) if chunks is not None else len(set(m.chunk_id for m in chunk_mappings))
         
@@ -399,11 +452,11 @@ class EntityAggregator:
         normalized_value: str
     ) -> str:
         """Generate deterministic entity ID.
-        
+
         Args:
             entity_type: Entity type
             normalized_value: Normalized value
-            
+
         Returns:
             Entity ID (lowercase with underscores)
         """
@@ -412,4 +465,132 @@ class EntityAggregator:
         # Use first 16 chars of SHA1 hash for shorter IDs
         hash_hex = hashlib.sha1(key.encode()).hexdigest()[:16]
         return f"{entity_type.lower()}_{hash_hex}"
+
+    def _filter_low_quality_entities(
+        self,
+        entities: List[Dict[str, Any]]
+    ) -> Tuple[List[Dict[str, Any]], Dict[str, int]]:
+        """Filter out low-quality entities.
+
+        Removes entities that:
+        1. Have confidence below threshold
+        2. Have generic/vague names (e.g., "the policy", "coverage")
+        3. Are section references rather than actual entity names
+        4. Have names that are too short
+
+        Args:
+            entities: List of entities to filter
+
+        Returns:
+            Tuple of (filtered_entities, filter_statistics)
+        """
+        if not entities:
+            return [], {"total_filtered": 0, "low_confidence": 0, "generic_names": 0, "section_references": 0, "short_names": 0}
+
+        filtered = []
+        stats = {
+            "total_filtered": 0,
+            "low_confidence": 0,
+            "generic_names": 0,
+            "section_references": 0,
+            "short_names": 0,
+        }
+
+        # Compile section reference patterns
+        section_patterns = [re.compile(p, re.IGNORECASE) for p in SECTION_REFERENCE_PATTERNS]
+
+        for entity in entities:
+            entity_type = (entity.get("entity_type") or entity.get("type") or "").lower()
+
+            # Only apply strict filtering to Coverage and Exclusion entities
+            if entity_type not in ("coverage", "exclusion"):
+                filtered.append(entity)
+                continue
+
+            # Get entity name
+            entity_name = self._get_entity_name(entity)
+            if not entity_name:
+                filtered.append(entity)
+                continue
+
+            # Check 1: Confidence threshold
+            confidence = entity.get("confidence", 0.8)
+            if confidence < MIN_CONFIDENCE_THRESHOLD:
+                stats["low_confidence"] += 1
+                stats["total_filtered"] += 1
+                LOGGER.debug(
+                    f"Filtered low-confidence entity",
+                    extra={"entity_name": entity_name, "confidence": confidence, "type": entity_type}
+                )
+                continue
+
+            # Check 2: Generic terms
+            name_lower = entity_name.lower().strip()
+            if name_lower in GENERIC_TERMS:
+                stats["generic_names"] += 1
+                stats["total_filtered"] += 1
+                LOGGER.debug(
+                    f"Filtered generic entity name",
+                    extra={"entity_name": entity_name, "type": entity_type}
+                )
+                continue
+
+            # Check 3: Section references
+            is_section_ref = any(pattern.match(entity_name) for pattern in section_patterns)
+            if is_section_ref:
+                stats["section_references"] += 1
+                stats["total_filtered"] += 1
+                LOGGER.debug(
+                    f"Filtered section reference entity",
+                    extra={"entity_name": entity_name, "type": entity_type}
+                )
+                continue
+
+            # Check 4: Name length
+            # Clean the name first (remove leading/trailing whitespace and common prefixes)
+            clean_name = re.sub(r'^(the|a|an)\s+', '', name_lower).strip()
+            if len(clean_name) < MIN_NAME_LENGTH:
+                stats["short_names"] += 1
+                stats["total_filtered"] += 1
+                LOGGER.debug(
+                    f"Filtered short entity name",
+                    extra={"entity_name": entity_name, "clean_name": clean_name, "type": entity_type}
+                )
+                continue
+
+            # Entity passed all quality checks
+            filtered.append(entity)
+
+        return filtered, stats
+
+    def _get_entity_name(self, entity: Dict[str, Any]) -> Optional[str]:
+        """Extract entity name from various possible fields.
+
+        Args:
+            entity: Entity dict
+
+        Returns:
+            Entity name or None
+        """
+        # Try different possible name fields
+        name = (
+            entity.get("coverage_name") or
+            entity.get("exclusion_name") or
+            entity.get("name") or
+            entity.get("title") or
+            entity.get("normalized_value") or
+            entity.get("raw_value")
+        )
+
+        # Also check in attributes if present
+        if not name and "attributes" in entity:
+            attrs = entity["attributes"]
+            name = (
+                attrs.get("coverage_name") or
+                attrs.get("name") or
+                attrs.get("title") or
+                attrs.get("exclusion_name")
+            )
+
+        return name
 

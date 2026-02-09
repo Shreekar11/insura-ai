@@ -171,10 +171,7 @@ class QuoteComparisonService:
             }
         )
         
-        # 9. Enrich with reasoning
-        result = await self.reasoning_service.enrich_comparison_result(quote_comparison_result)
-        
-        return result
+        return quote_comparison_result
     
     def _build_comparison_matrix(
         self,

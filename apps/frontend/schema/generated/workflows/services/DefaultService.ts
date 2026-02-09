@@ -1,0 +1,360 @@
+/* generated using openapi-typescript-codegen -- do not edit */
+/* istanbul ignore file */
+/* tslint:disable */
+/* eslint-disable */
+import type { ApiResponse } from '../models/ApiResponse';
+import type { EntityComparisonResponse } from '../models/EntityComparisonResponse';
+import type { ProposalResponse } from '../models/ProposalResponse';
+import type { WorkflowCreateRequest } from '../models/WorkflowCreateRequest';
+import type { WorkflowDefinitionResponse } from '../models/WorkflowDefinitionResponse';
+import type { WorkflowExecutionRequest } from '../models/WorkflowExecutionRequest';
+import type { WorkflowExecutionResponse } from '../models/WorkflowExecutionResponse';
+import type { WorkflowExtractedDataResponse } from '../models/WorkflowExtractedDataResponse';
+import type { WorkflowExtractRequest } from '../models/WorkflowExtractRequest';
+import type { WorkflowListResponse } from '../models/WorkflowListResponse';
+import type { WorkflowResponse } from '../models/WorkflowResponse';
+import type { WorkflowStatusResponse } from '../models/WorkflowStatusResponse';
+import type { WorkflowUpdateRequest } from '../models/WorkflowUpdateRequest';
+import type { CancelablePromise } from '../core/CancelablePromise';
+import { OpenAPI } from '../core/OpenAPI';
+import { request as __request } from '../core/request';
+export class DefaultService {
+    /**
+     * Execute workflow
+     * @param requestBody
+     * @returns any Workflow started
+     * @throws ApiError
+     */
+    public static executeWorkflow(
+        requestBody: WorkflowExecutionRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowExecutionResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/execute',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Invalid request`,
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * List workflows
+     * @param limit
+     * @param offset
+     * @returns any List of workflows
+     * @throws ApiError
+     */
+    public static listWorkflows(
+        limit: number = 50,
+        offset?: number,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowListResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows',
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Create workflow
+     * @param requestBody
+     * @returns any Workflow created
+     * @throws ApiError
+     */
+    public static createWorkflow(
+        requestBody: WorkflowCreateRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowExecutionResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Invalid request`,
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Update workflow
+     * @param requestBody
+     * @returns any Workflow updated
+     * @throws ApiError
+     */
+    public static updateWorkflow(
+        requestBody: WorkflowUpdateRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'PUT',
+            url: '/api/v1/workflows/{workflow_id}',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get workflow details
+     * @param workflowId
+     * @returns any Workflow details
+     * @throws ApiError
+     */
+    public static getWorkflow(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get all workflows for a workflow definition
+     * @param workflowDefinitionId
+     * @param limit
+     * @param offset
+     * @returns any List of workflows
+     * @throws ApiError
+     */
+    public static getAllWorkflows(
+        workflowDefinitionId: string,
+        limit: number = 10,
+        offset?: number,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowListResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/all/{workflow_definition_id}',
+            path: {
+                'workflow_definition_id': workflowDefinitionId,
+            },
+            query: {
+                'limit': limit,
+                'offset': offset,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflows not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get workflow definitions
+     * @returns any List of workflow definitions
+     * @throws ApiError
+     */
+    public static getWorkflowDefinitions(): CancelablePromise<(ApiResponse & {
+        data?: {
+            definitions?: Array<WorkflowDefinitionResponse>;
+        };
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/definitions',
+            errors: {
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get workflow definition by id
+     * @param workflowDefinitionId
+     * @returns any Workflow definition
+     * @throws ApiError
+     */
+    public static getWorkflowDefinitionById(
+        workflowDefinitionId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            definition?: WorkflowDefinitionResponse;
+        };
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/definitions/{workflow_definition_id}',
+            path: {
+                'workflow_definition_id': workflowDefinitionId,
+            },
+            errors: {
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get workflow status
+     * @param workflowId
+     * @returns any Workflow status
+     * @throws ApiError
+     */
+    public static getWorkflowStatus(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowStatusResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/status',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                404: `Workflow not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get extracted data
+     * @param workflowId
+     * @param documentId
+     * @returns any Extracted data
+     * @throws ApiError
+     */
+    public static getExtractedData(
+        workflowId: string,
+        documentId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowExtractedDataResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/extracted/{document_id}',
+            path: {
+                'workflow_id': workflowId,
+                'document_id': documentId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow or document not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get entity comparison results
+     * @param workflowId
+     * @returns any Entity comparison results
+     * @throws ApiError
+     */
+    public static getEntityComparison(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: EntityComparisonResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/comparison',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Comparison results not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Execute entity comparison
+     * @param workflowId
+     * @returns any Comparison executed
+     * @throws ApiError
+     */
+    public static executeEntityComparison(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: EntityComparisonResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/{workflow_id}/comparison',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                400: `Comparison failed`,
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Get proposal results
+     * @param workflowId
+     * @returns any Proposal results
+     * @throws ApiError
+     */
+    public static getProposal(
+        workflowId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: ProposalResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/workflows/{workflow_id}/proposal',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Proposal results not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
+     * Start document extraction
+     * @param requestBody
+     * @returns any Extraction started
+     * @throws ApiError
+     */
+    public static startExtraction(
+        requestBody: WorkflowExtractRequest,
+    ): CancelablePromise<(ApiResponse & {
+        data?: WorkflowExecutionResponse;
+    })> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/extract',
+            body: requestBody,
+            mediaType: 'application/json',
+            errors: {
+                400: `Invalid request`,
+                401: `Unauthorized`,
+                500: `Internal server error`,
+            },
+        });
+    }
+}

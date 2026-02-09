@@ -1,6 +1,7 @@
 """Parent workflow orchestrating the entire document processing pipeline."""
 
 from temporalio import workflow
+from datetime import timedelta
 from typing import Optional, Dict
 
 from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
@@ -41,11 +42,21 @@ class ProcessDocumentWorkflow(DocumentProcessingMixin):
             raise ValueError("ProcessDocumentWorkflow requires exactly one document")
 
         document_id = documents[0].get("document_id")
+        doc_name = documents[0].get("document_name", "Unknown")
         self._status = "processing"
+
+        # Initial event: Reading document
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": f"Reading document {doc_name}..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
 
         config = DocumentProcessingConfig(
             workflow_id=workflow_id,
-            workflow_name=payload.get("workflow_name")
+            workflow_name=payload.get("workflow_name"),
+            document_name=doc_name,
+            document_id=document_id
         )
         
         # Execute the processing stages via mixin
@@ -53,6 +64,13 @@ class ProcessDocumentWorkflow(DocumentProcessingMixin):
         
         self._status = "completed"
         self._progress = 1.0
+
+        # Persist status to database
+        await workflow.execute_activity(
+            "update_workflow_status",
+            args=[workflow_id, "completed"],
+            start_to_close_timeout=timedelta(minutes=1),
+        )
 
         return {
             "status": self._status,
