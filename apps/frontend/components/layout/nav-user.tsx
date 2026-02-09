@@ -54,11 +54,22 @@ export function NavUser() {
             </SidebarMenuButton>
           </DropdownMenuTrigger>
           <DropdownMenuContent
-            className="w-(--radix-dropdown-menu-trigger-width) min-w-56 rounded"
+            className="w-(--radix-dropdown-menu-trigger-width) min-w-64 rounded"
             side={isMobile ? "bottom" : "right"}
             align="end"
             sideOffset={4}
           >
+            <DropdownMenuItem>
+              <Avatar className="h-8 w-8 rounded">
+                <AvatarImage src={avatar_url} alt={name} />
+                <AvatarFallback className="rounded">CN</AvatarFallback>
+              </Avatar>
+              <div className="grid flex-1 text-left text-sm leading-tight">
+                <span className="font-medium">{name}</span>
+                <span className="text-xs">{user?.email}</span>
+              </div>
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
             <DropdownMenuItem onClick={signOut}>
               <LogOut />
               Log out

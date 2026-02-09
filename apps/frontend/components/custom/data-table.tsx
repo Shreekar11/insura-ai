@@ -135,8 +135,6 @@ export function DataTable<TData, TValue>({
   const [columnFilters, setColumnFilters] = React.useState<ColumnFiltersState>(
     [],
   );
-  const [workflowNameFilter, setWorkflowNameFilter] =
-    React.useState<string>("");
   const [sorting, setSorting] = React.useState<SortingState>([]);
   const [paginationInternal, setPaginationInternal] = React.useState({
     pageIndex: 0,
@@ -147,22 +145,6 @@ export function DataTable<TData, TValue>({
   React.useEffect(() => {
     setData(initialData);
   }, [initialData]);
-
-  // Update column filters when workflow name filter changes
-  React.useEffect(() => {
-    const newFilters = columnFilters.filter(
-      (filter) => filter.id !== "workflow_name",
-    );
-
-    if (workflowNameFilter) {
-      newFilters.push({
-        id: "workflow_name",
-        value: workflowNameFilter,
-      });
-    }
-
-    setColumnFilters(newFilters);
-  }, [workflowNameFilter]);
 
   // Determine whether to use controlled or uncontrolled pagination state
   const pagination = paginationState ?? paginationInternal;
@@ -203,17 +185,6 @@ export function DataTable<TData, TValue>({
     pageCount,
   });
 
-  // Get unique workflow names from data
-  const uniqueWorkflowNames = React.useMemo(() => {
-    const names = new Set<string>();
-    data.forEach((item: any) => {
-      if (item.workflow_name) {
-        names.add(item.workflow_name);
-      }
-    });
-    return Array.from(names).sort();
-  }, [data]);
-
   return (
     <div className="w-full flex flex-col gap-6">
       <div
@@ -223,7 +194,11 @@ export function DataTable<TData, TValue>({
           <div className="flex flex-col gap-1">
             {pathname !== "/dashboard" && (
               <h1 className="text-2xl font-semibold tracking-tight text-foreground">
-                {(initialData[0] as any)?.definition_name || "Workflow"}{" "}
+                {(initialData[0] as any)?.definition_name ||
+                  workflowDefinitions?.find(
+                    (def) => def.id === workflowDefinitionId,
+                  )?.name ||
+                  "Workflow"}{" "}
                 Overview
               </h1>
             )}

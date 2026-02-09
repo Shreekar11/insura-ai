@@ -237,6 +237,19 @@ function WorkflowExecutionContent() {
     }
   };
 
+  const definitionName = workflow?.definition_name || "Document Processing";
+
+  // Determine layout state
+  const layoutState = useMemo(
+    () =>
+      pdfViewerOpen
+        ? "pdf-active"
+        : sidebarOpen || comparisonSidebarOpen || proposalSidebarOpen
+          ? "two-column"
+          : "one-column",
+    [pdfViewerOpen, sidebarOpen, comparisonSidebarOpen, proposalSidebarOpen],
+  );
+
   if (isLoadingWorkflow) {
     return (
       <div className="flex items-center justify-center min-h-[200px]">
@@ -244,8 +257,6 @@ function WorkflowExecutionContent() {
       </div>
     );
   }
-
-  const definitionName = workflow?.definition_name || "Document Processing";
 
   const handleViewOutput = (wId: string, dId: string) => {
     setSelectedOutput({ workflowId: wId, documentId: dId });
@@ -264,17 +275,6 @@ function WorkflowExecutionContent() {
     setSidebarOpen(false);
     setComparisonSidebarOpen(false);
   };
-
-  // Determine layout state
-  const layoutState = useMemo(
-    () =>
-      pdfViewerOpen
-        ? "pdf-active"
-        : sidebarOpen || comparisonSidebarOpen || proposalSidebarOpen
-          ? "two-column"
-          : "one-column",
-    [pdfViewerOpen, sidebarOpen, comparisonSidebarOpen, proposalSidebarOpen],
-  );
 
   return (
     <ResizablePanelGroup

@@ -2,7 +2,6 @@ import { useQuery } from "@tanstack/react-query";
 import {
   DefaultService,
   WorkflowDefinitionResponse,
-  WorkflowListResponse
 } from "@/schema/generated/workflows";
 
 /**

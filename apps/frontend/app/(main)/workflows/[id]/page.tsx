@@ -6,6 +6,7 @@ import {
   useWorkflowsByDefinitionId,
   useCreateWorkflow,
 } from "@/hooks/use-workflows";
+import { useWorkflowDefinitions } from "@/hooks/use-workflow-definitions";
 import { workflowColumns } from "@/components/custom/workflow-columns";
 import { DataTable } from "@/components/custom/data-table";
 import { toast } from "sonner";
@@ -37,6 +38,8 @@ export default function WorkflowExecutionPage() {
 
   const workflowsResult = data || { workflows: [], total: 0 };
   const pageCount = Math.ceil(workflowsResult.total / pagination.pageSize);
+
+  const { data: workflowDefinitions } = useWorkflowDefinitions();
 
   const handleCreateNewWorkflow = async (workflowDefinitionId: string) => {
     try {
@@ -103,6 +106,7 @@ export default function WorkflowExecutionPage() {
       onPaginationChange={setPagination}
       workflowDefinitionId={workflowDefinitionId as string}
       total={workflowsResult.total}
+      workflowDefinitions={workflowDefinitions}
     />
   );
 }
