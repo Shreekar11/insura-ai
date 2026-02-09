@@ -77,10 +77,6 @@ class JWTAuthenticationMiddleware(BaseHTTPMiddleware):
             
             LOGGER.debug(f"Authenticated user {claims.sub} via middleware")
             
-            # Continue to the next handler
-            response = await call_next(request)
-            return response
-            
         except jwt.InvalidTokenError as e:
             LOGGER.warning(f"Invalid token for {request.url.path}: {e}")
             return JSONResponse(
@@ -88,9 +84,7 @@ class JWTAuthenticationMiddleware(BaseHTTPMiddleware):
                 content={"detail": "Invalid authentication token"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-        except Exception as e:
-            LOGGER.error(f"Unexpected error in JWT middleware: {e}")
-            return JSONResponse(
-                status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
-                content={"detail": "Authentication internal error"},
-            )
+
+        # Continue to the next handler
+        response = await call_next(request)
+        return response

@@ -1,0 +1,213 @@
+{
+  "openapi": "3.0.3",
+  "info": {
+    "title": "Query API",
+    "version": "1.0.0",
+    "description": "API for semantic and graph-based retrieval (GraphRAG)."
+  },
+  "paths": {
+    "/api/v1/query/{workflow_id}": {
+      "post": {
+        "summary": "Execute GraphRAG query",
+        "operationId": "execute_query",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/GraphRAGRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful retrieval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GraphRAGResponse"
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
+    }
+  },
+  "components": {
+    "securitySchemes": {
+      "bearerAuth": {
+        "type": "http",
+        "scheme": "bearer",
+        "bearerFormat": "JWT"
+      }
+    },
+    "schemas": {
+      "GraphRAGRequest": {
+        "type": "object",
+        "required": ["query"],
+        "properties": {
+          "query": {
+            "type": "string",
+            "minLength": 1,
+            "description": "User's natural language question"
+          },
+          "document_ids": {
+            "type": "array",
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "nullable": true,
+            "description": "Specific documents to query (None = all workflow docs)"
+          },
+          "include_sources": {
+            "type": "boolean",
+            "default": true
+          },
+          "max_context_tokens": {
+            "type": "integer",
+            "default": 8000,
+            "minimum": 1000,
+            "maximum": 32000
+          },
+          "intent_override": {
+            "type": "string",
+            "enum": ["QA", "ANALYSIS", "AUDIT"],
+            "nullable": true
+          }
+        }
+      },
+      "GraphRAGResponse": {
+        "type": "object",
+        "required": ["answer", "metadata", "timestamp"],
+        "properties": {
+          "answer": {
+            "type": "string"
+          },
+          "sources": {
+            "type": "array",
+            "items": {
+              "$ref": "#/components/schemas/SourceCitation"
+            }
+          },
+          "metadata": {
+            "$ref": "#/components/schemas/ResponseMetadata"
+          },
+          "timestamp": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
+      "SourceCitation": {
+        "type": "object",
+        "required": [
+          "citation_id",
+          "document_name",
+          "document_id",
+          "section_type"
+        ],
+        "properties": {
+          "citation_id": {
+            "type": "string"
+          },
+          "document_name": {
+            "type": "string"
+          },
+          "document_id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "page_numbers": {
+            "type": "array",
+            "items": {
+              "type": "integer"
+            }
+          },
+          "section_type": {
+            "type": "string"
+          },
+          "relationship_context": {
+            "type": "string",
+            "nullable": true
+          }
+        }
+      },
+      "ResponseMetadata": {
+        "type": "object",
+        "required": [
+          "intent",
+          "traversal_depth",
+          "vector_results_count",
+          "graph_results_count",
+          "merged_results_count",
+          "full_text_count",
+          "summary_count",
+          "total_context_tokens",
+          "latency_ms"
+        ],
+        "properties": {
+          "intent": {
+            "type": "string"
+          },
+          "traversal_depth": {
+            "type": "integer"
+          },
+          "vector_results_count": {
+            "type": "integer"
+          },
+          "graph_results_count": {
+            "type": "integer"
+          },
+          "merged_results_count": {
+            "type": "integer"
+          },
+          "full_text_count": {
+            "type": "integer"
+          },
+          "summary_count": {
+            "type": "integer"
+          },
+          "total_context_tokens": {
+            "type": "integer"
+          },
+          "latency_ms": {
+            "type": "integer"
+          },
+          "stage_latencies": {
+            "type": "object",
+            "additionalProperties": {
+              "type": "integer"
+            }
+          },
+          "graph_available": {
+            "type": "boolean",
+            "default": true
+          },
+          "fallback_mode": {
+            "type": "boolean",
+            "default": false
+          }
+        }
+      }
+    }
+  }
+}

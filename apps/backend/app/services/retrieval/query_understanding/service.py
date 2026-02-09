@@ -225,9 +225,9 @@ class QueryUnderstandingService:
                         "id": str(section.id),
                         "document_id": str(section.document_id),
                         "section_type": section.section_type,
-                        "section_name": section.section_name,
-                        "content": section.content,
-                        "page_numbers": section.page_numbers,
+                        "section_name": section.section_type,
+                        "content": section.display_payload,
+                        "page_numbers": [section.page_range.get("start")] if section.page_range and "start" in section.page_range else [],
                     }
                     for section in sections
                 ]
@@ -243,8 +243,8 @@ class QueryUnderstandingService:
                         "id": str(entity.id),
                         "document_id": str(entity.document_id),
                         "entity_type": entity.entity_type,
-                        "entity_name": entity.entity_name,
-                        "attributes": entity.attributes,
+                        "entity_name": entity.entity_label,
+                        "attributes": entity.display_payload,
                         "confidence": float(entity.confidence) if entity.confidence else None,
                     }
                     for entity in entities
