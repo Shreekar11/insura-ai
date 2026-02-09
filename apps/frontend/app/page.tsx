@@ -4,12 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import {
-  GalleryVerticalEnd,
-  Menu,
-  X,
-  ArrowRight,
-} from "lucide-react";
+import { GalleryVerticalEnd, Menu, X, ArrowRight } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LineShadowText } from "@/components/ui/line-shadow-text";
 
@@ -68,13 +63,13 @@ export default function Home() {
 
       {/* Header */}
       <header
-        className={`fixed top-0 w-full z-50 transition-all duration-300 ${
-          isScrolled ? "py-3 bg-white/5 backdrop-blur-xl border-b border-white/10" : "py-6 bg-transparent"
+        className={`relative w-full z-50 ${
+          isScrolled
+            ? "py-3 bg-white/5 border-b border-white/10"
+            : "py-6 bg-transparent"
         }`}
       >
-        <div
-          className="max-w-5xl mx-auto px-6 md:px-8 transition-all duration-300"
-        >
+        <div className="max-w-5xl mx-auto px-6 md:px-8">
           <nav className="flex items-center justify-between">
             {/* Logo */}
             <Link href="/" className="flex items-center gap-2 group">
@@ -151,7 +146,7 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main className="relative z-10 pt-24 md:pt-32 pb-32">
+      <main className="relative z-10 pt-12 md:pt-20 pb-32">
         <div className="max-w-7xl mx-auto px-6 md:px-8">
           <div className="max-w-4xl mx-auto text-center">
             {/* Heading */}
