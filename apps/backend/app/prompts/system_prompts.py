@@ -1322,6 +1322,7 @@ Extract even if summarized in a schedule.
 - impacted_coverage
 - materiality               # High | Medium | Low
 - effective_date
+- description               # A concise summary of the endorsement's purpose
 
 ---
 
@@ -1353,7 +1354,8 @@ OUTPUT:
       "endorsement_type": "Add",
       "impacted_coverage": "General Liability",
       "materiality": "High",
-      "effective_date": "2024-01-01"
+      "effective_date": "2024-01-01",
+      "description": "Adds Additional Insured coverage for specified entities"
     }
   ],
   "entities": [
@@ -1794,34 +1796,129 @@ OUTPUT:
 ENDORSEMENT_COVERAGE_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. You are extracting COVERAGE MODIFICATIONS from an Endorsement.
-2. This endorsement has been classified as containing coverage-related changes.
+2. This endorsement has been classified as a COVERAGE_MODIFIER - it modifies, adds, or restricts coverages.
 3. Your goal is to extract HOW the base policy coverages are modified.
-4. If the endorsement ADDS a new coverage, extract it as an "Add" effect.
-5. If it MODIFIES an existing coverage (e.g., changing a limit), extract it as a "Modify" effect.
-6. Extract ONLY what is explicitly stated in the text.
-7. Output must be VALID JSON only. No explanations.
+4. Extract ONLY what is explicitly stated in the text.
+5. Do NOT extract base policy coverage language - focus on MODIFICATIONS ONLY.
+6. Output must be VALID JSON only. No explanations.
+
+---
+
+## COVERAGE EFFECT CLASSIFICATION
+
+This endorsement may contain one or more of these effects:
+
+| Effect | Description | Look For |
+|--------|-------------|----------|
+| **ADDS_COVERAGE** | Introduces entirely new coverage not in base policy | "Coverage is extended to include...", "The following coverage is added..." |
+| **EXPANDS_COVERAGE** | Broadens scope of existing coverage | "...is amended to include...", "Coverage is expanded...", higher limits |
+| **LIMITS_COVERAGE** | Restricts or narrows existing coverage | "...is limited to...", "...does not apply to...", lower limits, added conditions |
+| **RESTORES_COVERAGE** | Re-enables previously excluded coverage | "The exclusion does not apply to...", "Notwithstanding the exclusion..." |
+
+Focus extraction on HOW this endorsement MODIFIES coverages, not the base policy language.
+
+---
 
 ### FIELDS TO EXTRACT
-- endorsement_number: The form number of the endorsement (e.g., IL 00 21)
-- endorsement_name: The title of the endorsement
+
+- endorsement_number: The form number of the endorsement (e.g., IL 00 21, CA T4 52)
+- endorsement_name: The title of the endorsement (from header or "THIS ENDORSEMENT CHANGES THE POLICY" section)
+- form_edition_date: Edition date if present (e.g., "02 16" = February 2016)
 - modifications: List of objects:
-    - impacted_coverage: The name of the coverage being modified (e.g., "General Liability")
-    - coverage_effect: Add | Modify | Restrict | Delete
-    - limit_modification: Narrative description of limit change (if any)
-    - deductible_modification: Narrative description of deductible change (if any)
-    - verbatim_language: The exact text from the endorsement defining this change
+    - impacted_coverage: The name of the coverage being modified (e.g., "Covered Autos Liability Coverage")
+    - name: A concise name for this modification (e.g., "Short Term Hired Auto Extension")
+    - description: A summary of what this modification does
+    - coverage_effect: Add | Modify | Restrict | Delete | Expand | Restore
+    - effect_category: adds_coverage | expands_coverage | limits_coverage | restores_coverage
+    - limit_modification: Narrative description of any limit changes (e.g., "$25,000 per accident")
+    - deductible_modification: Narrative description of any deductible changes
+    - scope_modification: Narrative description of scope changes (who/what is covered)
+    - condition_modification: Any conditions that must be met for the modification to apply
+    - verbatim_language: The EXACT text from the endorsement defining this change (preserve formatting)
+    - referenced_section: Base policy section being modified (e.g., "SECTION II - COVERED AUTOS LIABILITY")
     - reasoning: Brief explanation for the classification
 
+---
+
 ### ENTITY TYPES
-- Endorsement
-- Coverage
+- Endorsement (with attributes: endorsement_number, name, form_edition_date)
+- Coverage (with attributes: coverage_name, coverage_effect, modified_limits, modified_conditions)
 
 ### EXTRACTION RULES
-- Link the Endorsement to the Coverage via MODIFIED_BY.
-- Confidence: 0.95+ for explicit "added" or "modified" language.
+1. Link the Endorsement to the Coverage via MODIFIED_BY relationship.
+2. If multiple coverages are modified, create separate modification entries for each.
+3. Preserve verbatim_language exactly as written - do not paraphrase.
+4. If the endorsement references "Paragraph X is replaced by...", extract both the reference and replacement.
+5. Confidence: 0.95+ for explicit modification language, 0.85-0.94 for implicit modifications.
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"THIS ENDORSEMENT CHANGES THE POLICY. PLEASE READ IT CAREFULLY.
+
+SHORT TERM HIRED AUTO
+CA T4 52 02 16
+
+With respect to coverage provided by this endorsement, the provisions of the Coverage Form apply unless modified by the endorsement.
+
+SECTION II – COVERED AUTOS LIABILITY COVERAGE is amended as follows:
+Coverage is extended to apply to those "autos" you do not own, lease, hire or borrow that are used in connection with your business. However, this coverage applies only for a period of 30 days or less."
+
+OUTPUT:
+{
+  "endorsement_number": "CA T4 52 02 16",
+  "endorsement_name": "Short Term Hired Auto",
+  "form_edition_date": "02 16",
+  "modifications": [
+    {
+      "impacted_coverage": "Covered Autos Liability Coverage",
+      "coverage_effect": "Expand",
+      "effect_category": "expands_coverage",
+      "limit_modification": null,
+      "deductible_modification": null,
+      "scope_modification": "Extends coverage to non-owned autos used in business for up to 30 days",
+      "condition_modification": "Coverage limited to 30 days or less",
+      "verbatim_language": "Coverage is extended to apply to those \"autos\" you do not own, lease, hire or borrow that are used in connection with your business. However, this coverage applies only for a period of 30 days or less.",
+      "referenced_section": "SECTION II – COVERED AUTOS LIABILITY COVERAGE",
+      - name: "Short Term Hired Auto Extension",
+      - description: "Extends liability coverage to non-owned autos used for 30 days or less",
+      "reasoning": "Endorsement expands coverage to include short-term hired autos with a time limitation"
+    }
+  ],
+  "entities": [
+    {
+      "type": "Endorsement",
+      "id": "endorsement_CA_T4_52_02_16",
+      "confidence": 0.98,
+      "attributes": {
+        "endorsement_number": "CA T4 52 02 16",
+        "name": "Short Term Hired Auto",
+        "form_edition_date": "02 16"
+      }
+    },
+    {
+      "type": "Coverage",
+      "id": "cov_covered_autos_liability_modified",
+      "confidence": 0.96,
+      "attributes": {
+        "coverage_name": "Covered Autos Liability Coverage",
+        "coverage_effect": "Expand",
+        "modification_source": "CA T4 52 02 16"
+      }
+    }
+  ],
+  "confidence": 0.96
+}
+
+---
 
 ### OUTPUT FORMAT
 {
+  "endorsement_number": "string",
+  "endorsement_name": "string",
+  "form_edition_date": "string|null",
   "modifications": [ ... ],
   "entities": [ ... ],
   "confidence": 0.0
@@ -1831,25 +1928,128 @@ ENDORSEMENT_COVERAGE_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
 ENDORSEMENT_EXCLUSION_PROJECTION_PROMPT = """GLOBAL RULES (MANDATORY):
 
 1. You are extracting EXCLUSION MODIFICATIONS from an Endorsement.
-2. This endorsement has been classified as containing exclusion-related changes.
+2. This endorsement has been classified as an EXCLUSION_MODIFIER - it modifies, adds, or removes exclusions.
 3. Your goal is to extract HOW the base policy exclusions are modified or what NEW exclusions are added.
 4. Extract ONLY what is explicitly stated in the text.
-5. Output must be VALID JSON only. No explanations.
+5. Do NOT extract base policy exclusion language - focus on MODIFICATIONS ONLY.
+6. Output must be VALID JSON only. No explanations.
+
+---
+
+## EXCLUSION EFFECT CLASSIFICATION
+
+This endorsement may contain one or more of these effects:
+
+| Effect | Description | Look For |
+|--------|-------------|----------|
+| **INTRODUCES_EXCLUSION** | Adds a new exclusion not in base policy | "This insurance does not apply to...", "The following exclusion is added..." |
+| **NARROWS_EXCLUSION** | Restricts scope of existing exclusion (expands coverage) | "The exclusion does not apply if...", "Notwithstanding exclusion X...", exceptions to exclusions |
+| **REMOVES_EXCLUSION** | Deletes an exclusion entirely (restores coverage) | "Exclusion X is deleted", "The following exclusion does not apply..." |
+
+**KEY DISTINCTION**: Narrowing an exclusion means LESS is excluded (more coverage). Introducing an exclusion means MORE is excluded (less coverage).
+
+---
 
 ### FIELDS TO EXTRACT
-- endorsement_number: The form number of the endorsement
+
+- endorsement_number: The form number of the endorsement (e.g., IL 00 21, CG 24 04)
+- endorsement_name: The title of the endorsement
+- form_edition_date: Edition date if present (e.g., "05 09" = May 2009)
 - modifications: List of objects:
-    - impacted_exclusion: The name of the exclusion being modified or added
-    - exclusion_effect: Add | Modify | Delete
-    - verbatim_language: The exact text defining the exclusion modification
-    - reasoning: Brief explanation
+    - impacted_exclusion: The name/title of the exclusion being modified or added
+    - name: A concise name for this exclusion modification (e.g., "Subrogation Waiver ABC Construction")
+    - description: A summary of the change to exclusions
+    - exclusion_effect: Add | Modify | Delete | Narrow | Remove
+    - effect_category: introduces_exclusion | narrows_exclusion | removes_exclusion
+    - exclusion_scope: What the exclusion applies to (e.g., "all autos", "operations")
+    - impacted_coverage: The coverage affected by this exclusion change
+    - exception_conditions: Any conditions under which the exclusion does NOT apply
+    - verbatim_language: The EXACT text from the endorsement defining this change (preserve formatting)
+    - referenced_section: Base policy section/exclusion being modified
+    - severity: Material | Minor | Administrative - how significant is this change?
+    - reasoning: Brief explanation for the classification
+
+---
 
 ### ENTITY TYPES
-- Endorsement
-- Exclusion
+- Endorsement (with attributes: endorsement_number, name, form_edition_date)
+- Exclusion (with attributes: exclusion_name, exclusion_effect, scope, impacted_coverage)
+
+### EXTRACTION RULES
+1. Link the Endorsement to the Exclusion via MODIFIED_BY relationship.
+2. If multiple exclusions are modified, create separate modification entries for each.
+3. Preserve verbatim_language exactly as written - do not paraphrase.
+4. Pay attention to double negatives: "This exclusion does not apply to X" NARROWS the exclusion (restores coverage for X).
+5. Confidence: 0.95+ for explicit exclusion language, 0.85-0.94 for implicit modifications.
+
+---
+
+### FEW-SHOT EXAMPLE
+
+INPUT:
+"THIS ENDORSEMENT CHANGES THE POLICY. PLEASE READ IT CAREFULLY.
+
+WAIVER OF TRANSFER OF RIGHTS OF RECOVERY AGAINST OTHERS TO US
+CA 04 44 10 13
+
+SCHEDULE
+Name of Person(s) or Organization(s): ABC CONSTRUCTION COMPANY
+
+The Transfer of Rights of Recovery Against Others To Us condition is waived for the person(s) or organization(s) shown in the Schedule, but only for loss arising out of your operations under a written contract that requires such a waiver."
+
+OUTPUT:
+{
+  "endorsement_number": "CA 04 44 10 13",
+  "endorsement_name": "Waiver of Transfer of Rights of Recovery Against Others To Us",
+  "form_edition_date": "10 13",
+  "modifications": [
+    {
+      "impacted_exclusion": "Transfer of Rights of Recovery Against Others To Us",
+      "exclusion_effect": "Narrow",
+      "effect_category": "narrows_exclusion",
+      "exclusion_scope": "Subrogation rights against scheduled parties",
+      "impacted_coverage": "All coverages subject to subrogation",
+      "exception_conditions": "Only for loss arising out of operations under a written contract requiring such waiver",
+      "verbatim_language": "The Transfer of Rights of Recovery Against Others To Us condition is waived for the person(s) or organization(s) shown in the Schedule, but only for loss arising out of your operations under a written contract that requires such a waiver.",
+      "referenced_section": "Transfer of Rights of Recovery Against Others To Us condition",
+      "severity": "Material",
+      "name": "Subrogation Waiver - ABC Construction",
+      "description": "Waives subrogation rights for ABC Construction Company under written contract",
+      "reasoning": "Endorsement narrows the subrogation condition by waiving it for scheduled parties under contract, which is a material change affecting recovery rights"
+    }
+  ],
+  "entities": [
+    {
+      "type": "Endorsement",
+      "id": "endorsement_CA_04_44_10_13",
+      "confidence": 0.98,
+      "attributes": {
+        "endorsement_number": "CA 04 44 10 13",
+        "name": "Waiver of Transfer of Rights of Recovery Against Others To Us",
+        "form_edition_date": "10 13"
+      }
+    },
+    {
+      "type": "Exclusion",
+      "id": "excl_subrogation_waiver",
+      "confidence": 0.95,
+      "attributes": {
+        "exclusion_name": "Transfer of Rights of Recovery Against Others To Us",
+        "exclusion_effect": "Narrow",
+        "scheduled_party": "ABC CONSTRUCTION COMPANY"
+      }
+    }
+  ],
+  "confidence": 0.95
+}
+
+---
 
 ### OUTPUT FORMAT
 {
+  "endorsement_number": "string",
+  "endorsement_name": "string",
+  "form_edition_date": "string|null",
   "modifications": [ ... ],
   "entities": [ ... ],
   "confidence": 0.0

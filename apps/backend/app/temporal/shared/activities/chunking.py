@@ -44,10 +44,20 @@ async def perform_hybrid_chunking(
         # Convert section boundary dicts to SectionBoundary objects if provided
         boundaries = None
         if section_boundaries:
-            from app.models.page_analysis_models import SectionBoundary, PageType
-            boundaries = []
             from app.models.page_analysis_models import SectionBoundary, PageType, SemanticRole
             boundaries = []
+
+            # Log raw boundary data for debugging
+            boundaries_with_role = sum(1 for b in section_boundaries if b.get('semantic_role'))
+            activity.logger.info(
+                f"[Phase 3: Chunking] Processing {len(section_boundaries)} boundaries, "
+                f"{boundaries_with_role} have semantic_role set",
+                extra={
+                    "total_boundaries": len(section_boundaries),
+                    "boundaries_with_semantic_role": boundaries_with_role,
+                }
+            )
+
             for b in section_boundaries:
                 # PageType is an enum, we need to convert from string
                 st_value = b.get('section_type')
@@ -90,6 +100,23 @@ async def perform_hybrid_chunking(
                     sub_section_type=b.get('sub_section_type')
                 ))
 
+            # Log endorsement boundaries with their semantic info for debugging
+            endorsement_boundaries = [bnd for bnd in boundaries if bnd.section_type == PageType.ENDORSEMENT]
+            if endorsement_boundaries:
+                activity.logger.info(
+                    f"[Phase 3: Chunking] Found {len(endorsement_boundaries)} endorsement boundaries",
+                    extra={
+                        "endorsement_boundaries": [
+                            {
+                                "pages": f"{bnd.start_page}-{bnd.end_page}",
+                                "semantic_role": bnd.semantic_role.value if bnd.semantic_role else None,
+                                "effective_section_type": bnd.effective_section_type.value if bnd.effective_section_type else None,
+                            }
+                            for bnd in endorsement_boundaries
+                        ]
+                    }
+                )
+
         async with async_session_maker() as session:
             # Fetch OCR pages
             doc_repo = DocumentRepository(session)
@@ -102,32 +129,46 @@ async def perform_hybrid_chunking(
             if target_sections:
                 activity.logger.info(f"[Phase 3: Hybrid Chunking] Filtering for sections: {target_sections}")
                 normalized_targets = [s.lower().replace(" ", "_").strip() for s in target_sections]
-                
+
                 if page_section_map:
                     # Filter section map
                     filtered_map = {
                         str(p): s for p, s in page_section_map.items()
-                        if any(st.lower().replace(" ", "_").strip() in normalized_targets 
+                        if any(st.lower().replace(" ", "_").strip() in normalized_targets
                                for st in s.split(","))
                     }
                     target_page_nums = {int(p) for p in filtered_map.keys()}
-                    
+
                     # Filter pages
                     original_count = len(pages)
-                    pages = [p for p in pages if p.page_number in target_page_nums]
-                    page_section_map = filtered_map
-                    
-                    # Also filter boundaries if present
-                    if boundaries:
-                        boundaries = [
-                            b for b in boundaries 
-                            if b.section_type.value.lower().replace(" ", "_").strip() in normalized_targets
-                        ]
-                    
-                    activity.logger.info(
-                        f"[Phase 3: Hybrid Chunking] Filtered pages: {original_count} -> {len(pages)} "
-                        f"based on target sections"
-                    )
+                    filtered_pages = [p for p in pages if p.page_number in target_page_nums]
+
+                    # Check if filtering would result in empty pages
+                    if not filtered_pages:
+                        # Skip filtering - process all pages with a warning
+                        activity.logger.warning(
+                            f"[Phase 3: Hybrid Chunking] Filtering would result in 0 pages. "
+                            f"Skipping filter and processing all {original_count} pages. "
+                            f"Document may not contain expected section types: {target_sections}. "
+                            f"Available section types in page_section_map: {set(page_section_map.values())}"
+                        )
+                        # Don't update pages or page_section_map - use original values
+                    else:
+                        # Apply filtering
+                        pages = filtered_pages
+                        page_section_map = filtered_map
+
+                        # Also filter boundaries if present
+                        if boundaries:
+                            boundaries = [
+                                b for b in boundaries
+                                if b.section_type.value.lower().replace(" ", "_").strip() in normalized_targets
+                            ]
+
+                        activity.logger.info(
+                            f"[Phase 3: Hybrid Chunking] Filtered pages: {original_count} -> {len(pages)} "
+                            f"based on target sections"
+                        )
 
             activity.logger.info(
                 f"[Phase 3: Hybrid Chunking] Retrieved {len(pages)} pages for chunking",

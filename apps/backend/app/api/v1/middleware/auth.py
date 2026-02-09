@@ -43,24 +43,27 @@ class JWTAuthenticationMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
             
         auth_header = request.headers.get("Authorization")
+        token = None
         
-        if not auth_header:
-            LOGGER.warning(f"Missing Authorization header for {request.url.path}")
+        if auth_header:
+            if not auth_header.startswith("Bearer "):
+                LOGGER.warning(f"Invalid Authorization header format for {request.url.path}")
+                return JSONResponse(
+                    status_code=status.HTTP_401_UNAUTHORIZED,
+                    content={"detail": "Invalid authentication scheme. Use Bearer token."},
+                    headers={"WWW-Authenticate": "Bearer"},
+                )
+            token = auth_header.split(" ")[1]
+        elif request.url.path.startswith("/api/v1/workflows/stream/"):
+            token = request.query_params.get("token")
+            
+        if not token:
+            LOGGER.warning(f"Missing authentication for {request.url.path}")
             return JSONResponse(
                 status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Authorization header missing"},
+                content={"detail": "Authentication required"},
                 headers={"WWW-Authenticate": "Bearer"},
             )
-            
-        if not auth_header.startswith("Bearer "):
-            LOGGER.warning(f"Invalid Authorization header format for {request.url.path}")
-            return JSONResponse(
-                status_code=status.HTTP_401_UNAUTHORIZED,
-                content={"detail": "Invalid authentication scheme. Use Bearer token."},
-                headers={"WWW-Authenticate": "Bearer"},
-            )
-            
-        token = auth_header.split(" ")[1]
         
         try:
             # Verify the token

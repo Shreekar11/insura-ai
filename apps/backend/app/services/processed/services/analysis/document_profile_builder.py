@@ -67,23 +67,38 @@ class DocumentProfileBuilder:
         PageType.UNKNOWN: DocumentType.UNKNOWN,
     }
     
+    # Document type inference rules - ORDER MATTERS! More specific rules first.
+    # Rules with multiple required types are checked before single-type rules.
     DOCUMENT_TYPE_RULES: List[Tuple[List[PageType], DocumentType, float]] = [
-        # If has declarations AND coverages AND endorsements -> policy bundle (very high confidence)
+        # === POLICY BUNDLE RULES (highest priority - multiple page types) ===
+        # If has declarations AND coverages AND endorsements -> policy bundle
         ([PageType.DECLARATIONS, PageType.COVERAGES, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.95),
-        # If has declarations AND endorsements -> policy bundle (high confidence)
+        # If has declarations AND endorsements -> policy bundle
         ([PageType.DECLARATIONS, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.90),
-        # If has certificate AND endorsements -> policy bundle (high confidence)
+        # If has certificate AND endorsements -> policy bundle (e.g., POL_CA_T4_52_02_16.pdf)
         ([PageType.CERTIFICATE_OF_INSURANCE, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.90),
+        # If has coverages AND endorsements -> policy bundle
+        ([PageType.COVERAGES, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.90),
+        # If has conditions AND endorsements -> policy bundle
+        ([PageType.CONDITIONS, PageType.ENDORSEMENT], DocumentType.POLICY_BUNDLE, 0.85),
+
+        # === BASE POLICY RULES (structural ISO format) ===
         # If has declarations AND coverages -> policy (high confidence)
         ([PageType.DECLARATIONS, PageType.COVERAGES], DocumentType.POLICY, 0.95),
+        # If has canonical policy sections (Base Policy Rule)
+        ([PageType.COVERAGES, PageType.EXCLUSIONS, PageType.CONDITIONS], DocumentType.POLICY, 0.90),
+        # If has granular coverage sections
+        ([PageType.COVERAGE_GRANT, PageType.LIMITS], DocumentType.POLICY, 0.95),
         # If has declarations only -> policy (medium confidence)
         ([PageType.DECLARATIONS], DocumentType.POLICY, 0.85),
+        # If has coverage context (ISO Symbol Tables)
+        ([PageType.COVERAGES_CONTEXT], DocumentType.POLICY, 0.85),
+
+        # === SINGLE-TYPE DOCUMENT RULES (lowest priority) ===
         # If majority SOV -> SOV document
         ([PageType.SOV], DocumentType.SOV, 0.90),
         # If majority loss run -> loss run document
         ([PageType.LOSS_RUN], DocumentType.LOSS_RUN, 0.90),
-        # If majority endorsement -> endorsement document
-        ([PageType.ENDORSEMENT], DocumentType.ENDORSEMENT, 0.85),
         # If majority invoice -> invoice document
         ([PageType.INVOICE], DocumentType.INVOICE, 0.90),
         # If majority ACORD -> ACORD document
@@ -92,12 +107,9 @@ class DocumentProfileBuilder:
         ([PageType.PROPOSAL], DocumentType.PROPOSAL, 0.90),
         # If majority Certificate -> Certificate document
         ([PageType.CERTIFICATE_OF_INSURANCE], DocumentType.CERTIFICATE, 0.95),
-        # If has canonical policy sections (Base Policy Rule)
-        ([PageType.COVERAGES, PageType.EXCLUSIONS, PageType.CONDITIONS], DocumentType.POLICY, 0.90),
-        # If has granular coverage sections
-        ([PageType.COVERAGE_GRANT, PageType.LIMITS], DocumentType.POLICY, 0.95),
-        # If has coverage context (ISO Symbol Tables)
-        ([PageType.COVERAGES_CONTEXT], DocumentType.POLICY, 0.85),
+        # If majority endorsement -> endorsement document (standalone endorsement)
+        # NOTE: This is LAST because documents with cert+endorsements should be POLICY_BUNDLE
+        ([PageType.ENDORSEMENT], DocumentType.ENDORSEMENT, 0.85),
     ]
     
     # Minimum pages for a section to be considered valid
@@ -356,10 +368,15 @@ class DocumentProfileBuilder:
         classifications: List[PageClassification],
         doc_type: DocumentType = DocumentType.UNKNOWN
     ) -> List[SectionBoundary]:
-        """Detect section boundaries with improved semantic awareness."""
-        if not classifications: return []
-        
-        # Step 1: Detect raw runs of same-type pages
+        """Detect section boundaries with continuation and semantic awareness.
+
+        Handles endorsement continuation pages by grouping them with their parent
+        endorsement. Also handles semantic role projection for POLICY_BUNDLE documents.
+        """
+        if not classifications:
+            return []
+
+        # Step 1: Detect raw runs of same-type pages, with continuation awareness
         runs = []
         current = {
             "page_type": classifications[0].page_type,
@@ -370,18 +387,42 @@ class DocumentProfileBuilder:
             "semantic_role": classifications[0].semantic_role,
             "coverage_effects": classifications[0].coverage_effects or [],
             "exclusion_effects": classifications[0].exclusion_effects or [],
+            "is_continuation": classifications[0].is_continuation,
+            "parent_endorsement_id": classifications[0].parent_endorsement_id,
+            "continuation_pages": [classifications[0].page_number] if classifications[0].is_continuation else [],
         }
-        
+
         for c in classifications[1:]:
-            if c.page_type == current["page_type"]:
+            # Continuation pages extend the current run if they belong to same endorsement
+            is_same_endorsement = (
+                c.is_continuation and
+                current.get("parent_endorsement_id") and
+                c.parent_endorsement_id == current.get("parent_endorsement_id")
+            )
+
+            # Standard same-type run continuation
+            is_same_type_run = c.page_type == current["page_type"] and not c.is_continuation
+
+            if is_same_endorsement or is_same_type_run:
                 current["end_page"] = c.page_number
                 current["confidences"].append(c.confidence)
+
+                # Track continuation pages
+                if c.is_continuation:
+                    current["continuation_pages"].append(c.page_number)
+
                 # Inherit semantic info if current run lacks it but this page has it
                 if not current.get("semantic_role") or current.get("semantic_role") == SemanticRole.UNKNOWN:
                     if c.semantic_role and c.semantic_role != SemanticRole.UNKNOWN:
                         current["semantic_role"] = c.semantic_role
                         current["coverage_effects"] = c.coverage_effects or []
                         current["exclusion_effects"] = c.exclusion_effects or []
+                else:
+                    # Merge effects from continuation pages
+                    if c.coverage_effects:
+                        current["coverage_effects"] = list(set(current["coverage_effects"] + c.coverage_effects))
+                    if c.exclusion_effects:
+                        current["exclusion_effects"] = list(set(current["exclusion_effects"] + c.exclusion_effects))
             else:
                 runs.append(current)
                 current = {
@@ -391,8 +432,11 @@ class DocumentProfileBuilder:
                     "confidences": [c.confidence],
                     "reasoning": c.reasoning,
                     "semantic_role": c.semantic_role,
-                    "coverage_effects": c.coverage_effects,
-                    "exclusion_effects": c.exclusion_effects,
+                    "coverage_effects": c.coverage_effects or [],
+                    "exclusion_effects": c.exclusion_effects or [],
+                    "is_continuation": c.is_continuation,
+                    "parent_endorsement_id": c.parent_endorsement_id,
+                    "continuation_pages": [c.page_number] if c.is_continuation else [],
                 }
         runs.append(current)
         
@@ -444,6 +488,14 @@ class DocumentProfileBuilder:
                 semantic_role
             )
 
+            # Build metadata with continuation info
+            boundary_metadata = {}
+            if r.get("parent_endorsement_id"):
+                boundary_metadata["endorsement_id"] = r.get("parent_endorsement_id")
+            if r.get("continuation_pages"):
+                boundary_metadata["continuation_pages"] = r.get("continuation_pages")
+                boundary_metadata["page_count"] = len(r.get("continuation_pages", [])) + 1
+
             boundaries.append(SectionBoundary(
                 section_type=r["page_type"],
                 semantic_section=semantic,
@@ -456,7 +508,8 @@ class DocumentProfileBuilder:
                 semantic_role=semantic_role,
                 effective_section_type=effective_type,
                 coverage_effects=r.get("coverage_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else [],
-                exclusion_effects=r.get("exclusion_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else []
+                exclusion_effects=r.get("exclusion_effects") or [] if (doc_type != DocumentType.POLICY or r["page_type"] == PageType.ENDORSEMENT) else [],
+                metadata=boundary_metadata,
             ))
             
         all_boundaries = sorted(boundaries + span_boundaries, key=lambda x: (x.start_page, x.start_line or 0))
@@ -612,14 +665,23 @@ class DocumentProfileBuilder:
         doc_type: DocumentType = DocumentType.UNKNOWN
     ) -> Dict[int, str]:
         """Build mapping of page numbers to semantic section types.
-        
+
         Enforces one semantic section per page, prioritizing insurance concepts.
         Implements semantic inheritance (forward fill) for unknown pages.
+
+        IMPORTANT: Continuation pages always map to 'endorsement' regardless
+        of their internal content (definitions, conditions, etc. within endorsements
+        are NOT promoted to top-level sections).
         """
         page_section_map = {}
         last_meaningful_semantic = SemanticSection.UNKNOWN
-        
+
         for c in classifications:
+            # Continuation pages always map to endorsement (never promote sub-content)
+            if c.is_continuation:
+                page_section_map[c.page_number] = SemanticSection.ENDORSEMENT.value
+                last_meaningful_semantic = SemanticSection.ENDORSEMENT
+                continue
             selected_semantic = SemanticSection.UNKNOWN
             if c.sections:
                 priority = [

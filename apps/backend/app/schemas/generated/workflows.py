@@ -4,48 +4,96 @@
 
 from __future__ import annotations
 
+from enum import Enum
 from typing import Any
 from uuid import UUID
 
 from pydantic import AwareDatetime, BaseModel, Field
 
 
+class WorkflowUpdateRequest(BaseModel):
+    workflow_id: UUID
+    workflow_name: str
+
+
 class WorkflowExecutionRequest(BaseModel):
+    workflow_id: UUID | None = None
     workflow_name: str
     workflow_definition_id: UUID
     document_ids: list[UUID] | None = None
     metadata: dict[str, Any] | None = None
 
 
+class WorkflowCreateRequest(BaseModel):
+    workflow_definition_id: UUID
+    workflow_name: str | None = 'Untitled'
+
+
 class WorkflowExecutionResponse(BaseModel):
     workflow_id: UUID | None = None
+    stream_url: str | None = None
+
+
+class StageMetrics(BaseModel):
+    stage_name: str | None = None
     status: str | None = None
-    message: str | None = None
+    started_at: AwareDatetime | None = None
+    completed_at: AwareDatetime | None = None
+    duration_seconds: float | None = None
+
+
+class DocumentSummary(BaseModel):
+    document_id: UUID | None = None
+    document_name: str | None = None
+    file_name: str | None = None
+    file_path: str | None = None
+    page_count: int | None = None
+    status: str | None = None
+    uploaded_at: AwareDatetime | None = None
+
+
+class WorkflowMetrics(BaseModel):
+    documents_total: int | None = None
+    documents_completed: int | None = None
+    documents_failed: int | None = None
+    documents_processing: int | None = None
+    progress_percent: int | None = None
+    total_duration_seconds: float | None = None
+
+
+class EventLogItem(BaseModel):
+    event_type: str | None = None
+    event_payload: dict[str, Any] | None = None
+    created_at: AwareDatetime | None = None
 
 
 class Workflow(BaseModel):
     id: UUID | None = None
     definition_id: UUID | None = None
-    name: str | None = None
+    workflow_name: str | None = None
+    definition_name: str | None = None
     key: str | None = None
     status: str | None = None
     created_at: AwareDatetime | None = None
     updated_at: AwareDatetime | None = None
-
-
-class WorkflowListResponse(BaseModel):
-    total: float | None = None
-    workflows: list[Workflow] | None = None
+    duration_seconds: float | None = None
 
 
 class WorkflowResponse(BaseModel):
     id: UUID | None = None
+    temporal_workflow_id: str | None = None
+    workflow_name: str | None = None
     definition_id: UUID | None = None
-    name: str | None = None
-    key: str | None = None
+    definition_name: str | None = None
+    workflow_type: str | None = None
     status: str | None = None
+    metrics: WorkflowMetrics | None = None
     created_at: AwareDatetime | None = None
     updated_at: AwareDatetime | None = None
+    duration_seconds: float | None = None
+    documents: list[DocumentSummary] | None = None
+    stages: list[StageMetrics] | None = None
+    recent_events: list[EventLogItem] | None = None
 
 
 class WorkflowExtractRequest(BaseModel):
@@ -57,7 +105,6 @@ class WorkflowDefinitionResponse(BaseModel):
     name: str | None = None
     key: str | None = None
     description: str | None = None
-    input_schema: dict[str, Any] | None = None
     created_at: AwareDatetime | None = None
 
 
@@ -90,3 +137,163 @@ class WorkflowExtractedDataResponse(BaseModel):
     workflow_id: UUID | None = None
     document_id: UUID | None = None
     extracted_data: ExtractedData | None = None
+
+
+class EntityComparisonSummary(BaseModel):
+    total_comparisons: int | None = Field(None, description='Total effective entities compared')
+    coverage_matches: int | None = Field(None, description='Number of exact coverage matches')
+    exclusion_matches: int | None = Field(None, description='Number of exact exclusion matches')
+    total_added: int | None = Field(None, description='Total entities added')
+    total_removed: int | None = Field(None, description='Total entities removed')
+    total_modified: int | None = Field(None, description='Total entities with partial matches')
+    section_coverage_comparisons: int | None = Field(
+        None, description='Number of section-level coverage comparisons'
+    )
+    section_exclusion_comparisons: int | None = Field(
+        None, description='Number of section-level exclusion comparisons'
+    )
+
+
+class EntityType(Enum):
+    coverage = 'coverage'
+    exclusion = 'exclusion'
+    section_coverage = 'section_coverage'
+    section_exclusion = 'section_exclusion'
+
+
+class ComparisonSource(Enum):
+    effective = 'effective'
+    section = 'section'
+
+
+class MatchType(Enum):
+    match = 'match'
+    partial_match = 'partial_match'
+    added = 'added'
+    removed = 'removed'
+    no_match = 'no_match'
+
+
+class Severity(Enum):
+    low = 'low'
+    medium = 'medium'
+    high = 'high'
+
+
+class EntityComparison(BaseModel):
+    entity_type: EntityType | None = None
+    comparison_source: ComparisonSource | None = None
+    section_type: str | None = None
+    entity_id: str | None = None
+    entity_name: str | None = None
+    match_type: MatchType | None = None
+    confidence: float | None = None
+    field_differences: list[dict[str, Any]] | None = None
+    reasoning: str | None = None
+    doc1_summary: str | None = None
+    doc2_summary: str | None = None
+    comparison_summary: str | None = None
+    doc1_content: dict[str, Any] | None = None
+    doc2_content: dict[str, Any] | None = None
+    doc1_page_range: dict[str, Any] | None = None
+    doc2_page_range: dict[str, Any] | None = None
+    doc1_confidence: float | None = None
+    doc2_confidence: float | None = None
+    doc1_extraction_id: UUID | None = None
+    doc2_extraction_id: UUID | None = None
+    severity: Severity | None = None
+
+
+class ProposalSection(BaseModel):
+    section_type: str | None = None
+    title: str | None = None
+    narrative: str | None = None
+    key_findings: list[dict[str, Any]] | None = None
+    raw_data: dict[str, Any] | None = None
+    requires_review: bool | None = None
+    review_reason: str | None = None
+
+
+class ProposalComparisonRow(BaseModel):
+    category: str | None = None
+    label: str | None = None
+    expiring_value: Any | None = None
+    renewal_value: Any | None = None
+    delta_type: str | None = None
+    delta_flag: str | None = None
+    is_canonical: bool | None = None
+    reasoning: str | None = None
+
+
+class ResponseMeta(BaseModel):
+    timestamp: AwareDatetime
+    request_id: str
+    api_version: str
+
+
+class ErrorDetail(BaseModel):
+    title: str
+    status: int
+    detail: str
+    instance: str | None = None
+    request_id: str
+    timestamp: AwareDatetime
+
+
+class WorkflowListItem(BaseModel):
+    id: UUID | None = None
+    temporal_workflow_id: str | None = None
+    workflow_name: str | None = None
+    definition_name: str | None = None
+    workflow_type: str | None = None
+    status: str | None = None
+    metrics: WorkflowMetrics | None = None
+    created_at: AwareDatetime | None = None
+    updated_at: AwareDatetime | None = None
+    duration_seconds: float | None = None
+    documents: list[DocumentSummary] | None = None
+    stages: list[StageMetrics] | None = None
+    recent_events: list[EventLogItem] | None = None
+
+
+class EntityComparisonResponse(BaseModel):
+    workflow_id: UUID | None = None
+    doc1_id: UUID | None = None
+    doc2_id: UUID | None = None
+    doc1_name: str | None = None
+    doc2_name: str | None = None
+    summary: EntityComparisonSummary | None = None
+    comparisons: list[EntityComparison] | None = None
+    overall_confidence: float | None = None
+    overall_explanation: str | None = None
+    metadata: dict[str, Any] | None = None
+
+
+class ProposalResponse(BaseModel):
+    proposal_id: UUID | None = None
+    workflow_id: UUID | None = None
+    document_ids: list[UUID] | None = None
+    insured_name: str | None = None
+    carrier_name: str | None = None
+    policy_type: str | None = None
+    executive_summary: str | None = None
+    sections: list[ProposalSection] | None = None
+    comparison_table: list[ProposalComparisonRow] | None = None
+    requires_hitl_review: bool | None = None
+    hitl_items: list[str] | None = None
+    quality_score: float | None = None
+    pdf_path: str | None = None
+    metadata: dict[str, Any] | None = None
+    created_at: AwareDatetime | None = None
+
+
+class ApiResponse(BaseModel):
+    status: bool
+    message: str
+    data: dict[str, Any]
+    meta: ResponseMeta
+
+
+class WorkflowListResponse(BaseModel):
+    total: int | None = None
+    workflows: list[WorkflowListItem] | None = None

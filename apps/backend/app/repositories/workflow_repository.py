@@ -6,7 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun
+from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun, WorkflowRunEvent
 from app.repositories.base_repository import BaseRepository
 
 
@@ -16,9 +16,24 @@ class WorkflowRepository(BaseRepository[Workflow]):
     def __init__(self, session: AsyncSession):
         super().__init__(session, Workflow)
 
+    async def get_by_id(self, id: uuid.UUID) -> Optional[Workflow]:
+        """Get a workflow by ID with its definition loaded.
+        
+        This overrides the base implementation to provide eager loading
+        of the workflow_definition relationship.
+        """
+        query = select(Workflow).where(Workflow.id == id).options(
+            selectinload(Workflow.workflow_definition),
+            selectinload(Workflow.stage_runs),
+            selectinload(Workflow.events)
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
+
     async def create_workflow(
         self,
         workflow_definition_id: Optional[uuid.UUID] = None,
+        workflow_name: str = "Untitled",
         temporal_workflow_id: Optional[str] = None,
         status: str = "running",
         user_id: Optional[uuid.UUID] = None,
@@ -27,6 +42,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
         
         Args:
             workflow_definition_id: Optional workflow definition ID
+            workflow_name: Name of the workflow instance
             temporal_workflow_id: Optional Temporal workflow ID
             status: Workflow status (default: "running")
             user_id: Optional user ID
@@ -36,12 +52,35 @@ class WorkflowRepository(BaseRepository[Workflow]):
         """
         return await self.create(
             workflow_definition_id=workflow_definition_id,
+            workflow_name=workflow_name,
             temporal_workflow_id=temporal_workflow_id,
             status=status,
             user_id=user_id,
-            created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
+
+    async def update_workflow_name(
+        self,
+        workflow_id: uuid.UUID,
+        workflow_name: str
+    ) -> Workflow:
+        """Update the name of a workflow.
+
+        Args:
+            workflow_id: Workflow record ID
+            workflow_name: New name for the workflow
+
+        Returns:
+            Updated Workflow instance
+        """
+        workflow = await self.get_by_id(workflow_id)
+        if not workflow:
+            raise ValueError(f"Workflow {workflow_id} not found")
+
+        workflow.workflow_name = workflow_name
+        workflow.updated_at = datetime.now(timezone.utc)
+        await self.session.flush()
+        return workflow
 
     async def get_all_with_definitions(
         self,
@@ -66,7 +105,40 @@ class WorkflowRepository(BaseRepository[Workflow]):
                 if hasattr(Workflow, key):
                     query = query.where(getattr(Workflow, key) == value)
         
-        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc())
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc(), Workflow.id.desc())
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
+    async def get_all_with_relationships(
+        self,
+        skip: int = 0,
+        limit: int = 50,
+        filters: Optional[dict[str, Any]] = None,
+        include_documents: bool = True,
+        include_stages: bool = True,
+        include_events: bool = True
+    ) -> Sequence[Workflow]:
+        """Fetch workflows with selective eager loading of relationships."""
+        query = select(Workflow).options(selectinload(Workflow.workflow_definition))
+        
+        if include_documents:
+            query = query.options(
+                selectinload(Workflow.workflow_documents).selectinload(WorkflowDocument.document)
+            )
+        
+        if include_stages:
+            query = query.options(selectinload(Workflow.stage_runs))
+            
+        if include_events:
+            query = query.options(selectinload(Workflow.events))
+            
+        if filters:
+            for key, value in filters.items():
+                if hasattr(Workflow, key):
+                    query = query.where(getattr(Workflow, key) == value)
+                    
+        query = query.offset(skip).limit(limit).order_by(Workflow.created_at.desc(), Workflow.id.desc())
         
         result = await self.session.execute(query)
         return result.scalars().all()
@@ -116,6 +188,33 @@ class WorkflowRepository(BaseRepository[Workflow]):
         workflow.updated_at = datetime.now(timezone.utc)
         await self.session.flush()
         return workflow
+
+    async def emit_run_event(
+        self,
+        workflow_id: uuid.UUID,
+        event_type: str,
+        payload: Optional[dict] = None
+    ) -> WorkflowRunEvent:
+        """Create a new granular workflow run event.
+        
+        Args:
+            workflow_id: Parent workflow ID
+            event_type: Type of event (e.g. "workflow:progress")
+            payload: Optional JSON payload for the event
+            
+        Returns:
+            Created WorkflowRunEvent instance
+        """
+        event = WorkflowRunEvent(
+            workflow_id=workflow_id,
+            event_type=event_type,
+            event_payload=payload,
+            created_at=datetime.now(timezone.utc),
+            updated_at=datetime.now(timezone.utc)
+        )
+        self.session.add(event)
+        await self.session.flush()
+        return event
 
     async def create_stage_run(
         self,
@@ -223,7 +322,11 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         Returns:
             WorkflowDocument if found, None otherwise
         """
-        return await super().get_by_id(document_id)
+        query = select(WorkflowDocument).where(
+            WorkflowDocument.document_id == document_id
+        )
+        result = await self.session.execute(query)
+        return result.scalar_one_or_none()
 
     async def get_by_workflow_id(
         self,
@@ -262,6 +365,27 @@ class WorkflowDocumentRepository(BaseRepository[WorkflowDocument]):
         )
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def get_documents_for_workflow(
+        self,
+        workflow_id: uuid.UUID
+    ) -> List[Any]:
+        """Get all documents associated with a workflow.
+        
+        Args:
+            workflow_id: Workflow ID
+            
+        Returns:
+            List of Document instances
+        """
+        query = select(WorkflowDocument).where(
+            WorkflowDocument.workflow_id == workflow_id
+        ).options(selectinload(WorkflowDocument.document))
+        
+        result = await self.session.execute(query)
+        workflow_docs = result.scalars().all()
+        
+        return [wd.document for wd in workflow_docs if wd.document]
 
 
 class WorkflowDefinitionRepository(BaseRepository[WorkflowDefinition]):

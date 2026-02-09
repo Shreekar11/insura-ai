@@ -7,7 +7,7 @@ Supabase JWT token verification and user authentication.
 from typing import Optional
 
 import jwt
-from fastapi import Depends, HTTPException, status
+from fastapi import Depends, HTTPException, status, Query
 from fastapi.security import HTTPBearer, HTTPAuthorizationCredentials
 
 from app.core.jwt import jwt_verifier, JWTClaims
@@ -191,3 +191,24 @@ def require_any_role(*required_roles: str):
 require_admin = require_role("admin")
 require_moderator = require_any_role("moderator", "admin")
 require_user = require_any_role("user", "moderator", "admin")
+
+
+async def get_current_user_from_query(
+    token: str = Query(..., description="Authentication token")
+) -> CurrentUser:
+    """Get current user from token in query parameter."""
+    try:
+        claims = await jwt_verifier.verify_token(token)
+        return CurrentUser(
+            id=claims.sub,
+            email=claims.email,
+            role=claims.role or "user",
+            app_metadata=claims.app_metadata,
+            user_metadata=claims.user_metadata,
+        )
+    except Exception as e:
+        LOGGER.warning(f"Invalid query token: {e}")
+        raise HTTPException(
+            status_code=status.HTTP_401_UNAUTHORIZED,
+            detail="Invalid authentication token",
+        ) from e

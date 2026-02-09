@@ -11,8 +11,11 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.services.product.proposal_generation.canonical_mapping_service import CanonicalMappingService
 from app.repositories.step_repository import StepSectionOutputRepository, StepEntityOutputRepository
-from app.schemas.product.policy_comparison import ComparisonChange
+from app.services.product.policy_comparison.entity_comparison_service import EntityComparisonService
+from app.repositories.workflow_repository import WorkflowRepository
+from app.schemas.product.policy_comparison import ComparisonChange, EntityComparisonResult
 from app.schemas.product.extracted_data import SECTION_DATA_MODELS
+from app.services.product.proposal_generation.proposal_reasoning_service import ProposalReasoningService
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -47,6 +50,9 @@ class ProposalComparisonService:
         self.section_repo = StepSectionOutputRepository(session)
         self.entity_repo = StepEntityOutputRepository(session)
         self.canonical_mapper = CanonicalMappingService()
+        self.reasoning_service = ProposalReasoningService()
+        self.entity_comparison_service = EntityComparisonService(session)
+        self.workflow_repo = WorkflowRepository(session)
 
     async def detect_document_roles(
         self,
@@ -160,7 +166,119 @@ class ProposalComparisonService:
             )
             changes.extend(section_changes)
         
+        # Enrich changes with LLM reasoning
+        if changes:
+            try:
+                changes = await self.reasoning_service.enrich_changes_with_reasoning(changes)
+            except Exception as e:
+                LOGGER.error(f"Failed to enrich proposal changes with reasoning: {e}")
+        
         return changes
+
+    async def execute_entity_comparison(
+        self,
+        workflow_id: UUID,
+        expiring_doc_id: UUID,
+        renewal_doc_id: UUID,
+        expiring_doc_name: str,
+        renewal_doc_name: str,
+    ) -> EntityComparisonResult:
+        """Execute entity-level comparison for frontend display."""
+        # 1. Fetch extracted data for both documents
+        expiring_data = await self._get_extracted_data_for_comparison(expiring_doc_id, workflow_id)
+        renewal_data = await self._get_extracted_data_for_comparison(renewal_doc_id, workflow_id)
+        
+        # 2. Execute entity comparison
+        result = await self.entity_comparison_service.compare_entities(
+            workflow_id=workflow_id,
+            doc1_id=expiring_doc_id,
+            doc2_id=renewal_doc_id,
+            doc1_data=expiring_data,
+            doc2_data=renewal_data,
+        )
+        
+        # 3. Emit comparison:completed event
+        await self._emit_comparison_completed_event(workflow_id, result, expiring_doc_name, renewal_doc_name)
+        
+        return result
+
+    async def _get_extracted_data_for_comparison(self, document_id: UUID, workflow_id: UUID) -> Dict[str, Any]:
+        """Helper to fetch and format extracted data for entity comparison."""
+        entities = await self.entity_repo.get_by_document(document_id, workflow_id=workflow_id)
+        sections = await self.section_repo.get_by_document(document_id)
+        
+        coverages = []
+        exclusions = []
+        
+        for entity in entities:
+            if not entity.display_payload:
+                continue
+            payload = entity.display_payload
+            if entity.entity_type.lower() == "coverage":
+                if isinstance(payload, list):
+                    coverages.extend(payload)
+                elif isinstance(payload, dict):
+                    coverages.append(payload)
+            elif entity.entity_type.lower() == "exclusion":
+                if isinstance(payload, list):
+                    exclusions.extend(payload)
+                elif isinstance(payload, dict):
+                    exclusions.append(payload)
+        
+        # Also check sections for effective_coverages/exclusions
+        for section in sections:
+            if not section.display_payload:
+                continue
+            payload = section.display_payload
+            if section.section_type == "effective_coverages":
+                if isinstance(payload, list):
+                    coverages.extend(payload)
+                elif isinstance(payload, dict):
+                    coverages.append(payload)
+            elif section.section_type == "effective_exclusions":
+                if isinstance(payload, list):
+                    exclusions.extend(payload)
+                elif isinstance(payload, dict):
+                    exclusions.append(payload)
+                    
+        return {
+            "entities": [e.display_payload for e in entities if e.display_payload],
+            "sections": [s.display_payload for s in sections if s.display_payload],
+            "effective_coverages": coverages,
+            "effective_exclusions": exclusions,
+        }
+
+    async def _emit_comparison_completed_event(
+        self,
+        workflow_id: UUID,
+        result: EntityComparisonResult,
+        doc1_name: str,
+        doc2_name: str,
+    ) -> None:
+        """Emit a comparison:completed SSE event."""
+        event_payload = {
+            "stage_name": "entity_comparison",
+            "status": "completed",
+            "message": f"Comparison between {doc1_name} and {doc2_name}",
+            "has_comparison": True,
+            "comparison_summary": {
+                "coverage_matches": result.summary.coverage_matches,
+                "exclusion_matches": result.summary.exclusion_matches,
+                "total_added": result.summary.coverages_added + result.summary.exclusions_added,
+                "total_removed": result.summary.coverages_removed + result.summary.exclusions_removed,
+                "total_modified": result.summary.coverage_partial_matches + result.summary.exclusion_partial_matches,
+            },
+            "overall_confidence": float(result.overall_confidence),
+            "overall_explanation": result.overall_explanation,
+        }
+
+        await self.workflow_repo.emit_run_event(
+            workflow_id=workflow_id,
+            event_type="comparison:completed",
+            payload=event_payload,
+        )
+        await self.session.commit()
+
 
     async def _fetch_and_normalize_data(
         self,
@@ -339,9 +457,15 @@ class ProposalComparisonService:
             # Canonical name lookup
             canonical_name = self.canonical_mapper.get_canonical_name(section_type, field_name)
             
+            from app.schemas.product.policy_comparison import SectionProvenance
+            dummy_provenance = SectionProvenance(
+                doc1_section_id=UUID("00000000-0000-0000-0000-000000000000"),
+                doc2_section_id=UUID("00000000-0000-0000-0000-000000000000")
+            )
+
             change = ComparisonChange(
-                section=section_type,
-                field=field_name,
+                section_type=section_type,
+                field_name=field_name,
                 old_value=str(old_value) if old_value is not None else None,
                 new_value=str(new_value) if new_value is not None else None,
                 change_type=self._get_change_type(old_value, new_value),
@@ -349,6 +473,7 @@ class ProposalComparisonService:
                 delta_type=delta_type,
                 delta_flag=delta_flag,
                 canonical_coverage_name=canonical_name,
+                provenance=dummy_provenance
             )
             changes.append(change)
         

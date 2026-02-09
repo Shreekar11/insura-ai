@@ -2,6 +2,7 @@
 
 from uuid import UUID
 from typing import Optional, List, Dict, Any
+from datetime import datetime, timezone
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from app.repositories.document_repository import DocumentRepository
@@ -11,13 +12,14 @@ from app.repositories.workflow_repository import (
     WorkflowDocumentRepository,
 )
 from app.repositories.stages_repository import StagesRepository
+from app.repositories.proposal_repository import ProposalRepository
 from fastapi import UploadFile
 from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
 from app.utils.logging import get_logger
 from app.services.base_service import BaseService
 from app.services.storage_service import StorageService
 from app.core.exceptions import ValidationError, AppError
-from app.schemas.generated.workflows import WorkflowResponse, WorkflowExecutionResponse
+from app.schemas.generated.workflows import Workflow, WorkflowResponse, WorkflowExecutionResponse
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.step_repository import StepEntityOutputRepository, StepSectionOutputRepository
 from app.core.temporal_client import get_temporal_client
@@ -48,6 +50,7 @@ class WorkflowService(BaseService):
         self.extraction_repo = SectionExtractionRepository(session)
         self.step_entity_output_repo = StepEntityOutputRepository(session)
         self.step_section_output_repo = StepSectionOutputRepository(session)
+        self.proposal_repo = ProposalRepository(session)
         self.storage_service = StorageService()
 
     async def run(self, *args, **kwargs) -> Any:
@@ -70,7 +73,20 @@ class WorkflowService(BaseService):
                 kwargs.get("workflow_key"),
                 kwargs.get("document_ids"),
                 kwargs.get("user_id"),
-                kwargs.get("metadata")
+                kwargs.get("workflow_name"),
+                kwargs.get("metadata"),
+                kwargs.get("workflow_id")
+            )
+        elif action == "create_workflow":
+            return await self._create_workflow_logic(
+                kwargs.get("workflow_definition_id"),
+                kwargs.get("user_id"),
+                kwargs.get("workflow_name")
+            )
+        elif action == "update_workflow":
+            return await self._update_workflow_logic(
+                kwargs.get("workflow_id"),
+                kwargs.get("workflow_name")
             )
         else:
             raise ValidationError(f"Unknown action: {action}")
@@ -127,7 +143,9 @@ class WorkflowService(BaseService):
         workflow_key: str,
         document_ids: List[UUID],
         user_id: UUID,
+        workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
         """Execute a generic workflow by its key.
         
@@ -135,7 +153,9 @@ class WorkflowService(BaseService):
             workflow_key: Key of the workflow definition to execute
             document_ids: List of document IDs involved
             user_id: ID of the user initiating the workflow
+            workflow_name: Name of the workflow instance
             metadata: Optional metadata for the workflow
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Dict containing workflow details and status
@@ -145,7 +165,55 @@ class WorkflowService(BaseService):
             workflow_key=workflow_key,
             document_ids=document_ids,
             user_id=user_id,
-            metadata=metadata
+            workflow_name=workflow_name,
+            metadata=metadata,
+            workflow_id=workflow_id
+        )
+
+    async def execute_create_workflow(
+        self,
+        workflow_definition_id: UUID,
+        user_id: UUID,
+        workflow_name: str = "Untitled"
+    ) -> Dict[str, Any]:
+        """Create a draft workflow execution.
+        
+        Args:
+            workflow_definition_id: ID of definition
+            user_id: User ID
+            workflow_name: Name of workflow
+            
+        Returns:
+            Dict containing workflow details
+        """
+        return await self.execute(
+            action="create_workflow",
+            user_id=user_id,
+            workflow_definition_id=workflow_definition_id,
+            workflow_name=workflow_name
+        )
+
+    async def execute_update_workflow(
+        self,
+        workflow_id: UUID,
+        workflow_name: str,
+        user_id: UUID
+    ) -> Dict[str, Any]:
+        """Update an existing workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            workflow_name: New name
+            user_id: User ID (for validation/access check if needed, though currently unused for direct update)
+
+        Returns:
+            Dict containing updated workflow details
+        """
+        return await self.execute(
+            action="update_workflow",
+            workflow_id=workflow_id,
+            workflow_name=workflow_name,
+            user_id=user_id
         )
 
     def validate(self, *args, **kwargs):
@@ -170,6 +238,20 @@ class WorkflowService(BaseService):
                 raise ValidationError("document_ids are required")
             if not kwargs.get("user_id"):
                 raise ValidationError("user_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
+        elif action == "create_workflow":
+            if not kwargs.get("workflow_definition_id"):
+                raise ValidationError("workflow_definition_id is required")
+            if not kwargs.get("user_id"):
+                raise ValidationError("user_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
+        elif action == "update_workflow":
+            if not kwargs.get("workflow_id"):
+                raise ValidationError("workflow_id is required")
+            if not kwargs.get("workflow_name"):
+                raise ValidationError("workflow_name is required")
 
     def _validate_start_extraction(
         self, 
@@ -258,6 +340,7 @@ class WorkflowService(BaseService):
             self.logger.info(f"Creating workflow run for definition: {definition.id}")
             workflow_run = await self.wf_repo.create_workflow(
                 workflow_definition_id=definition.id,
+                workflow_name="Document Extraction",
                 status="running",
                 user_id=user_id,
             )
@@ -469,12 +552,43 @@ class WorkflowService(BaseService):
                 original_error=e
             )
 
+    async def _update_workflow_logic(
+        self,
+        workflow_id: UUID,
+        workflow_name: str
+    ) -> Dict[str, Any]:
+        """Core logic for updating a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            workflow_name: New name
+
+        Returns:
+            Dict containing updated workflow details
+        """
+        try:
+            workflow = await self.wf_repo.update_workflow_name(
+                workflow_id=workflow_id,
+                workflow_name=workflow_name
+            )
+            await self.session.commit()
+
+            # Return standard workflow response format (similar to get_workflow_details)
+            return await self.get_workflow_details(workflow.id, workflow.user_id)
+
+        except Exception as e:
+            self.logger.error(f"Failed to update workflow {workflow_id}: {e}", exc_info=True)
+            await self.session.rollback()
+            raise AppError(f"Failed to update workflow: {e}", original_error=e)
+
     async def _execute_generic_workflow(
         self,
         workflow_key: str,
         document_ids: List[UUID],
         user_id: UUID,
+        workflow_name: str = "Untitled",
         metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None,
     ) -> Dict[str, Any]:
         """Core logic for executing a generic workflow.
         
@@ -482,7 +596,9 @@ class WorkflowService(BaseService):
             workflow_key: Key of the workflow definition
             document_ids: List of document IDs
             user_id: User ID
+            workflow_name: Name of the workflow instance
             metadata: Optional metadata
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Dict containing workflow details and status
@@ -492,14 +608,28 @@ class WorkflowService(BaseService):
             definition = await self.def_repo.get_by_key(workflow_key)
             if not definition:
                 raise ValidationError(f"Workflow definition {workflow_key} not found")
-
-            # Step 2: Create workflow execution record
-            self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
-            workflow_run = await self.wf_repo.create_workflow(
-                workflow_definition_id=definition.id,
-                status="running",
-                user_id=user_id,
-            )
+ 
+            # Step 2: Create or fetch workflow execution record
+            if workflow_id:
+                self.logger.info(f"Resuming existing workflow run: {workflow_id}")
+                workflow_run = await self.wf_repo.get_by_id(workflow_id)
+                if not workflow_run:
+                    raise ValidationError(f"Workflow {workflow_id} not found")
+                
+                # Update status to running
+                await self.wf_repo.update_status(workflow_id, "running")
+                # Update name if different
+                if workflow_name != workflow_run.workflow_name:
+                    workflow_run.workflow_name = workflow_name
+            else:
+                self.logger.info(f"Creating workflow run for generic workflow: {workflow_key}")
+                workflow_run = await self.wf_repo.create_workflow(
+                    workflow_definition_id=definition.id,
+                    workflow_name=workflow_name,
+                    status="running",
+                    user_id=user_id,
+                )
+            
             workflow_id = workflow_run.id
 
             # Step 3: Link documents to workflow
@@ -508,14 +638,11 @@ class WorkflowService(BaseService):
                 doc = await self.doc_repo.get_by_id(doc_id)
                 if not doc:
                     raise ValidationError(f"Document {doc_id} not found")
-                
-                await self.wf_doc_repo.create_workflow_document(
-                    workflow_id=workflow_id,
-                    document_id=doc_id,
-                )
+
                 documents_data.append({
                     "document_id": str(doc_id),
-                    "url": doc.file_path
+                    "url": doc.file_path,
+                    "document_name": doc.document_name or doc.file_path.split("/")[-1]
                 })
 
             # Commit database changes before Temporal
@@ -528,27 +655,35 @@ class WorkflowService(BaseService):
             # Map workflow key to workflow class
             from app.temporal.product.policy_comparison.workflows.policy_comparison import PolicyComparisonWorkflow
             from app.temporal.product.proposal_generation.workflows.proposal_generation import ProposalGenerationWorkflow
+            from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
             workflow_class_map = {
                 "policy_comparison": PolicyComparisonWorkflow,
                 "proposal_generation": ProposalGenerationWorkflow,
+                "document_extraction": ProcessDocumentWorkflow,
             }
             
             wf_class = workflow_class_map.get(workflow_key)
             if not wf_class:
                 raise ValidationError(f"Temporal workflow not implemented for key: {workflow_key}")
 
-            workflow_handle = await temporal_client.start_workflow(
-                wf_class.run,
-                {
-                    "workflow_id": str(workflow_id),
-                    "workflow_definition_id": str(definition.id),
-                    "workflow_name": workflow_key,
-                    "documents": documents_data,
-                    "metadata": metadata or {},
-                },
-                id=f"workflow-{workflow_id}",
-                task_queue="documents-queue",
-            )
+            from temporalio.exceptions import WorkflowAlreadyStartedError
+            
+            try:
+                workflow_handle = await temporal_client.start_workflow(
+                    wf_class.run,
+                    {
+                        "workflow_id": str(workflow_id),
+                        "workflow_definition_id": str(definition.id),
+                        "workflow_name": workflow_key,
+                        "documents": documents_data,
+                        "metadata": metadata or {},
+                    },
+                    id=f"workflow-{workflow_id}",
+                    task_queue="documents-queue",
+                )
+            except WorkflowAlreadyStartedError:
+                self.logger.info(f"Temporal workflow workflow-{workflow_id} already running, getting handle.")
+                workflow_handle = temporal_client.get_workflow_handle(f"workflow-{workflow_id}")
 
             # Step 5: Update with Temporal ID
             await self.wf_repo.update_temporal_id(
@@ -581,57 +716,209 @@ class WorkflowService(BaseService):
         self, 
         user_id: UUID, 
         limit: int = 50, 
-        offset: int = 0
+        offset: int = 0,
+        include_documents: bool = True,
+        include_stages: bool = True,
+        include_events: bool = True,
+        events_limit: int = 5
     ) -> Dict[str, Any]:
-        """List workflows for a user.
-        
-        Args:
-            user_id: User ID
-            limit: Limit
-            offset: Offset
-            
-        Returns:
-            Dict with total and list of workflows
-        """
+        """List workflows with comprehensive dashboard data."""
         filters = {"user_id": user_id}
-        workflows = await self.wf_repo.get_all_with_definitions(skip=offset, limit=limit, filters=filters)
+        workflows = await self.wf_repo.get_all_with_relationships(
+            skip=offset, 
+            limit=limit, 
+            filters=filters,
+            include_documents=include_documents,
+            include_stages=include_stages,
+            include_events=include_events
+        )
         total = await self.wf_repo.count(filters=filters)
         
+        workflow_items = []
+        for wf in workflows:
+            item = await self._build_workflow_list_item(
+                wf, 
+                include_documents=include_documents,
+                include_stages=include_stages,
+                include_events=include_events,
+                events_limit=events_limit
+            )
+            workflow_items.append(item)
+            
         return {
             "total": total,
-            "workflows": [
-                WorkflowResponse(
-                    id=wf.id,
-                    definition_id=wf.workflow_definition_id,
-                    name=wf.workflow_definition.display_name if wf.workflow_definition else "Unknown",
-                    key=wf.workflow_definition.workflow_key if wf.workflow_definition else "unknown",
-                    status=wf.status,
-                    created_at=wf.created_at,
-                    updated_at=wf.updated_at
-                ) for wf in workflows
-            ]
+            "workflows": workflow_items
         }
 
-    async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[WorkflowResponse]:
-        """Get workflow details.
+    async def _build_workflow_list_item(
+        self,
+        workflow: Any,
+        include_documents: bool,
+        include_stages: bool,
+        include_events: bool,
+        events_limit: int = 5
+    ) -> Dict[str, Any]:
+        """Build enhanced workflow item with metrics."""
+        
+        # Calculate metrics
+        metrics = await self._calculate_workflow_metrics(workflow)
+        
+        # Build documents list
+        documents = []
+        if include_documents and workflow.workflow_documents:
+            for wd in workflow.workflow_documents:
+                doc = wd.document
+                documents.append({
+                    "document_id": doc.id,
+                    "document_name": doc.document_name or doc.file_path.split("/")[-1],
+                    "file_name": doc.document_name or doc.file_path.split("/")[-1],
+                    "page_count": doc.page_count,
+                    "file_path": doc.file_path,
+                    "status": doc.status,
+                    "uploaded_at": doc.uploaded_at
+                })
+                
+        # Build stages list
+        stages = []
+        if include_stages and workflow.stage_runs:
+            for sr in workflow.stage_runs:
+                duration = None
+                if sr.started_at and sr.completed_at:
+                    duration = (sr.completed_at - sr.started_at).total_seconds()
+                
+                stages.append({
+                    "stage_name": sr.stage_name,
+                    "status": sr.status,
+                    "started_at": sr.started_at,
+                    "completed_at": sr.completed_at,
+                    "duration_seconds": duration
+                })
+                
+        # Build events list
+        events = []
+        if include_events and workflow.events:
+            # Sort events by created_at desc and take top N
+            sorted_events = sorted(workflow.events, key=lambda e: e.created_at, reverse=True)
+            for event in sorted_events[:events_limit]:
+                events.append({
+                    "event_type": event.event_type,
+                    "event_payload": event.event_payload,
+                    "created_at": event.created_at
+                })
+                
+        return {
+            "id": workflow.id,
+            "temporal_workflow_id": workflow.temporal_workflow_id,
+            "workflow_name": workflow.workflow_name,
+            "definition_id": workflow.workflow_definition_id,
+            "definition_name": workflow.workflow_definition.display_name if workflow.workflow_definition else "Unknown",
+            "workflow_type": workflow.workflow_definition.workflow_key if workflow.workflow_definition else "unknown",
+            "status": workflow.status,
+            "metrics": metrics,
+            "created_at": workflow.created_at,
+            "updated_at": workflow.updated_at,
+            "duration_seconds": self._get_total_duration(workflow),
+            "documents": documents,
+            "stages": stages,
+            "recent_events": events
+        }
+        
+    async def _calculate_workflow_metrics(self, workflow: Any) -> Dict[str, Any]:
+        """Calculate document processing metrics for a workflow."""
+        total_docs = len(workflow.workflow_documents) if workflow.workflow_documents else 0
+        completed_docs = 0
+        failed_docs = 0
+        processing_docs = 0
+        
+        if workflow.workflow_documents:
+            for wd in workflow.workflow_documents:
+                status = wd.document.status
+                if status == "extracted":
+                    completed_docs += 1
+                elif status == "failed":
+                    failed_docs += 1
+                else:
+                    processing_docs += 1
+                    
+        progress = 0
+        if total_docs > 0:
+            progress = int((completed_docs / total_docs) * 100)
+            
+        # Calculate total duration if terminal
+        total_duration = self._get_total_duration(workflow)
+            
+        return {
+            "documents_total": total_docs,
+            "documents_completed": completed_docs,
+            "documents_failed": failed_docs,
+            "documents_processing": processing_docs,
+            "progress_percent": progress,
+            "total_duration_seconds": total_duration
+        }
+
+    def _get_total_duration(self, workflow: Any) -> Optional[float]:
+        """Calculate total workflow duration in seconds."""
+        if not workflow.created_at:
+            return None
+
+        # Authoritative source: workflow lifecycle
+        if workflow.status in {"completed", "failed"} and workflow.updated_at:
+            # If updated_at is very close to created_at but we have stages/events, 
+            # it might be stale. Let's find the true end time.
+            potential_ends = [workflow.updated_at]
+            
+            if workflow.stage_runs:
+                potential_ends.extend([sr.completed_at for sr in workflow.stage_runs if sr.completed_at])
+                potential_ends.extend([sr.started_at for sr in workflow.stage_runs if sr.started_at])
+            
+            if workflow.events:
+                potential_ends.extend([e.created_at for e in workflow.events if e.created_at])
+            
+            # Use the latest known activity as the end time
+            end_time = max(potential_ends)
+            duration = (end_time - workflow.created_at).total_seconds()
+            return max(duration, 0)
+
+        # Running workflow: created_at -> now (using UTC)
+        if workflow.status == "running":
+            now = datetime.now(timezone.utc)
+            duration = (now - workflow.created_at).total_seconds()
+            return max(duration, 0)
+
+        return None
+
+    async def get_workflow_details(self, workflow_id: UUID, user_id: UUID) -> Optional[Dict[str, Any]]:
+        """Get workflow details with comprehensive data.
         
         Args:
             workflow_id: Workflow ID
             user_id: User ID
             
         Returns:
-            WorkflowResponse or None
+            Dict containing full workflow details or None
         """
-        wf = await self.wf_repo.get_by_id(workflow_id)
-        if not wf or wf.user_id != user_id:
+        # Fetch with all relationships
+        workflows = await self.wf_repo.get_all_with_relationships(
+            skip=0,
+            limit=1,
+            filters={"id": workflow_id, "user_id": user_id},
+            include_documents=True,
+            include_stages=True,
+            include_events=True
+        )
+        
+        if not workflows:
             return None
             
-        return WorkflowResponse(
-            id=wf.id,
-            definition_id=wf.workflow_definition_id,
-            status=wf.status,
-            created_at=wf.created_at,
-            updated_at=wf.updated_at
+        wf = workflows[0]
+        
+        # Build enhanced response
+        return await self._build_workflow_list_item(
+            wf,
+            include_documents=True,
+            include_stages=True,
+            include_events=True,
+            events_limit=10
         )
 
     async def list_definitions(self) -> List[Dict[str, Any]]:
@@ -649,6 +936,73 @@ class WorkflowService(BaseService):
                 "description": d.description
             } for d in definitions
         ]
+
+    async def get_all_workflows(
+        self, 
+        workflow_definition_id: UUID, 
+        user_id: UUID, 
+        limit: int = 50, 
+        offset: int = 0
+    ) -> Dict[str, Any]:
+        """Get all workflows for a workflow definition with enhanced data.
+        
+        Args:
+            workflow_definition_id: Workflow definition ID
+            user_id: User ID
+            limit: Max records to return
+            offset: Records to skip
+            
+        Returns:
+            Dict containing total count and list of workflows with enhanced data
+        """
+        filters = {
+            "workflow_definition_id": workflow_definition_id,
+            "user_id": user_id
+        }
+        
+        # Use existing enhanced fetching logic
+        workflows = await self.wf_repo.get_all_with_relationships(
+            skip=offset,
+            limit=limit,
+            filters=filters,
+            include_documents=True,
+            include_stages=True,
+            include_events=True
+        )
+
+        total = await self.wf_repo.count(filters=filters)
+        
+        if not workflows:
+            return {
+                "total": total,
+                "workflows": []
+            }
+            
+        workflow_items = []
+        for wf in workflows:
+            item = await self._build_workflow_list_item(
+                wf, 
+                include_documents=True,
+                include_stages=True,
+                include_events=True
+            )
+            workflow_items.append(item)
+            
+        return {
+            "total": total,
+            "workflows": workflow_items
+        }
+
+    async def fetch_definition_by_id(self, definition_id) -> Dict[str, Any]:
+        """Get workflow definition by id"""
+
+        definition = await self.def_repo.get_by_definition_id(definition_id)
+        return {
+            "id": definition.id,
+            "key": definition.workflow_key,
+            "name": definition.display_name,
+            "description": definition.description
+        }
 
     async def get_workflow_extraction(
         self, 
@@ -679,13 +1033,16 @@ class WorkflowService(BaseService):
             "extracted_data": {
                 "sections": [
                     {
+                        "id": e.id,
                         "section_type": e.section_type,
                         "fields": e.display_payload,
-                        "confidence": e.confidence
+                        "confidence": e.confidence,
+                        "page_range": e.page_range
                     } for e in extracted_section_fields
                 ],
                 "entities": [
                     {
+                        "id": e.id,
                         "entity_type": e.entity_type,
                         "fields": e.display_payload,
                         "confidence": e.confidence
@@ -694,56 +1051,198 @@ class WorkflowService(BaseService):
             }
         }
 
+    async def get_entity_comparison(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get entity comparison results for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Comparison results or None if not found/access denied
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+
+        # Get the comparison result from workflow output
+        from app.repositories.workflow_output_repository import WorkflowOutputRepository
+        output_repo = WorkflowOutputRepository(self.session)
+        output = await output_repo.get_by_workflow_id(workflow_id)
+
+        if not output or not output.result:
+            return None
+
+        # Check if entity_comparison exists in the result
+        result = output.result
+        if "entity_comparison" in result:
+            return result["entity_comparison"]
+
+        # Alternatively, check in output_metadata
+        if output.output_metadata and "entity_comparison" in output.output_metadata:
+            return output.output_metadata["entity_comparison"]
+
+        return None
+
+    async def execute_entity_comparison(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Execute entity comparison for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Comparison results or None if failed
+        """
+        wf = await self.wf_repo.get_by_id(workflow_id)
+        if not wf or wf.user_id != user_id:
+            return None
+
+        # Get documents in the workflow
+        from app.repositories.workflow_repository import WorkflowDocumentRepository
+        wf_doc_repo = WorkflowDocumentRepository(self.session)
+        workflow_docs = await wf_doc_repo.get_by_workflow_id(workflow_id)
+
+        if len(workflow_docs) < 2:
+            self.logger.error(f"Workflow {workflow_id} has less than 2 documents")
+            return None
+
+        doc1 = workflow_docs[0].document
+        doc2 = workflow_docs[1].document
+        doc1_id = doc1.id
+        doc2_id = doc2.id
+
+        # Get extracted data for both documents
+        doc1_data = await self.get_workflow_extraction(workflow_id, doc1_id, user_id)
+        doc2_data = await self.get_workflow_extraction(workflow_id, doc2_id, user_id)
+
+        if not doc1_data or not doc2_data:
+            self.logger.error(f"Missing extraction data for workflow {workflow_id}")
+            return None
+
+        # Execute entity comparison
+        from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
+        comparison_service = PolicyComparisonService(self.session)
+
+        result = await comparison_service.execute_entity_comparison(
+            workflow_id=workflow_id,
+            doc1_id=doc1_id,
+            doc2_id=doc2_id,
+            doc1_data=doc1_data.get("extracted_data", {}),
+            doc2_data=doc2_data.get("extracted_data", {}),
+            doc1_name=doc1.document_name or doc1.file_path.split("/")[-1],
+            doc2_name=doc2.document_name or doc2.file_path.split("/")[-1],
+        )
+
+        return result.model_dump(mode="json")
+
+    async def get_proposal(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Optional[Dict[str, Any]]:
+        """Get proposal results for a workflow.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Proposal data or None if not found/access denied
+        """
+        try:
+            # Check access
+            workflow = await self.wf_repo.get_by_id(workflow_id)
+            if not workflow or workflow.user_id != user_id:
+                return None
+
+            proposals = await self.proposal_repo.get_by_workflow_id(workflow_id)
+            if not proposals:
+                return None
+
+            # Return the latest proposal
+            proposal = proposals[-1]
+            
+            # Merging proposal_json with other fields for frontend convenience
+            data = proposal.proposal_json
+            data["proposal_id"] = str(proposal.id)
+            data["pdf_path"] = proposal.pdf_path
+            data["executive_summary"] = proposal.executive_summary
+            data["created_at"] = proposal.created_at.isoformat()
+            
+            return data
+            
+        except Exception as e:
+            self.logger.error(f"Failed to get proposal for {workflow_id}: {e}", exc_info=True)
+            return None
+
+    async def _create_workflow_logic(
+        self,
+        workflow_definition_id: UUID,
+        user_id: UUID,
+        workflow_name: str = "Untitled"
+    ) -> Dict[str, Any]:
+        """Core logic for creating a draft workflow execution."""
+        try:
+            workflow_run = await self.wf_repo.create_workflow(
+                workflow_definition_id=workflow_definition_id,
+                workflow_name=workflow_name,
+                status="draft",
+                user_id=user_id,
+            )
+            await self.session.commit()
+            
+            return {
+                "workflow_id": str(workflow_run.id),
+                "status": "draft",
+                "message": "Draft workflow created successfully."
+            }
+        except Exception as e:
+            self.logger.error(f"Failed to create draft workflow: {e}", exc_info=True)
+            await self.session.rollback()
+            raise AppError(f"Failed to create draft workflow: {e}", original_error=e)
+
     async def submit_product_workflow(
         self,
         workflow_name: str,
         workflow_definition_id: str,
-        files: List[UploadFile],
+        document_ids: List[UUID],
         user_id: UUID,
-        metadata: Optional[Dict[str, Any]] = None
+        metadata: Optional[Dict[str, Any]] = None,
+        workflow_id: Optional[UUID] = None
     ) -> Dict[str, Any]:
-        """Submit a product workflow (handle uploads and execution).
+        """Submit a product workflow (execution with existing documents).
         
         Args:
             workflow_name: Name of workflow
             workflow_definition_id: ID of definition
-            files: List of files
+            document_ids: List of pre-uploaded document IDs
             user_id: User ID
             metadata: Metadata
+            workflow_id: Optional existing workflow ID
             
         Returns:
             Workflow execution result
         """
-        document_ids = []
-        
-        # 1. Handle file uploads
-        for file in files:
-            import uuid
-            file_extension = file.filename.split(".")[-1] if "." in file.filename else "pdf"
-            storage_path = f"{user_id}/workflows/{workflow_name}/{uuid.uuid4()}.{file_extension}"
-            
-            await self.storage_service.upload_file(file, bucket="docs", path=storage_path)
-            storage_result = await self.storage_service.get_signed_url(bucket="docs", path=storage_path)
-            pdf_url = storage_result["public_url"]
-            
-            document = await self.doc_repo.create_document(
-                file_path=pdf_url,
-                page_count=0,
-                user_id=user_id,
-            )
-            document_ids.append(document.id)
-
-        await self.session.commit()
-        
-        # 2. Get definition to verify key
+        # 1. Get definition to verify key
         wf_def = await self.def_repo.get_by_id(UUID(workflow_definition_id))
         if not wf_def:
             raise ValidationError("Workflow definition not found")
             
-        # 3. Start workflow
+        # 2. Start workflow
         return await self.execute_workflow(
             workflow_key=wf_def.workflow_key,
             document_ids=document_ids,
             user_id=user_id,
-            metadata=metadata
+            workflow_name=workflow_name,
+            metadata=metadata,
+            workflow_id=workflow_id
         )

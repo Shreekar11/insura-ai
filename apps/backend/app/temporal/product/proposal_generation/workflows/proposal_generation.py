@@ -112,6 +112,13 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         self._progress = 1.0
         self._current_step = "completed"
 
+        # Persist status to database
+        await workflow.execute_activity(
+            "update_workflow_status",
+            args=[workflow_id, "completed"],
+            start_to_close_timeout=timedelta(minutes=1),
+        )
+
         return {
             "status": core_result.get("status", "COMPLETED"),
             "workflow_id": str(workflow_id),
@@ -132,6 +139,11 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         workflow.logger.info(f"Starting core proposal generation logic for workflow {workflow_id}")
 
         # Step 1: Detect document roles (expiring vs. renewal)
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Identifying document roles (expiring vs. renewal)..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         roles = await workflow.execute_activity(
             "detect_document_roles_activity",
             args=[workflow_id, document_ids],
@@ -141,25 +153,70 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         expiring_doc_id = roles["expiring"]
         renewal_doc_id = roles["renewal"]
         
-        # Step 2: Compare documents for proposal
+        # Step 2: Normalize coverages
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Normalizing coverage data..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        await workflow.execute_activity(
+            "normalize_coverages_for_proposal_activity",
+            args=[workflow_id, expiring_doc_id, renewal_doc_id],
+            start_to_close_timeout=timedelta(seconds=60),
+        )
+        
+        # Step 3: Compare documents for proposal
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Comparing documents to identify key changes..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         changes = await workflow.execute_activity(
             "compare_documents_for_proposal_activity",
             args=[workflow_id, expiring_doc_id, renewal_doc_id],
             start_to_close_timeout=timedelta(minutes=2),
         )
         
-        # Step 3: Assemble proposal with LLM narratives
+        # Step 4: Assemble proposal
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Assembling final proposal..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         proposal_data = await workflow.execute_activity(
             "assemble_proposal_activity",
             args=[{
                 "workflow_id": workflow_id,
                 "document_ids": document_ids,
-                "changes": changes,
+                "changes": changes
             }],
-            start_to_close_timeout=timedelta(minutes=5),
+            start_to_close_timeout=timedelta(seconds=120),
         )
         
-        # Step 4: Generate PDF
+        # Step 5: Validate proposal quality
+        validation = await workflow.execute_activity(
+            "validate_proposal_quality_activity",
+            args=[proposal_data],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+        
+        if not validation["validation_passed"]:
+            LOGGER.warning(f"Proposal validation failed for {workflow_id}: {validation['errors']}")
+            await workflow.execute_activity(
+                "emit_workflow_event",
+                args=[workflow_id, "workflow:warning", {
+                    "message": "Proposal quality check detected issues.",
+                    "details": validation["errors"]
+                }],
+                start_to_close_timeout=timedelta(seconds=10),
+            )
+
+        # Step 6: Generate PDF
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Generating proposal PDF..."}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
         pdf_path = await workflow.execute_activity(
             "generate_pdf_activity",
             args=[proposal_data],
@@ -171,6 +228,17 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             "persist_proposal_activity",
             args=[proposal_data, pdf_path],
             start_to_close_timeout=timedelta(seconds=60),
+        )
+        
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "proposal:completed", {
+                "message": "Proposal generation completed successfully.",
+                "proposal_id": persist_result.get("id"),
+                "pdf_path": pdf_path,
+                "has_proposal": True
+            }],
+            start_to_close_timeout=timedelta(seconds=10),
         )
         
         return {

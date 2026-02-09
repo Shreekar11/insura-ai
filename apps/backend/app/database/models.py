@@ -63,6 +63,7 @@ class Document(Base):
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
     file_path: Mapped[str] = mapped_column(String, nullable=False)
+    document_name: Mapped[str | None] = mapped_column(String, nullable=True)
     mime_type: Mapped[str | None] = mapped_column(String, nullable=True)
     page_count: Mapped[int | None] = mapped_column(Integer, nullable=True)
     status: Mapped[str] = mapped_column(
@@ -98,6 +99,9 @@ class Document(Base):
     vector_embeddings: Mapped[list["VectorEmbedding"]] = relationship(
         "VectorEmbedding", back_populates="document", cascade="all, delete-orphan"
     )
+    citations: Mapped[list["Citation"]] = relationship(
+        "Citation", back_populates="document", cascade="all, delete-orphan"
+    )
 
 
 class DocumentPage(Base):
@@ -118,6 +122,21 @@ class DocumentPage(Base):
     width: Mapped[int | None] = mapped_column(Integer, nullable=True)
     height: Mapped[int | None] = mapped_column(Integer, nullable=True)
     additional_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+
+    # Page dimensions for citation coordinate transformation
+    width_points: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 4), nullable=True,
+        comment="Page width in PDF points (1 point = 1/72 inch)"
+    )
+    height_points: Mapped[Decimal | None] = mapped_column(
+        Numeric(10, 4), nullable=True,
+        comment="Page height in PDF points"
+    )
+    rotation: Mapped[int | None] = mapped_column(
+        Integer, nullable=True, default=0,
+        comment="Page rotation in degrees (0, 90, 180, 270)"
+    )
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -255,6 +274,12 @@ class DocumentChunk(Base):
     )
     subsection_type: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Fine-grained subsection: Named Insured, Limits, etc."
+    )
+    effective_section_type: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Effective section for extraction routing (may differ from section_type for endorsements)"
+    )
+    semantic_role: Mapped[str | None] = mapped_column(
+        String, nullable=True, comment="Semantic role: coverage_modifier, exclusion_modifier, both, administrative_only, etc."
     )
     stable_chunk_id: Mapped[str | None] = mapped_column(
         String, unique=True, nullable=True, comment="Deterministic ID: doc_{document_id}_p{page}_c{chunk}"
@@ -945,6 +970,11 @@ class Workflow(Base):
         ForeignKey("workflow_definitions.id"), 
         nullable=True
     )
+    workflow_name: Mapped[str] = mapped_column(
+        String, 
+        nullable=False, 
+        default="Untitled"
+    )
     user_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("users.id"), nullable=True
     )
@@ -1001,7 +1031,6 @@ class Workflow(Base):
     proposals: Mapped[list["Proposal"]] = relationship(
         "Proposal", back_populates="workflow", cascade="all, delete-orphan"
     )
-
 
 
 class WorkflowRunEvent(Base):
@@ -1086,6 +1115,10 @@ class WorkflowStageRun(Base):
         TIMESTAMP(timezone=True), 
         nullable=True
     )
+    stage_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
 
     # Relationships
     workflow: Mapped["Workflow"] = relationship(
@@ -1121,6 +1154,10 @@ class WorkflowDocumentStageRun(Base):
         TIMESTAMP(timezone=True), nullable=True
     )
     error_message: Mapped[str | None] = mapped_column(Text, nullable=True)
+    stage_metadata: Mapped[dict | None] = mapped_column(JSONB, nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()", onupdate=datetime.utcnow
+    )
 
     # Relationships
     document: Mapped["Document"] = relationship("Document", back_populates="stage_runs")
@@ -1190,6 +1227,10 @@ class VectorEmbedding(Base):
         nullable=True,
         comment="FK to canonical entity for vector↔graph bridge"
     )
+    source_chunk_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("document_chunks.id", ondelete="SET NULL"), nullable=True,
+        comment="FK to document_chunks for chunk-level embeddings"
+    )
     section_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_type: Mapped[str] = mapped_column(String, nullable=False)
     entity_id: Mapped[str] = mapped_column(String, nullable=False)
@@ -1216,7 +1257,7 @@ class VectorEmbedding(Base):
         "CanonicalEntity",
         foreign_keys=[canonical_entity_id]
     )
-
+    source_chunk: Mapped["DocumentChunk | None"] = relationship("DocumentChunk")
 
     __table_args__ = (
         {"comment": "Canonical table for pgvector embeddings"},
@@ -1290,13 +1331,13 @@ class Proposal(Base):
     carrier_name: Mapped[str] = mapped_column(String, nullable=False)
     policy_type: Mapped[str] = mapped_column(String, nullable=False)
     executive_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
-    
+
     # The full proposal object (JSON)
     proposal_json: Mapped[dict] = mapped_column(JSONB, nullable=False)
-    
+
     # Path to the generated PDF in storage
     pdf_path: Mapped[str | None] = mapped_column(String, nullable=True)
-    
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -1309,5 +1350,88 @@ class Proposal(Base):
 
     __table_args__ = (
         {"comment": "Generated insurance proposals with PDF links and executive summaries"},
+    )
+
+
+class Citation(Base):
+    """Citation model for mapping extracted items to source PDF locations.
+
+    Stores precise source mapping for extracted coverages, exclusions, and clauses.
+    Supports multiple non-contiguous spans across pages (FR-2).
+    """
+
+    __tablename__ = "citations"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    document_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), ForeignKey("documents.id", ondelete="CASCADE"), nullable=False
+    )
+
+    # Polymorphic reference to source item
+    source_type: Mapped[str] = mapped_column(
+        String(50), nullable=False,
+        comment="Type: effective_coverage, effective_exclusion, endorsement, condition"
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(255), nullable=False,
+        comment="Canonical ID or stable ID of the source item"
+    )
+
+    # Location data - supports multiple spans (FR-2)
+    spans: Mapped[list] = mapped_column(
+        JSONB, nullable=False,
+        comment="Array of span objects: [{page_number, bounding_boxes, text_content}]"
+    )
+
+    # Verbatim source text (FR-4)
+    verbatim_text: Mapped[str] = mapped_column(
+        Text, nullable=False,
+        comment="Exact extracted policy language"
+    )
+
+    # Page metadata for quick navigation
+    primary_page: Mapped[int] = mapped_column(
+        Integer, nullable=False,
+        comment="Primary page number (1-indexed) for initial navigation"
+    )
+    page_range: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True,
+        comment="Page range: {start: int, end: int} for multi-page citations"
+    )
+
+    # Confidence and provenance
+    extraction_confidence: Mapped[Decimal | None] = mapped_column(
+        Numeric(5, 4), nullable=True,
+        comment="Confidence in source mapping accuracy (0.0-1.0)"
+    )
+    extraction_method: Mapped[str] = mapped_column(
+        String(50), nullable=False, default="docling",
+        comment="Method: docling, pdfplumber, manual"
+    )
+
+    # Clause-level authority (FR-3)
+    clause_reference: Mapped[str | None] = mapped_column(
+        String(255), nullable=True,
+        comment="Clause reference e.g., 'SECTION II.B.3' or 'Endorsement CA 20 48'"
+    )
+
+    # Citation resolution tracking (Phase 3)
+    resolution_method: Mapped[str | None] = mapped_column(
+        String(50), nullable=True,
+        comment="How citation was resolved: direct_text_match, semantic_chunk_match, placeholder"
+    )
+
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    document: Mapped["Document"] = relationship("Document", back_populates="citations")
+
+    __table_args__ = (
+        UniqueConstraint("document_id", "source_type", "source_id", name="uq_citation_source"),
+        {"comment": "Citation source mapping for extracted items"},
     )
 

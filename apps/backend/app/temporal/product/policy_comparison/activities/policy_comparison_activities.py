@@ -325,3 +325,142 @@ async def persist_comparison_result_activity(
     except Exception as e:
         LOGGER.error(f"Persist result failed for workflow {workflow_id}: {e}", exc_info=True)
         raise
+
+
+@ActivityRegistry.register("policy_comparison", "entity_comparison_activity")
+@activity.defn
+async def entity_comparison_activity(
+    workflow_id: str,
+    document_ids: list[str],
+    document_names: list[str],
+) -> dict:
+    """Execute entity comparison and emit comparison:completed event.
+    
+    This activity:
+    1. Retrieves extracted data for both documents
+    2. Performs entity-level comparison (coverages & exclusions)
+    3. Emits comparison:completed SSE event
+    4. Stores results in workflow output for API retrieval
+    """
+    try:
+        async with async_session_maker() as session:
+            from app.repositories.step_repository import (
+                StepEntityOutputRepository,
+                StepSectionOutputRepository,
+            )
+            from app.repositories.workflow_output_repository import WorkflowOutputRepository
+            
+            step_entity_repo = StepEntityOutputRepository(session)
+            step_section_repo = StepSectionOutputRepository(session)
+            output_repo = WorkflowOutputRepository(session)
+            
+            # Get extracted data for both documents
+            doc1_data = await _get_extracted_data_for_comparison(
+                step_entity_repo, step_section_repo, document_ids[0], workflow_id
+            )
+            doc2_data = await _get_extracted_data_for_comparison(
+                step_entity_repo, step_section_repo, document_ids[1], workflow_id
+            )
+            
+            LOGGER.info(
+                f"Entity comparison: doc1 has {len(doc1_data.get('entities', []))} entities, "
+                f"doc2 has {len(doc2_data.get('entities', []))} entities"
+            )
+            
+            # Execute entity comparison (which also emits SSE event)
+            comparison_service = PolicyComparisonService(session)
+            result = await comparison_service.execute_entity_comparison(
+                workflow_id=UUID(workflow_id),
+                doc1_id=UUID(document_ids[0]),
+                doc2_id=UUID(document_ids[1]),
+                doc1_data=doc1_data,
+                doc2_data=doc2_data,
+                doc1_name=document_names[0],
+                doc2_name=document_names[1],
+            )
+            
+            # Store entity comparison in workflow output for API retrieval
+            await output_repo.update_entity_comparison(
+                workflow_id=UUID(workflow_id),
+                entity_comparison=result.model_dump(mode="json"),
+            )
+            await session.commit()
+            
+            LOGGER.info(
+                f"Entity comparison completed for workflow {workflow_id}: "
+                f"{len(result.comparisons)} comparisons"
+            )
+            
+            return {
+                "status": "completed",
+                "total_comparisons": len(result.comparisons),
+                "coverage_matches": result.summary.coverage_matches,
+                "exclusion_matches": result.summary.exclusion_matches,
+            }
+    except Exception as e:
+        LOGGER.error(f"Entity comparison failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
+async def _get_extracted_data_for_comparison(
+    step_entity_repo,
+    step_section_repo,
+    document_id: str,
+    workflow_id: str,
+) -> dict:
+    """Get extracted entity and section data for a document.
+    
+    Returns data in format expected by EntityComparisonService.
+    """
+    entities = await step_entity_repo.get_by_document_and_workflow(
+        UUID(document_id), UUID(workflow_id)
+    )
+    sections = await step_section_repo.get_by_document_and_workflow(
+        UUID(document_id), UUID(workflow_id)
+    )
+    
+    # Extract coverages and exclusions from entities
+    coverages = []
+    exclusions = []
+    
+    for entity in entities:
+        if not entity.display_payload:
+            continue
+            
+        payload = entity.display_payload
+        
+        if entity.entity_type.lower() == "coverage":
+            if isinstance(payload, list):
+                coverages.extend(payload)
+            elif isinstance(payload, dict):
+                coverages.append(payload)
+        elif entity.entity_type.lower() == "exclusion":
+            if isinstance(payload, list):
+                exclusions.extend(payload)
+            elif isinstance(payload, dict):
+                exclusions.append(payload)
+    
+    # Also check sections for effective_coverages/exclusions
+    for section in sections:
+        if not section.display_payload:
+            continue
+            
+        payload = section.display_payload
+        
+        if section.section_type == "effective_coverages":
+            if isinstance(payload, list):
+                coverages.extend(payload)
+            elif isinstance(payload, dict):
+                coverages.append(payload)
+        elif section.section_type == "effective_exclusions":
+            if isinstance(payload, list):
+                exclusions.extend(payload)
+            elif isinstance(payload, dict):
+                exclusions.append(payload)
+    
+    return {
+        "entities": [e.display_payload for e in entities if e.display_payload],
+        "sections": [s.display_payload for s in sections if s.display_payload],
+        "effective_coverages": coverages,
+        "effective_exclusions": exclusions,
+    }

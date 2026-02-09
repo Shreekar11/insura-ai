@@ -106,19 +106,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-# CORD middleware
-app.add_middleware(
-    CORSMiddleware,
-    allow_origins=["*"],
-    allow_credentials=True,
-    allow_methods=["*"],
-    allow_headers=["*"],
-)
-
-# JWT authentication middleware
-app.add_middleware(JWTAuthenticationMiddleware)
-
-# Correlation ID middleware
+# Correlation ID middleware - before JWT auth
 @app.middleware("http")
 async def add_correlation_id(request: Request, call_next):
     correlation_id = request.headers.get("X-Correlation-ID", str(uuid4()))
@@ -126,6 +114,19 @@ async def add_correlation_id(request: Request, call_next):
     response = await call_next(request)
     response.headers["X-Correlation-ID"] = correlation_id
     return response
+
+# JWT authentication middleware
+app.add_middleware(JWTAuthenticationMiddleware)
+
+# CORS middleware - added last to ensure it wraps all other middleware/responses
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Specific origins
+    allow_credentials=True,
+    allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
+    allow_headers=["*"],
+    expose_headers=["X-Correlation-ID"],
+)
 
 # Include routers
 app.include_router(api_router, prefix=settings.api_v1_prefix)

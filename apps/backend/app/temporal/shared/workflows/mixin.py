@@ -28,6 +28,7 @@ class DocumentProcessingConfig(BaseModel):
     skip_extraction: bool = False
     skip_enrichment: bool = False
     skip_indexing: bool = False
+    document_name: Optional[str] = None
 
 
 class DocumentProcessingMixin:
@@ -48,7 +49,8 @@ class DocumentProcessingMixin:
                 config.workflow_id, 
                 document_id, 
                 config.target_sections,
-                config.workflow_name
+                config.workflow_name,
+                config.document_name
             )
             results["processed"] = processed_result
             document_profile = processed_result.get("document_profile")
@@ -68,7 +70,8 @@ class DocumentProcessingMixin:
                 document_id,
                 document_profile,
                 config.target_sections,
-                config.target_entities
+                config.target_entities,
+                config.document_name
             )
             results["extracted"] = extraction_result
 
@@ -76,16 +79,22 @@ class DocumentProcessingMixin:
         if not config.skip_enrichment:
             enrichment_result = await self._execute_enrichment_stage(
                 config.workflow_id,
-                document_id
+                document_id,
+                config.document_name
             )
             results["enriched"] = enrichment_result
 
-        # 4. Indexing Stage
+        # 4. Indexing Stage (includes citation creation after chunk embeddings)
         if not config.skip_indexing:
+            effective_coverages = results.get("extracted", {}).get("effective_coverages", [])
+            effective_exclusions = results.get("extracted", {}).get("effective_exclusions", [])
             indexing_result = await self._execute_indexing_stage(
                 config.workflow_id,
                 document_id,
-                config.target_sections
+                config.target_sections,
+                config.document_name,
+                effective_coverages=effective_coverages,
+                effective_exclusions=effective_exclusions,
             )
             results["summarized"] = indexing_result
 
@@ -96,19 +105,17 @@ class DocumentProcessingMixin:
         workflow_id: str,
         document_id: str,
         target_sections: Optional[List[str]] = None,
-        workflow_name: Optional[str] = None
+        workflow_name: Optional[str] = None,
+        document_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute OCR, Page Analysis, Table Extraction, and Chunking."""
         workflow.logger.info(f"Starting ProcessedStage for {document_id}")
 
+        doc_label = document_name or document_id
+
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "processed", "running"],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[workflow_id, document_id, "classified", "running"],
+            args=[workflow_id, document_id, "processed", "running", None, {"document_name": document_name}],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -123,6 +130,18 @@ class DocumentProcessingMixin:
                 maximum_interval=timedelta(seconds=60),
                 backoff_coefficient=2.0,
             ),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[workflow_id, document_id, "processed", "completed", None, {"document_name": document_name}],
+            start_to_close_timeout=timedelta(seconds=30),
+        )
+
+        await workflow.execute_activity(
+            "update_stage_status",
+            args=[workflow_id, document_id, "classified", "running", None, {"document_name": document_name}],
+            start_to_close_timeout=timedelta(seconds=30),
         )
         ocr_output = validate_workflow_output(
             {
@@ -228,14 +247,17 @@ class DocumentProcessingMixin:
             "DocumentProcessingMixin.chunking"
         )
 
+        processed_metadata = {
+            "page_count": len(pages_to_process),
+            "table_count": table_output.get("tables_found", 0),
+            "chunk_count": chunking_output.get("chunk_count", 0),
+            "document_profile": document_profile,
+            "document_name": document_name,
+        }
+
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "processed", "completed"],
-            start_to_close_timeout=timedelta(seconds=30),
-        )
-        await workflow.execute_activity(
-            "update_stage_status",
-            args=[workflow_id, document_id, "classified", "completed"],
+            args=[workflow_id, document_id, "classified", "completed", None, processed_metadata],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -259,13 +281,14 @@ class DocumentProcessingMixin:
         document_profile: Dict[str, Any],
         target_sections: Optional[List[str]] = None,
         target_entities: Optional[List[str]] = None,
+        document_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute LLM extraction."""
         workflow.logger.info(f"Starting ExtractedStage for {document_id}")
 
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "extracted", "running"],
+            args=[workflow_id, document_id, "extracted", "running", None, {"document_name": document_name}],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -305,9 +328,25 @@ class DocumentProcessingMixin:
             "DocumentProcessingMixin.extraction"
         )
 
+        # Calculate section_count based on synthesized sections (coverages + exclusions)
+        # This reflects the coverage-centric output model where endorsements are
+        # projected into coverage and exclusion sections
+        effective_coverages = extraction_result.get("effective_coverages", [])
+        effective_exclusions = extraction_result.get("effective_exclusions", [])
+        synthesized_section_count = (
+            (1 if effective_coverages else 0) +
+            (1 if effective_exclusions else 0)
+        )
+
+        extraction_metadata = {
+            "section_count": synthesized_section_count if synthesized_section_count > 0 else len(extraction_result.get("section_results", [])),
+            "entity_count": output.get("total_entities", 0),
+            "document_name": document_name,
+        }
+
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "extracted", "completed"],
+            args=[workflow_id, document_id, "extracted", "completed", None, extraction_metadata],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -316,21 +355,24 @@ class DocumentProcessingMixin:
             "status": "completed",
             "workflow_id": workflow_id,
             "document_id": document_id,
-            "sections_extracted": len(extraction_result.get("section_results", [])),
+            "sections_extracted": extraction_metadata["section_count"],
             "entities_found": output.get("total_entities", 0),
+            "effective_coverages": effective_coverages,
+            "effective_exclusions": effective_exclusions,
         }
 
     async def _execute_enrichment_stage(
         self,
         workflow_id: str,
-        document_id: str
+        document_id: str,
+        document_name: Optional[str] = None
     ) -> Dict[str, Any]:
         """Execute entity resolution and relationship extraction."""
         workflow.logger.info(f"Starting EnrichedStage for {document_id}")
 
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "enriched", "running"],
+            args=[workflow_id, document_id, "enriched", "running", None, {"document_name": document_name}],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
@@ -363,9 +405,15 @@ class DocumentProcessingMixin:
                 "DocumentProcessingMixin.enrichment"
             )
 
+            enrichment_metadata = {
+                "entity_count": output.get("entity_count", 0),
+                "relationship_count": output.get("relationship_count", 0),
+                "document_name": document_name,
+            }
+
             await workflow.execute_activity(
                 "update_stage_status",
-                args=[workflow_id, document_id, "enriched", "completed"],
+                args=[workflow_id, document_id, "enriched", "completed", None, enrichment_metadata],
                 start_to_close_timeout=timedelta(seconds=30),
             )
 
@@ -391,18 +439,22 @@ class DocumentProcessingMixin:
         self,
         workflow_id: str,
         document_id: str,
-        target_sections: Optional[List[str]] = None
+        target_sections: Optional[List[str]] = None,
+        document_name: Optional[str] = None,
+        effective_coverages: Optional[List[Dict[str, Any]]] = None,
+        effective_exclusions: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
-        """Execute vector indexing and graph construction."""
+        """Execute vector indexing, graph construction, and citation creation."""
         workflow.logger.info(f"Starting SummarizedStage (Indexing) for {document_id}")
 
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "summarized", "running"],
+            args=[workflow_id, document_id, "summarized", "running", None, {"document_name": document_name}],
             start_to_close_timeout=timedelta(seconds=30),
         )
 
-        vector_indexing_result = await workflow.execute_activity(
+        # Run entity embeddings and chunk embeddings in parallel
+        vector_indexing_handle = workflow.start_activity(
             "generate_embeddings_activity",
             args=[document_id, workflow_id, target_sections],
             start_to_close_timeout=timedelta(minutes=5),
@@ -411,6 +463,35 @@ class DocumentProcessingMixin:
                 maximum_attempts=3
             )
         )
+
+        chunk_embedding_handle = workflow.start_activity(
+            "generate_chunk_embeddings_activity",
+            args=[document_id, workflow_id],
+            start_to_close_timeout=timedelta(minutes=5),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=3
+            )
+        )
+
+        vector_indexing_result = await vector_indexing_handle
+        chunk_embedding_result = await chunk_embedding_handle
+
+        # Create citations after chunk embeddings so Tier 2 semantic search
+        citation_result = {}
+        if effective_coverages or effective_exclusions:
+            try:
+                citation_result = await workflow.execute_activity(
+                    "create_citations_activity",
+                    args=[document_id, effective_coverages or [], effective_exclusions or []],
+                    start_to_close_timeout=timedelta(minutes=5),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5),
+                        maximum_attempts=3
+                    ),
+                )
+            except Exception as e:
+                workflow.logger.warning(f"Citation creation failed for {document_id}: {e}")
 
         graph_construction_result = await workflow.execute_activity(
             "construct_knowledge_graph_activity",
@@ -422,13 +503,18 @@ class DocumentProcessingMixin:
             )
         )
 
+        total_chunks_indexed = (
+            vector_indexing_result.get("chunks_embedded", 0) +
+            chunk_embedding_result.get("chunks_embedded", 0)
+        )
+
         output = validate_workflow_output(
             {
                 "workflow_id": workflow_id,
                 "document_id": document_id,
                 "vector_indexed": True,
                 "graph_constructed": True,
-                "chunks_indexed": vector_indexing_result.get("chunks_embedded", 0),
+                "chunks_indexed": total_chunks_indexed,
                 "entities_created": graph_construction_result.get("entities_created", 0),
                 "relationships_created": graph_construction_result.get("relationships_created", 0),
                 "embeddings_linked": graph_construction_result.get("embeddings_linked", 0),
@@ -437,9 +523,17 @@ class DocumentProcessingMixin:
             "DocumentProcessingMixin.indexing"
         )
 
+        indexing_metadata = {
+            "chunks_indexed": output.get("chunks_indexed", 0),
+            "chunk_embeddings": chunk_embedding_result.get("chunks_embedded", 0),
+            "entities_created": output.get("entities_created", 0),
+            "relationships_created": output.get("relationships_created", 0),
+            "document_name": document_name,
+        }
+
         await workflow.execute_activity(
             "update_stage_status",
-            args=[workflow_id, document_id, "summarized", "completed"],
+            args=[workflow_id, document_id, "summarized", "completed", None, indexing_metadata],
             start_to_close_timeout=timedelta(seconds=30),
         )
         

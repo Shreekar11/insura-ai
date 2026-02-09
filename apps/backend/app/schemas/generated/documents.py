@@ -14,8 +14,20 @@ class DocumentResponse(BaseModel):
     id: UUID
     status: str
     file_path: str
+    document_name: str | None = None
     page_count: int | None = None
-    uploaded_at: AwareDatetime
+    created_at: AwareDatetime
+
+
+class FailedUpload(BaseModel):
+    filename: str | None = None
+    error: str | None = None
+
+
+class MultipleDocumentResponse(BaseModel):
+    total_uploaded: int
+    documents: list[DocumentResponse]
+    failed_uploads: list[FailedUpload]
 
 
 class EntityResponse(BaseModel):
@@ -30,3 +42,25 @@ class SectionResponse(BaseModel):
     section_type: str | None = None
     chunk_count: int | None = None
     page_range: list[int] | None = None
+
+
+class ResponseMeta(BaseModel):
+    timestamp: AwareDatetime
+    request_id: str
+    api_version: str
+
+
+class ErrorDetail(BaseModel):
+    title: str
+    status: int
+    detail: str
+    instance: str | None = None
+    request_id: str
+    timestamp: AwareDatetime
+
+
+class ApiResponse(BaseModel):
+    status: bool
+    message: str
+    data: dict[str, Any]
+    meta: ResponseMeta

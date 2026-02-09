@@ -3,7 +3,7 @@
 from typing import List, Dict, Any
 from uuid import UUID, uuid4
 from app.schemas.product.policy_comparison import ComparisonChange
-from app.schemas.product.proposal import (
+from app.schemas.product.proposal_generation import (
     Proposal, 
     ProposalSection, 
     ProposalComparisonRow
@@ -41,6 +41,8 @@ class ProposalAssemblyService:
 
         # 2. Generate sections and narratives
         proposal_sections = []
+        global_hitl_items = []
+        
         for section_type, section_changes in section_groups.items():
             narrative = await self.narrative_service.generate_section_narrative(
                 section_type, 
@@ -48,23 +50,37 @@ class ProposalAssemblyService:
             )
             
             # Key findings (GAPs and ADVANTAGEs)
-            key_findings = [
-                {"field": c.field_name, "delta": c.delta_type, "coverage": c.coverage_name}
-                for c in section_changes 
-                if c.delta_type in ["GAP", "ADVANTAGE"]
-            ]
+            key_findings = []
+            section_hitl_needed = False
+            section_hitl_reasons = []
+            
+            for c in section_changes:
+                if c.delta_type in ["GAP", "ADVANTAGE", "NEGATIVE_CHANGE"]:
+                    key_findings.append({
+                        "field": c.field_name, 
+                        "delta": c.delta_type, 
+                        "coverage": c.coverage_name,
+                        "reasoning": c.reasoning
+                    })
+                    
+                    if c.delta_type == "GAP":
+                        section_hitl_needed = True
+                        reason = f"Coverage Gap: {c.coverage_name or c.field_name} removed"
+                        section_hitl_reasons.append(reason)
+                        global_hitl_items.append(reason)
 
             proposal_sections.append(ProposalSection(
                 section_type=section_type,
                 title=section_type.replace("_", " ").title(),
                 narrative=narrative,
-                key_findings=key_findings
+                key_findings=key_findings,
+                requires_review=section_hitl_needed,
+                review_reason="; ".join(section_hitl_reasons) if section_hitl_reasons else None
             ))
 
         # 3. Build Comparison Table Rows (Side-by-side)
         comparison_rows = []
         for c in changes:
-            # We only show meaningful differences in the table
             comparison_rows.append(ProposalComparisonRow(
                 category=c.section_type.title(),
                 label=c.canonical_coverage_name or c.coverage_name or c.field_name,
@@ -72,13 +88,14 @@ class ProposalAssemblyService:
                 renewal_value=c.new_value,
                 delta_type=c.delta_type or "NEUTRAL",
                 delta_flag=c.delta_flag or "NEUTRAL",
-                is_canonical=c.canonical_coverage_name is not None
+                is_canonical=c.canonical_coverage_name is not None,
+                reasoning=c.reasoning
             ))
 
         # 4. Generate Executive Summary
         executive_summary = await self.narrative_service.generate_executive_summary(changes)
 
-        # 5. Extract basic policy info from changes (Declarations usually)
+        # 5. Extract basic policy info from changes
         insured_name = "Insured"
         carrier_name = "Carrier"
         policy_type = "Commercial Policy"
@@ -91,6 +108,13 @@ class ProposalAssemblyService:
             if c.field_name == "policy_type" and c.new_value:
                 policy_type = str(c.new_value)
 
+        # 6. Calculate quality score (0.0-1.0)
+        # Simple heuristic: 1.0 base, -0.1 for each GAP, -0.05 for each NEGATIVE_CHANGE
+        quality_score = 1.0
+        gaps = sum(1 for c in changes if c.delta_type == "GAP")
+        negatives = sum(1 for c in changes if c.delta_type == "NEGATIVE_CHANGE")
+        quality_score = max(0.0, 1.0 - (gaps * 0.1) - (negatives * 0.05))
+
         return Proposal(
             proposal_id=uuid4(),
             workflow_id=workflow_id,
@@ -101,5 +125,8 @@ class ProposalAssemblyService:
             executive_summary=executive_summary,
             sections=proposal_sections,
             comparison_table=comparison_rows,
+            requires_hitl_review=len(global_hitl_items) > 0,
+            hitl_items=global_hitl_items,
+            quality_score=quality_score,
             metadata=metadata or {}
         )

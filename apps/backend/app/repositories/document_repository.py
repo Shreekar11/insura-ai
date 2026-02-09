@@ -1,6 +1,7 @@
-from typing import Optional, List
+from typing import Optional, List, Dict, Any, Tuple
 from uuid import UUID
 from datetime import datetime, timezone
+from decimal import Decimal
 
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select
@@ -9,6 +10,10 @@ from app.repositories.base_repository import BaseRepository
 from app.database.models import Document, DocumentPage, PageManifestRecord
 from app.models.page_data import PageData
 from app.utils.logging import get_logger
+from app.services.processed.services.ocr.coordinate_extraction_service import (
+    WordCoordinate,
+    PageMetadata,
+)
 
 LOGGER = get_logger(__name__)
 
@@ -32,8 +37,9 @@ class DocumentRepository(BaseRepository[Document]):
         file_path: str,
         page_count: int,
         user_id: UUID,
+        document_name: Optional[str] = None,
         mime_type: str = "application/pdf",
-        status: str = "ocr_processing"
+        status: str = "uploaded"
     ) -> Document:
         """Create a new document record.
         
@@ -50,6 +56,7 @@ class DocumentRepository(BaseRepository[Document]):
         return await self.create(
             user_id=user_id,
             file_path=file_path,
+            document_name=document_name,
             page_count=page_count,
             status=status,
             mime_type=mime_type,
@@ -101,6 +108,10 @@ class DocumentRepository(BaseRepository[Document]):
                 text=page_data.text,
                 markdown=page_data.markdown,
                 additional_metadata=page_data.metadata or {},
+                # Store page dimensions for citation coordinate transformation
+                width_points=page_data.width_points,
+                height_points=page_data.height_points,
+                rotation=page_data.rotation or 0,
             )
             self.session.add(page)
         
@@ -214,5 +225,113 @@ class DocumentRepository(BaseRepository[Document]):
                 "pages_to_process": pages_to_process
             }
         )
-        
+
         return pages_to_process
+
+    async def get_word_coordinates_for_citation(
+        self,
+        document_id: UUID
+    ) -> Tuple[Dict[int, List[WordCoordinate]], List[PageMetadata]]:
+        """Get word coordinates and page metadata for citation mapping.
+
+        Retrieves stored word coordinates from page metadata and converts
+        them to WordCoordinate and PageMetadata objects for use with CitationMapper.
+
+        Args:
+            document_id: Document ID
+
+        Returns:
+            Tuple of (word_index, page_metadata) where:
+            - word_index: Dict mapping page numbers to lists of WordCoordinate objects
+            - page_metadata: List of PageMetadata objects for all pages
+        """
+        LOGGER.info(f"Loading word coordinates for document {document_id}")
+
+        result = await self.session.execute(
+            select(DocumentPage)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number)
+        )
+        pages = result.scalars().all()
+
+        if not pages:
+            LOGGER.warning(f"No pages found for document {document_id}")
+            return {}, []
+
+        word_index: Dict[int, List[WordCoordinate]] = {}
+        page_metadata_list: List[PageMetadata] = []
+        total_words = 0
+
+        for page in pages:
+            page_num = page.page_number
+
+            # Build page metadata
+            width = float(page.width_points) if page.width_points else 612.0
+            height = float(page.height_points) if page.height_points else 792.0
+            rotation = page.rotation or 0
+
+            page_metadata_list.append(PageMetadata(
+                page_number=page_num,
+                width=width,
+                height=height,
+                rotation=rotation,
+            ))
+
+            # Extract word coordinates from additional_metadata
+            metadata = page.additional_metadata or {}
+            word_coords = metadata.get("word_coordinates", [])
+
+            if word_coords:
+                word_index[page_num] = []
+                for wc in word_coords:
+                    word_index[page_num].append(WordCoordinate(
+                        text=wc.get("t", ""),  # compact format: "t" for text
+                        page_number=page_num,
+                        x0=float(wc.get("x0", 0)),
+                        y0=float(wc.get("y0", 0)),
+                        x1=float(wc.get("x1", 0)),
+                        y1=float(wc.get("y1", 0)),
+                    ))
+                total_words += len(word_index[page_num])
+
+        LOGGER.info(
+            f"Loaded word coordinates for citation mapping",
+            extra={
+                "document_id": str(document_id),
+                "pages_with_coordinates": len(word_index),
+                "total_words": total_words,
+                "total_pages": len(page_metadata_list),
+            }
+        )
+
+        return word_index, page_metadata_list
+
+    async def get_page_dimensions(
+        self,
+        document_id: UUID
+    ) -> Dict[int, Dict[str, Any]]:
+        """Get page dimensions for a document.
+
+        Args:
+            document_id: Document ID
+
+        Returns:
+            Dict mapping page numbers to dimension info:
+            {page_number: {"width": float, "height": float, "rotation": int}}
+        """
+        result = await self.session.execute(
+            select(DocumentPage)
+            .where(DocumentPage.document_id == document_id)
+            .order_by(DocumentPage.page_number)
+        )
+        pages = result.scalars().all()
+
+        dimensions = {}
+        for page in pages:
+            dimensions[page.page_number] = {
+                "width": float(page.width_points) if page.width_points else 612.0,
+                "height": float(page.height_points) if page.height_points else 792.0,
+                "rotation": page.rotation or 0,
+            }
+
+        return dimensions

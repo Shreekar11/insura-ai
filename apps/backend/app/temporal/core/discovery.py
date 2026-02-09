@@ -47,7 +47,7 @@ def discover_shared_components(package_name: str = "app.temporal.shared"):
                     importlib.import_module(mod_name)
                     logger.debug(f"Imported shared component module: {mod_name}")
             except ImportError as ie:
-                logger.debug(f"Could not import sub-package {sub_pkg}: {ie}")
+                logger.error(f"Could NOT import sub-package {sub_pkg}: {ie}")
                 continue
                 
     except Exception as e:
@@ -91,10 +91,14 @@ def discover_business_workflows(package_name: str = "app.temporal.product"):
                             continue
                         
                         for _, mod_name, _ in pkgutil.walk_packages([sub_module_path], f"{sub_pkg}."):
-                            importlib.import_module(mod_name)
-                            logger.debug(f"Imported business workflow module: {mod_name}")
+                            try:
+                                importlib.import_module(mod_name)
+                                logger.debug(f"Imported business workflow module: {mod_name}")
+                            except ImportError as ie:
+                                logger.error(f"Could NOT import business workflow module {mod_name}: {ie}")
                             
-                    except ImportError:
+                    except ImportError as ie:
+                        logger.error(f"Could NOT import sub-package {sub_pkg}: {ie}")
                         continue
                         
     except Exception as e:

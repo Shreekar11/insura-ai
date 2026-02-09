@@ -4,6 +4,8 @@
 
 from __future__ import annotations
 
+from typing import Any
+
 from pydantic import AwareDatetime, BaseModel, EmailStr, Field
 
 
@@ -12,3 +14,25 @@ class UserProfile(BaseModel):
     email: EmailStr
     full_name: str
     created_at: AwareDatetime
+
+
+class ResponseMeta(BaseModel):
+    timestamp: AwareDatetime
+    request_id: str
+    api_version: str
+
+
+class ErrorDetail(BaseModel):
+    title: str
+    status: int
+    detail: str
+    instance: str | None = None
+    request_id: str
+    timestamp: AwareDatetime
+
+
+class ApiResponse(BaseModel):
+    status: bool
+    message: str
+    data: dict[str, Any]
+    meta: ResponseMeta
