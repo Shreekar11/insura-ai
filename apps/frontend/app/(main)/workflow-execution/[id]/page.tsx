@@ -1,6 +1,7 @@
 "use client";
 
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback, useEffect, useMemo } from "react";
+import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useWorkflowById, useExecuteWorkflow } from "@/hooks/use-workflows";
 import { useUploadDocument, useDocuments } from "@/hooks/use-documents";
@@ -23,14 +24,65 @@ import {
   ResizablePanelGroup,
 } from "@/components/ui/resizable";
 import { PageHeader } from "@/components/layout/page-header";
-import { ExtractionOutputSidebar } from "@/components/custom/extraction-output-sidebar";
 import {
   PDFHighlightProvider,
   usePDFHighlight,
 } from "@/contexts/pdf-highlight-context";
-import { PDFViewerPanel } from "@/components/custom/pdf-viewer/pdf-viewer-panel";
-import { ComparisonOutputSidebar } from "@/components/custom/comparison-output-sidebar";
-import { ProposalOutputSidebar } from "@/components/custom/proposal-output-sidebar";
+const ExtractionOutputSidebar = dynamic(
+  () =>
+    import("@/components/custom/extraction-output-sidebar").then(
+      (m) => m.ExtractionOutputSidebar,
+    ),
+  {
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-white dark:bg-zinc-950">
+        <IconLoader2 className="animate-spin size-6" />
+      </div>
+    ),
+  },
+);
+
+const ComparisonOutputSidebar = dynamic(
+  () =>
+    import("@/components/custom/comparison-output-sidebar").then(
+      (m) => m.ComparisonOutputSidebar,
+    ),
+  {
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-white dark:bg-zinc-950">
+        <IconLoader2 className="animate-spin size-6" />
+      </div>
+    ),
+  },
+);
+
+const ProposalOutputSidebar = dynamic(
+  () =>
+    import("@/components/custom/proposal-output-sidebar").then(
+      (m) => m.ProposalOutputSidebar,
+    ),
+  {
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-white dark:bg-zinc-950">
+        <IconLoader2 className="animate-spin size-6" />
+      </div>
+    ),
+  },
+);
+
+const PDFViewerPanel = dynamic(
+  () =>
+    import("@/components/custom/pdf-viewer/pdf-viewer-panel").then(
+      (m) => m.PDFViewerPanel,
+    ),
+  {
+    loading: () => (
+      <div className="h-full flex items-center justify-center bg-white dark:bg-zinc-950">
+        <IconLoader2 className="animate-spin size-6" />
+      </div>
+    ),
+  },
+);
 
 function WorkflowExecutionContent() {
   const { id } = useParams();
@@ -154,8 +206,14 @@ function WorkflowExecutionContent() {
     [uploadMutation, id],
   );
 
-  const hasSuccessfulUpload = uploadedFiles.some((f) => f.status === "success");
-  const isAnyUploading = uploadedFiles.some((f) => f.status === "uploading");
+  const hasSuccessfulUpload = useMemo(
+    () => uploadedFiles.some((f) => f.status === "success"),
+    [uploadedFiles],
+  );
+  const isAnyUploading = useMemo(
+    () => uploadedFiles.some((f) => f.status === "uploading"),
+    [uploadedFiles],
+  );
 
   const handleStartWorkflow = async () => {
     if (!workflow) return;
@@ -208,11 +266,15 @@ function WorkflowExecutionContent() {
   };
 
   // Determine layout state
-  const layoutState = pdfViewerOpen
-    ? "pdf-active"
-    : sidebarOpen || comparisonSidebarOpen || proposalSidebarOpen
-      ? "two-column"
-      : "one-column";
+  const layoutState = useMemo(
+    () =>
+      pdfViewerOpen
+        ? "pdf-active"
+        : sidebarOpen || comparisonSidebarOpen || proposalSidebarOpen
+          ? "two-column"
+          : "one-column",
+    [pdfViewerOpen, sidebarOpen, comparisonSidebarOpen, proposalSidebarOpen],
+  );
 
   return (
     <ResizablePanelGroup

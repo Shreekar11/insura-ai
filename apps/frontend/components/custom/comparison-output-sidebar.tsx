@@ -106,10 +106,19 @@ export function ComparisonOutputSidebar({
 
   const [searchQuery, setSearchQuery] = React.useState("");
 
-  const comparisons = (data?.comparisons || []) as EntityComparison[];
+  const comparisons = React.useMemo(
+    () => (data?.comparisons || []) as EntityComparison[],
+    [data?.comparisons],
+  );
   const summary = data?.summary;
-  const doc1Name = data?.doc1_name || "Document 1";
-  const doc2Name = data?.doc2_name || "Document 2";
+  const doc1Name = React.useMemo(
+    () => data?.doc1_name || "Document 1",
+    [data?.doc1_name],
+  );
+  const doc2Name = React.useMemo(
+    () => data?.doc2_name || "Document 2",
+    [data?.doc2_name],
+  );
 
   const { data: citations1 } = useCitations(workflowId, data?.doc1_id || null);
   const { data: citations2 } = useCitations(workflowId, data?.doc2_id || null);
@@ -130,6 +139,39 @@ export function ComparisonOutputSidebar({
       return !!findCitation(citations2.citations, type, id);
     },
     [citations2?.citations],
+  );
+
+  const handleDocHighlight = React.useCallback(
+    (
+      docNum: 1 | 2,
+      entityType: string | undefined,
+      entityId: string | null | undefined,
+    ) => {
+      const citData = docNum === 1 ? citations1 : citations2;
+      const docId = docNum === 1 ? data?.doc1_id : data?.doc2_id;
+      const document = documentsData?.documents?.find((d) => d.id === docId);
+
+      if (
+        !citData?.citations ||
+        !document?.file_path ||
+        !entityType ||
+        !entityId
+      )
+        return;
+
+      const citation = findCitation(citData.citations, entityType, entityId);
+      if (citation) {
+        highlightCitation(citation, document.file_path, citData.pageDimensions);
+      }
+    },
+    [
+      citations1,
+      citations2,
+      data?.doc1_id,
+      data?.doc2_id,
+      documentsData?.documents,
+      highlightCitation,
+    ],
   );
 
   const filteredComparisons = React.useMemo(() => {
@@ -365,37 +407,6 @@ export function ComparisonOutputSidebar({
                         const cit2 = hasCitation2(c.entity_type, c.entity_id);
                         const anyCit = cit1 || cit2;
 
-                        const handleDocHighlight = (docNum: 1 | 2) => {
-                          const citData =
-                            docNum === 1 ? citations1 : citations2;
-                          const docId =
-                            docNum === 1 ? data?.doc1_id : data?.doc2_id;
-                          const document = documentsData?.documents?.find(
-                            (d) => d.id === docId,
-                          );
-
-                          if (
-                            !citData?.citations ||
-                            !document?.file_path ||
-                            !c.entity_type ||
-                            !c.entity_id
-                          )
-                            return;
-
-                          const citation = findCitation(
-                            citData.citations,
-                            c.entity_type,
-                            c.entity_id,
-                          );
-                          if (citation) {
-                            highlightCitation(
-                              citation,
-                              document.file_path,
-                              citData.pageDimensions,
-                            );
-                          }
-                        };
-
                         return (
                           <TableRow
                             key={i}
@@ -407,8 +418,18 @@ export function ComparisonOutputSidebar({
                             <TableCell
                               className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal relative pr-6 cursor-pointer"
                               onClick={() => {
-                                if (cit1) handleDocHighlight(1);
-                                else if (cit2) handleDocHighlight(2);
+                                if (cit1)
+                                  handleDocHighlight(
+                                    1,
+                                    c.entity_type,
+                                    c.entity_id,
+                                  );
+                                else if (cit2)
+                                  handleDocHighlight(
+                                    2,
+                                    c.entity_type,
+                                    c.entity_id,
+                                  );
                               }}
                             >
                               <span className="text-[10px] uppercase text-zinc-400 block mb-1">
@@ -426,7 +447,14 @@ export function ComparisonOutputSidebar({
                                 "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
                                 cit1 && "cursor-pointer hover:bg-orange-50/20",
                               )}
-                              onClick={() => cit1 && handleDocHighlight(1)}
+                              onClick={() =>
+                                cit1 &&
+                                handleDocHighlight(
+                                  1,
+                                  c.entity_type,
+                                  c.entity_id,
+                                )
+                              }
                             >
                               {c.doc1_content ? (
                                 <div className="space-y-1">
@@ -461,7 +489,14 @@ export function ComparisonOutputSidebar({
                                 "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
                                 cit2 && "cursor-pointer hover:bg-orange-50/20",
                               )}
-                              onClick={() => cit2 && handleDocHighlight(2)}
+                              onClick={() =>
+                                cit2 &&
+                                handleDocHighlight(
+                                  2,
+                                  c.entity_type,
+                                  c.entity_id,
+                                )
+                              }
                             >
                               {c.doc2_content ? (
                                 <div className="space-y-1">

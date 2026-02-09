@@ -59,10 +59,19 @@ export function ExtractionOutputSidebar({
 
   const [searchQuery, setSearchQuery] = React.useState("");
 
-  const sections = (data?.extracted_data?.sections || []) as Section[];
-  const entities = (data?.extracted_data?.entities || []) as Entity[];
+  const sections = React.useMemo(
+    () => (data?.extracted_data?.sections || []) as Section[],
+    [data?.extracted_data?.sections],
+  );
+  const entities = React.useMemo(
+    () => (data?.extracted_data?.entities || []) as Entity[],
+    [data?.extracted_data?.entities],
+  );
 
-  const validSections = sections.filter(hasSectionItems);
+  const validSections = React.useMemo(
+    () => sections.filter(hasSectionItems),
+    [sections],
+  );
 
   const flattenedData = React.useMemo(() => {
     const items: Array<{
@@ -233,23 +242,26 @@ export function ExtractionOutputSidebar({
   );
   const pdfUrl = currentDocument?.file_path;
 
-  const handleItemClick = (sourceType: string, sourceId: string) => {
-    if (!citationsData?.citations || !pdfUrl) {
-      console.warn("Citations or PDF URL not available");
-      return;
-    }
+  const handleItemClick = React.useCallback(
+    (sourceType: string, sourceId: string) => {
+      if (!citationsData?.citations || !pdfUrl) {
+        console.warn("Citations or PDF URL not available");
+        return;
+      }
 
-    const citation = findCitation(
-      citationsData.citations,
-      sourceType,
-      sourceId,
-    );
-    if (citation) {
-      highlightCitation(citation, pdfUrl, citationsData.pageDimensions);
-    } else {
-      console.warn(`Citation not found for ${sourceType}:${sourceId}`);
-    }
-  };
+      const citation = findCitation(
+        citationsData.citations,
+        sourceType,
+        sourceId,
+      );
+      if (citation) {
+        highlightCitation(citation, pdfUrl, citationsData.pageDimensions);
+      } else {
+        console.warn(`Citation not found for ${sourceType}:${sourceId}`);
+      }
+    },
+    [citationsData, pdfUrl, highlightCitation],
+  );
 
   if (!open) return null;
 

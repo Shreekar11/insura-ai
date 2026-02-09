@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, useRef, useMemo } from "react";
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
 import {
   Viewer,
   Worker,
@@ -89,18 +89,37 @@ export function PDFViewer({
     }
   }, [citation, jumpToPage, pageDimensions, scale]);
 
-  const handleDocumentLoad = () => {
+  const handleDocumentLoad = useCallback(() => {
     documentLoaded.current = true;
-  };
+  }, []);
 
-  const handlePageChange = (e: any) => {
+  const handlePageChange = useCallback((e: any) => {
     const newPage = e.currentPage + 1;
     setCurrentPage(newPage);
-  };
+  }, []);
 
-  const handleZoomChange = (e: any) => {
+  const handleZoomChange = useCallback((e: any) => {
     setScale(e.scale);
-  };
+  }, []);
+
+  const renderPage = useCallback(
+    (props: any) => (
+      <>
+        {props.canvasLayer.children}
+        {props.textLayer.children}
+        {citation && (
+          <PDFHighlightLayer
+            spans={citation.spans}
+            pageNumber={props.pageIndex + 1}
+            scale={props.scale}
+            pageDimensions={pageDimensions}
+          />
+        )}
+        {props.annotationLayer.children}
+      </>
+    ),
+    [citation, pageDimensions],
+  );
 
   return (
     <div className="relative h-full w-full bg-zinc-100 dark:bg-zinc-900">
@@ -114,21 +133,7 @@ export function PDFViewer({
             onDocumentLoad={handleDocumentLoad}
             onPageChange={handlePageChange}
             onZoom={handleZoomChange}
-            renderPage={(props) => (
-              <>
-                {props.canvasLayer.children}
-                {props.textLayer.children}
-                {citation && (
-                  <PDFHighlightLayer
-                    spans={citation.spans}
-                    pageNumber={props.pageIndex + 1}
-                    scale={props.scale}
-                    pageDimensions={pageDimensions}
-                  />
-                )}
-                {props.annotationLayer.children}
-              </>
-            )}
+            renderPage={renderPage}
           />
         </div>
       </Worker>
