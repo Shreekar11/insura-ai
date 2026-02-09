@@ -46,6 +46,7 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
         workflow_name = payload.get("workflow_name")
         documents = payload.get("documents")
         document_ids = [doc.get("document_id") for doc in documents]
+        metadata = payload.get("metadata", {}) # Assuming metadata might contain document names
 
         self._status = "running"
         self._progress = 0.0
@@ -94,13 +95,20 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
                 
                 await self.process_document(doc_id, config)
 
-        # Core Quote Comparison
+        # Core Quote Comparison (Phase B, Normalization, Quality, Matrix)
         self._current_step = "core_comparison"
         self._progress = 0.60
         core_result = await self._execute_core_comparison(workflow_id, document_ids)
-
-        phase_b_result = core_result.get("phase_b_result")
         comparison_result = core_result.get("comparison_result")
+
+        # Generate Insights (Reasoning)
+        self._current_step = "generate_insights"
+        self._progress = 0.9
+        insights_result = await workflow.execute_activity(
+            "generate_quote_insights_activity",
+            args=[comparison_result],
+            start_to_close_timeout=timedelta(minutes=2),
+        )
 
         # Persist Result
         self._current_step = "persist_result"
@@ -111,10 +119,19 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
                 workflow_id, 
                 workflow_definition_id, 
                 document_ids, 
-                comparison_result,
-                None  # broker_summary - to be added later
+                insights_result,
+                None 
             ],
             start_to_close_timeout=timedelta(seconds=60),
+        )
+
+        # Entity Comparison (Post-Processing)
+        self._current_step = "entity_comparison"
+        self._progress = 0.98
+        await workflow.execute_activity(
+            "entity_comparison_activity",
+            args=[workflow_id, document_ids, metadata.get("document_names", ["Quote 1", "Quote 2"])],
+            start_to_close_timeout=timedelta(minutes=2),
         )
 
         await workflow.execute_activity(
@@ -139,7 +156,7 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
             "workflow_id": str(workflow_id),
             "comparison_summary": persist_result.get("comparison_summary"),
             "total_changes": persist_result.get("total_changes"),
-            "comparison_scope": phase_b_result.get("comparison_scope", "full"),
+            "comparison_scope": core_result.get("phase_b_result", {}).get("comparison_scope", "full"),
         }
 
     async def _execute_core_comparison(self, workflow_id: str, document_ids: List[str]) -> Dict[str, Any]:
