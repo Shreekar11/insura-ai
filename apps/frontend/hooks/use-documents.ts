@@ -4,7 +4,7 @@ import { api } from "@/lib/api";
 export interface DocumentResponse {
   id: string;
   status: string;
-  file_path: string;
+  file_path: string; // Internal storage path, e.g., "user_id/uploads/uuid.pdf"
   document_name: string | null;
   page_count: number | null;
   created_at: string;
@@ -100,3 +100,30 @@ export const useUploadDocuments = () => {
 };
 
 export const useUploadDocument = useUploadDocuments;
+
+/**
+ * Hook for fetching a secure signed URL for a document
+ */
+export const useDocumentUrl = (documentId?: string) => {
+  return useQuery({
+    queryKey: ["document-url", documentId],
+    queryFn: async () => {
+      if (!documentId) return null;
+      
+      const response = await api.get<{
+        status: boolean;
+        message: string;
+        data: { url: string; expires_in: number };
+      }>(`/documents/${documentId}/url`);
+      
+      if (!response.data?.status) {
+        throw new Error(response.data?.message || "Failed to fetch document URL");
+      }
+      
+      return response.data.data;
+    },
+    enabled: !!documentId,
+    // Keep URL fresh but recognize signed URLs last 24h
+    staleTime: 1000 * 60 * 60, // 1 hour
+  });
+};

@@ -99,7 +99,6 @@ class StorageService:
             AppError: If URL generation fails.
         """
         url = f"{self.base_api_url}/object/sign/{bucket}/{path}"
-        public_url = f"{self.base_api_url}/object/{bucket}/{path}"
         
         try:
             async with httpx.AsyncClient() as client:
@@ -124,16 +123,34 @@ class StorageService:
                 
                 # Supabase returns a relative path like /storage/v1/object/sign/documents/file.pdf?token=...
                 # We need to prepend the full Supabase URL if it's not absolute
+                signed_url = signed_path
                 if signed_path.startswith("/"):
-                    return {
-                        "signed_url": f"{self.url}{signed_path}",
-                        "public_url": public_url
-                    }
+                    signed_url = f"{self.url}{signed_path}"
+
                 return {
-                    "signed_url": signed_path,
-                    "public_url": public_url
+                    "signed_url": signed_url,
+                    "storage_path": path
                 }
                 
         except Exception as e:
             LOGGER.error(f"Error generating signed URL: {str(e)}", exc_info=True)
             raise AppError(f"Signed URL error: {str(e)}", original_error=e)
+
+    async def create_download_url(
+        self, 
+        bucket: str, 
+        path: str, 
+        expires_in: int = 86400  # 24 hours default
+    ) -> str:
+        """Generate a signed download URL for secure document access.
+        
+        Args:
+            bucket: Bucket name.
+            path: Object path.
+            expires_in: Expiration time in seconds (default 24 hours).
+            
+        Returns:
+            Signed URL for downloading the file.
+        """
+        result = await self.get_signed_url(bucket, path, expires_in)
+        return result["signed_url"]

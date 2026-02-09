@@ -152,6 +152,38 @@ async def delete_document(
     )
 
 @router.get(
+    "/{document_id}/url",
+    response_model=ApiResponse,
+    summary="Get secure download URL for document",
+    operation_id="get_document_url",
+)
+async def get_document_url(
+    request: Request,
+    document_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    document_service: Annotated[DocumentService, Depends(get_document_service)] = None,
+) -> ApiResponse:
+    """Get a secure, time-limited signed URL for document download."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+    
+    url = await document_service.get_document_url(document_id, user.id)
+    if not url:
+        error_detail = create_error_detail(
+            title="Document Not Found",
+            status=status.HTTP_404_NOT_FOUND,
+            detail=f"Document with ID {document_id} not found",
+            request=request
+        )
+        raise HTTPException(status_code=404, detail=error_detail.model_dump(mode='json'))
+    
+    return create_api_response(
+        data={"url": url, "expires_in": 86400},
+        message="Secure download URL generated",
+        request=request
+    )
+
+@router.get(
     "/{document_id}/entities",
     response_model=ApiResponse,
     summary="Get document entities",

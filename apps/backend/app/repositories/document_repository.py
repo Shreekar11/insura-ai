@@ -39,7 +39,7 @@ class DocumentRepository(BaseRepository[Document]):
         user_id: UUID,
         document_name: Optional[str] = None,
         mime_type: str = "application/pdf",
-        status: str = "ocr_processing"
+        status: str = "uploaded"
     ) -> Document:
         """Create a new document record.
         

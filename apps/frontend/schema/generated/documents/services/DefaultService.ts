@@ -118,6 +118,33 @@ export class DefaultService {
         });
     }
     /**
+     * Get secure download URL for document
+     * @param documentId
+     * @returns any Secure download URL
+     * @throws ApiError
+     */
+    public static getDocumentUrl(
+        documentId: string,
+    ): CancelablePromise<(ApiResponse & {
+        data?: {
+            url?: string;
+            expires_in?: number;
+        };
+    })> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/documents/{document_id}/url',
+            path: {
+                'document_id': documentId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Document not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
      * Get document entities
      * @param documentId
      * @param entityType

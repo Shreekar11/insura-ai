@@ -6,6 +6,7 @@ from typing import Optional
 from app.core.database import async_session_maker
 from app.repositories.stages_repository import StagesRepository
 from app.repositories.workflow_repository import WorkflowRepository
+from app.repositories.document_repository import DocumentRepository
 from app.services.sse_messages import format_stage_message
 from app.utils.logging import get_logger
 from app.temporal.core.activity_registry import ActivityRegistry
@@ -64,6 +65,28 @@ async def update_stage_status(
             error_message=error_message,
             stage_metadata=stage_metadata
         )
+
+        # Update document status
+        doc_repo = DocumentRepository(session)
+        
+        # Status mapping for documents
+        status_map = {
+            ("processed", "running"): "ocr_processing",
+            ("processed", "completed"): "ocr_completed",
+            ("classified", "running"): "classifying",
+            ("classified", "completed"): "classified",
+            ("extracted", "running"): "extracting",
+            ("extracted", "completed"): "extracted",
+            ("summarized", "running"): "indexing",
+            ("summarized", "completed"): "completed",
+        }
+        
+        doc_status = status_map.get((stage_name, status))
+        if status == "failed":
+            doc_status = "failed"
+            
+        if doc_status:
+            await doc_repo.update_status(UUID(document_id), doc_status)
 
         # Persist a granular event so historical runs/completed streams can show the timeline + output
         wf_repo = WorkflowRepository(session)

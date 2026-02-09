@@ -113,8 +113,10 @@ class DocumentService(BaseService):
                 
                 # Upload to Supabase Storage
                 await self.storage_service.upload_file(file, bucket="docs", path=storage_path)
-                storage_result = await self.storage_service.get_signed_url(bucket="docs", path=storage_path)
-                pdf_url = storage_result["public_url"]
+                
+                # Store the storage path, not the public URL
+                # URLs will be generated on-demand with proper signing
+                pdf_storage_path = storage_path
                 
                 LOGGER.info(
                     f"File uploaded to storage: "
@@ -125,7 +127,7 @@ class DocumentService(BaseService):
                 # Create document record
                 document = await self.doc_repo.create_document(
                     user_id=user_id,
-                    file_path=pdf_url,
+                    file_path=pdf_storage_path,  # Store path, generate signed URL on access
                     document_name=file.filename,
                     page_count=0,
                 )
@@ -308,6 +310,26 @@ class DocumentService(BaseService):
         await self.doc_repo.delete(document_id)
         await self.session.commit()
         return True
+
+    async def get_document_url(self, document_id: UUID, user_id: UUID) -> Optional[str]:
+        """Get a secure signed URL for document access.
+        
+        Args:
+            document_id: Document ID
+            user_id: User ID (for ownership verification)
+            
+        Returns:
+            Signed URL valid for 24 hours, or None if not found/unauthorized
+        """
+        document = await self.doc_repo.get_by_id(document_id)
+        if not document or document.user_id != user_id:
+            return None
+        
+        return await self.storage_service.create_download_url(
+            bucket="docs",
+            path=document.file_path,
+            expires_in=86400  # 24 hours
+        )
 
     async def get_document_entities(
         self, 
