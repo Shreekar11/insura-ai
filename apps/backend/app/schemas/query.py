@@ -343,6 +343,9 @@ class MergedResult(BaseModel):
     relationship_path: list[str] | None = Field(
         default=None, description="Graph relationship chain"
     )
+    citation_id: str | None = Field(
+        default=None, description="Citation ID (e.g. '[1]') assigned during context assembly"
+    )
 
     class Config:
         json_schema_extra = {
