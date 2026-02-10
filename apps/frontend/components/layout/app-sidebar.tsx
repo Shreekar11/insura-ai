@@ -25,16 +25,12 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 
-import { useActiveWorkflow } from "@/contexts/active-workflow-context";
-
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
   const {
     data: workflowDefinitions,
     isLoading,
-    error,
   } = useWorkflowDefinitions();
-  const { activeWorkflowDefinitionId } = useActiveWorkflow();
 
   const workflowDefId = pathname.split("/")[2];
 
@@ -100,7 +96,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   return (
                     <SidebarMenuItem key={index}>
                       <SidebarMenuButton
-                        className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${item.id === workflowDefId || item.id === activeWorkflowDefinitionId ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
+                        className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${item.id === workflowDefId ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
                         asChild
                         tooltip={item.name}
                       >

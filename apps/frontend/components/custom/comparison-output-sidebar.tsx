@@ -160,8 +160,13 @@ export function ComparisonOutputSidebar({
         return;
 
       const citation = findCitation(citData.citations, entityType, entityId);
-      if (citation) {
-        highlightCitation(citation, document.file_path, citData.pageDimensions);
+      if (citation && docId) {
+        highlightCitation(
+          citation,
+          document.file_path,
+          docId,
+          citData.pageDimensions,
+        );
       }
     },
     [
