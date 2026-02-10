@@ -37,7 +37,21 @@ async def extract_tables(
         try:
             # Get pages from database
             doc_repo = DocumentRepository(session)
+            document = await doc_repo.get_by_id(UUID(document_id))
+            if not document:
+                raise ValueError(f"Document {document_id} not found")
+
             pages = await doc_repo.get_pages_by_document(document_id=UUID(document_id))
+            
+            # Use signed URL for storage access if document_url not provided
+            if not document_url and document.file_path:
+                from app.services.storage_service import StorageService
+                storage_service = StorageService()
+                document_url = await storage_service.create_download_url(
+                    bucket="docs",
+                    path=document.file_path,
+                    expires_in=3600 # 1 hour
+                )
             
             if not pages:
                 return {
