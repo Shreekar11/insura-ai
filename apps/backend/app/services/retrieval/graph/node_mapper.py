@@ -72,9 +72,10 @@ class NodeMapperService:
                     LOGGER.error(f"Failed to parse GraphNode from record: {e}")
                     
             LOGGER.info(
-                "Mapped vector results to graph nodes",
+                f"Mapped {len(vector_results)} vector results to {len(mapped_nodes)} graph nodes. Inputs: {unique_entity_ids}",
                 extra={
                     "vector_results_count": len(vector_results),
+                    "input_entity_ids": unique_entity_ids,
                     "mapped_nodes_count": len(mapped_nodes),
                     "workflow_id": str(workflow_id)
                 }

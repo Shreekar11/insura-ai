@@ -1,5 +1,5 @@
 import time
-from datetime import datetime
+from datetime import datetime, timezone
 from uuid import UUID
 
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -111,6 +111,7 @@ class GraphRAGService:
             graph_results = await self.graph_expansion.expand(
                 vector_results=vector_results,
                 query_plan=query_plan,
+                workflow_id=workflow_id
             )
         except Exception as e:
             LOGGER.error(f"Graph expansion failed, falling back to vector-only: {e}", exc_info=True)
@@ -168,5 +169,5 @@ class GraphRAGService:
             answer=formatted_response.answer,
             sources=formatted_response.sources if request.include_sources else [],
             metadata=metadata,
-            timestamp=datetime.utcnow()
+            timestamp=datetime.now(timezone.utc)
         )

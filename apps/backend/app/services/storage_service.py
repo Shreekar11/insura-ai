@@ -121,11 +121,24 @@ class StorageService:
                 if not signed_path:
                     raise AppError("Supabase response did not contain signedURL")
                 
-                # Supabase returns a relative path like /storage/v1/object/sign/documents/file.pdf?token=...
-                # We need to prepend the full Supabase URL if it's not absolute
-                signed_url = signed_path
-                if signed_path.startswith("/"):
-                    signed_url = f"{self.url}{signed_path}"
+                # Force the structure requested: 
+                # {supabase_url}/storage/v1/object/sign/{bucket}/{path}?token={token}
+                
+                # Extract token from signed_path
+                token = ""
+                if "?token=" in signed_path:
+                    token = signed_path.split("?token=")[1]
+                elif "&token=" in signed_path:
+                    token = signed_path.split("&token=")[1]
+                    
+                # Construct clean URL
+                # Ensure no double slashes in path parts
+                clean_path = path.lstrip("/")
+                
+                # Base URL should not have trailing slash
+                base_url = self.url.rstrip("/")
+                
+                signed_url = f"{base_url}/storage/v1/object/sign/{bucket}/{clean_path}?token={token}"
 
                 return {
                     "signed_url": signed_url,

@@ -640,10 +640,10 @@ Output:
 PROCESSING INSTRUCTIONS
 ═══════════════════════════════════════════════════════════════════════════
 
-FOR EACH SECTION (in priority order: declarations → coverages → conditions → sov → endorsements):
+FOR EACH SECTION (in priority order: declarations → coverages → exclusions → conditions → definitions → sov → endorsements):
   1. Identify canonical entities mentioned in section chunks
   2. Look for relationship patterns:
-     - Explicit: "X issued by Y", "X applies to Y"
+     - Explicit: "X issued by Y", "X applies to Y", "X excludes Y"
      - Implicit: Co-occurrence + context clues
      - Table: Match policy_number, location_id, claim_number
   3. Extract evidence (exact quote + span OR table reference)
@@ -657,7 +657,8 @@ FOR ENTITIES:
   • Coverage entity → Policy HAS_COVERAGE Coverage
   • Location entity → Policy HAS_LOCATION Location
   • Condition entity → Coverage SUBJECT_TO Condition
-  • Definition entity → Coverage/Condition DEFINED_IN Definition
+  • Exclusion entity → Coverage EXCLUDES Exclusion
+  • Definition entity → Coverage/Condition/Endorsement DEFINED_IN Definition
   • Endorsement entity → Policy/Coverage MODIFIED_BY Endorsement
 
 RETURN ONLY VALID JSON - NO MARKDOWN, NO EXPLANATIONS
@@ -730,9 +731,9 @@ VALID_RELATIONSHIP_TYPES = {
     "HAS_COVERAGE",
     "APPLIES_TO",        # Coverage -> Location
     "MODIFIED_BY",      # Coverage -> Endorsement
-    "EXCLUDES",         # Coverage -> Coverage
-    "SUBJECT_TO",       # Coverage -> Coverage
-    "DEFINED_IN",       # Definition -> Coverage/Endorsement
+    "EXCLUDES",         # Coverage -> Exclusion
+    "SUBJECT_TO",       # Coverage -> Condition
+    "DEFINED_IN",       # Definition -> Coverage/Condition/Endorsement
 
     # Location Relationships
     "HAS_LOCATION",     # Policy -> Location

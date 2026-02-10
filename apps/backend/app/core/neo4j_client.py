@@ -50,8 +50,8 @@ class Neo4jClientManager:
     ENTITY_LABELS = [
         "Policy", "Coverage", "Organization", "Claim",
         "Endorsement", "Location", "Condition", "Definition",
-        "Exclusion", "Vehicle", "Driver", "VectorEmbedding",
-        "Evidence",  # Added in Phase 5
+        "Exclusion", "Vehicle", "Driver", "Monetary",
+        "VectorEmbedding", "Evidence",
     ]
 
     @classmethod
@@ -60,10 +60,44 @@ class Neo4jClientManager:
         driver = await cls.get_driver()
 
         async with driver.session(database=settings.neo4j.database) as session:
-            # Entity node constraints: unique on `id`
+            # Step 1: Drop legacy single-field constraints and potentially conflicting indexes
+            try:
+                # Drop legacy constraints
+                result = await session.run("SHOW CONSTRAINTS")
+                records = await result.data()
+                for rec in records:
+                    name = rec['name']
+                    props = rec['properties']
+                    # If it's a constraint on 'id' alone for any of our labels, drop it
+                    if props and len(props) == 1 and props[0] == 'id':
+                        await session.run(f"DROP CONSTRAINT {name} IF EXISTS")
+                        LOGGER.info(f"Dropped legacy constraint: {name}")
+                    # Special case for VectorEmbedding legacy constraint
+                    if name == "constraint_vectorembedding_id_unique":
+                        await session.run(f"DROP CONSTRAINT {name} IF EXISTS")
+                        LOGGER.info(f"Dropped legacy constraint: {name}")
+
+                # Drop potentially conflicting indexes that prevent constraint creation
+                result = await session.run("SHOW INDEXES")
+                records = await result.data()
+                for rec in records:
+                    name = rec['name']
+                    props = rec['properties']
+                    # If it's a composite index on (id, workflow_id) that isn't the constraint index, 
+                    # drop it so we can create the constraint (which creates its own index)
+                    if props and len(props) == 2 and 'id' in props and 'workflow_id' in props:
+                        if not name.startswith("constraint_"):
+                            await session.run(f"DROP INDEX {name} IF EXISTS")
+                            LOGGER.info(f"Dropped potentially conflicting index: {name}")
+            except Exception as e:
+                LOGGER.warning(f"Failed to cleanup legacy constraints/indexes: {e}")
+
+            # Step 2: Create new composite constraints: unique on (id, workflow_id)
             for label in cls.ENTITY_LABELS:
-                constraint_name = f"constraint_{label.lower()}_id_unique"
-                cypher = f"CREATE CONSTRAINT {constraint_name} IF NOT EXISTS FOR (n:{label}) REQUIRE n.id IS UNIQUE"
+                if label == "VectorEmbedding":
+                    continue # Handled separately below
+                constraint_name = f"constraint_{label.lower()}_id_workflow_unique"
+                cypher = f"CREATE CONSTRAINT {constraint_name} IF NOT EXISTS FOR (n:{label}) REQUIRE (n.id, n.workflow_id) IS UNIQUE"
                 try:
                     await session.run(cypher)
                     LOGGER.info(f"Ensured constraint for {label}", extra={"constraint": constraint_name})
@@ -88,15 +122,17 @@ class Neo4jClientManager:
 
         async with driver.session(database=settings.neo4j.database) as session:
             for label in cls.ENTITY_LABELS:
-                # Composite index on (id, workflow_id) for MERGE patterns
-                composite_name = f"idx_{label.lower()}_id_workflow"
+                # Standalone index on id for fast lookups
+                idx_id = f"idx_{label.lower()}_id"
                 try:
-                    await session.run(
-                        f"CREATE INDEX {composite_name} IF NOT EXISTS "
-                        f"FOR (n:{label}) ON (n.id, n.workflow_id)"
-                    )
-                except Exception as e:
-                    LOGGER.error(f"Failed to create composite index for {label}: {e}")
+                    await session.run(f"CREATE INDEX {idx_id} IF NOT EXISTS FOR (n:{label}) ON (n.id)")
+                except Exception: pass
+
+                # Standalone index on workflow_id for scoped cleanups
+                idx_wf = f"idx_{label.lower()}_workflow_id"
+                try:
+                    await session.run(f"CREATE INDEX {idx_wf} IF NOT EXISTS FOR (n:{label}) ON (n.workflow_id)")
+                except Exception: pass
 
                 # Standalone workflow_id index for workflow-scoped queries
                 wf_name = f"idx_{label.lower()}_workflow"
@@ -141,7 +177,7 @@ class Neo4jClientManager:
 
         for attempt in range(max_retries):
             try:
-                async with cls.get_session(database=db) as session:
+                async with await cls.get_session(database=db) as session:
                     result = await session.run(query, parameters)
                     records = await result.data()
                     return records
@@ -204,7 +240,7 @@ class Neo4jClientManager:
         parameters = parameters or {}
         db = database or settings.neo4j.database
 
-        async with cls.get_session(database=db) as session:
+        async with await cls.get_session(database=db) as session:
             result = await session.run(query, parameters)
             summary = await result.consume()
 

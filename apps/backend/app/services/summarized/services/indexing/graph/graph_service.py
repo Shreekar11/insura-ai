@@ -75,6 +75,8 @@ class GraphService(BaseService):
             else:
                 entities_with_prov = await self.entity_repo.get_with_provenance_by_workflow(wf_uuid)
 
+            LOGGER.info(f"Fetched {len(entities_with_prov)} raw entities with provenance")
+
             # Group provenance by entity and pick best (non-null source_section preferred)
             entity_provenance_map = {}
             for entity, source_chunk_id, source_section in entities_with_prov:
@@ -85,6 +87,8 @@ class GraphService(BaseService):
                     _, current_chunk, current_section = entity_provenance_map[entity.id]
                     if current_section is None and source_section is not None:
                         entity_provenance_map[entity.id] = (entity, source_chunk_id, source_section)
+
+            LOGGER.info(f"Grouped into {len(entity_provenance_map)} unique canonical entities")
 
             # Batch create entity nodes grouped by type for performance
             entity_count = await self._create_entity_nodes_batch(
@@ -251,6 +255,8 @@ class GraphService(BaseService):
         for entity, source_chunk_id, source_section in entities_with_prov:
             entities_by_type[entity.entity_type].append((entity, source_chunk_id, source_section))
 
+        LOGGER.info(f"Batching {len(entities_with_prov)} entities across {len(entities_by_type)} types")
+
         total_created = 0
 
         # Batch create per entity type
@@ -315,9 +321,25 @@ class GraphService(BaseService):
         attrs = entity.attributes or {}
         entity_type = entity.entity_type
         
-        # Base properties
+        # Derive a human-readable name from attributes with fallback
+        # Different entity types store their name under different keys
+        display_name = (
+            attrs.get("name")
+            or attrs.get("title")
+            or attrs.get("term")
+            or attrs.get("coverage_type")
+            or attrs.get("policy_number")
+            or attrs.get("claim_number")
+            or attrs.get("endorsement_number")
+            or entity.canonical_key  # last resort: use the hash key
+        )
+        
+        # Base properties — always set entity_type and name so nodes
+        # are identifiable during traversal and context assembly
         props = {
             "id": entity.canonical_key,
+            "entity_type": entity_type,
+            "name": display_name,
             "created_at": entity.created_at.isoformat() if hasattr(entity, 'created_at') else None
         }
         
@@ -419,6 +441,14 @@ class GraphService(BaseService):
             props.update({
                 "term": attrs.get("term"),
                 "definition_text": attrs.get("definition_text") or attrs.get("definition"),
+            })
+
+        elif entity_type == "Monetary":
+            props.update({
+                "amount": attrs.get("amount"),
+                "currency": attrs.get("currency"),
+                "description": attrs.get("description"),
+                "monetary_type": attrs.get("type"),
             })
 
         elif entity_type == "Vehicle":
@@ -553,6 +583,10 @@ class GraphService(BaseService):
             signature = (source_type, target_type, rel_type)
             rels_by_signature[signature].append((rel, source_key, target_key))
 
+        LOGGER.info(f"Grouped {len(relationships)} relationships into {len(rels_by_signature)} signatures")
+        for sig, group in rels_by_signature.items():
+            LOGGER.info(f"  Signature {sig}: {len(group)} relationships")
+
         total_created = 0
 
         # Batch create per signature
@@ -625,7 +659,7 @@ class GraphService(BaseService):
         from app.core.neo4j_client import Neo4jClientManager
 
         wf_str = str(workflow_id)
-        all_labels = Neo4jClientManager.ENTITY_LABELS + ["VectorEmbedding"]
+        all_labels = Neo4jClientManager.ENTITY_LABELS + ["VectorEmbedding", "Evidence"]
         for label in all_labels:
             cypher = f"MATCH (n:{label} {{workflow_id: $workflow_id}}) DETACH DELETE n"
             await self.neo4j_driver.execute_query(

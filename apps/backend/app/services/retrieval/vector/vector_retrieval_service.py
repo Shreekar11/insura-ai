@@ -122,6 +122,11 @@ class VectorRetrievalService:
         # Step 4: Resolve content and document names in bulk
         results = await self._resolve_results(reranked, workflow_id)
 
+        # Log sample content for debugging
+        if results:
+            sample = results[0].content[:100] if results[0].content else "EMPTY"
+            LOGGER.info(f"Resolved content for first result: {sample}")
+
         LOGGER.info(
             "Vector retrieval complete",
             extra={

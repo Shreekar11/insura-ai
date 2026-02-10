@@ -11,7 +11,7 @@ organized by stage:
 - API: Request/Response models
 """
 
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Any, Literal
 from uuid import UUID
 
@@ -233,15 +233,27 @@ class GraphNode(BaseModel):
         """Construct from Neo4j query result."""
         node = record.get("n") or record.get("node")
         labels = record.get("labels", [])
+        
+        # Handle node_id - it's already extracted in the query as 'node_id'
+        node_id = record.get("node_id")
+        if node_id is None:
+            # Fallback: try to get from node object if it has an 'id' attribute
+            node_id = getattr(node, 'id', None) if hasattr(node, 'id') else None
+        
+        # Convert node to dict if it's not already
+        if not isinstance(node, dict):
+            node_dict = dict(node)
+        else:
+            node_dict = node
 
         return cls(
-            node_id=str(node.id),
-            entity_id=node.get("entity_id") or node.get("id"),
-            canonical_entity_id=node.get("canonical_entity_id"),
-            entity_type=node.get("entity_type", labels[0] if labels else "Unknown"),
+            node_id=str(node_id),
+            entity_id=node_dict.get("entity_id") or node_dict.get("id"),
+            canonical_entity_id=node_dict.get("canonical_entity_id"),
+            entity_type=node_dict.get("entity_type", labels[0] if labels else "Unknown"),
             labels=labels,
-            properties=dict(node),
-            workflow_id=node.get("workflow_id"),
+            properties=node_dict,
+            workflow_id=node_dict.get("workflow_id"),
         )
 
 
@@ -279,18 +291,30 @@ class GraphTraversalResult(BaseModel):
         distance = record.get("distance", 0)
         relationship_chain = record.get("relationship_chain", [])
 
+        # Robust node_id extraction
+        node_id = record.get("node_id")
+        if node_id is None:
+            # Fallback for older queries
+            node_id = getattr(related, 'id', None) if hasattr(related, 'id') else related.get('id', '')
+
+        # Convert related to dict if needed
+        if not isinstance(related, dict):
+            related_dict = dict(related)
+        else:
+            related_dict = related
+
         return cls(
-            node_id=str(related.id),
-            entity_id=related.get("entity_id") or related.get("id"),
-            canonical_entity_id=related.get("canonical_entity_id"),
-            entity_type=related.get("entity_type", "Unknown"),
+            node_id=str(node_id),
+            entity_id=related_dict.get("entity_id") or related_dict.get("id"),
+            canonical_entity_id=related_dict.get("canonical_entity_id"),
+            entity_type=related_dict.get("entity_type", "Unknown"),
             labels=record.get("labels", []),
-            properties=dict(related),
+            properties=related_dict,
             distance=distance,
             relationship_chain=relationship_chain,
             relevance_score=0.0,  # Will be computed by relevance filter
-            document_id=related.get("document_id"),
-            source_section=related.get("source_section"),
+            document_id=related_dict.get("document_id"),
+            source_section=related_dict.get("source_section"),
         )
 
     class Config:
@@ -598,7 +622,7 @@ class GraphRAGResponse(BaseModel):
     )
     metadata: ResponseMetadata = Field(description="Retrieval process metadata")
     timestamp: datetime = Field(
-        default_factory=datetime.utcnow, description="Response generation timestamp"
+        default_factory=lambda: datetime.now(timezone.utc), description="Response generation timestamp"
     )
 
     class Config:

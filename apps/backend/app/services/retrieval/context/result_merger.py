@@ -46,21 +46,20 @@ class ResultMergerService:
                     continue
 
                 key = self._generate_key(doc_id, entity_id)
-                metadata = v_res.get("metadata", {})
-                
+
                 merged_result = MergedResult(
                     source="vector",
-                    content=str(v_res.get("evidence", "")),
+                    content=str(v_res.get("content", "")),  # FIX: 'content', not 'evidence'
                     summary=None,
                     entity_type=v_res.get("entity_type"),
                     entity_id=entity_id,
-                    canonical_entity_id=metadata.get("canonical_entity_id"),
+                    canonical_entity_id=v_res.get("canonical_entity_id"),
                     section_type=v_res.get("section_type"),
-                    relevance_score=v_res.get("relevance_score", 0.0),
+                    relevance_score=v_res.get("final_score", 0.0), # FIX: 'final_score', not 'relevance_score'
                     distance=None,
-                    document_id=UUID(doc_id),
-                    document_name=metadata.get("document_name", "Unknown Document"),
-                    page_numbers=metadata.get("page_numbers", []),
+                    document_id=doc_id if isinstance(doc_id, UUID) else UUID(doc_id),
+                    document_name=v_res.get("document_name", "Unknown Document"),
+                    page_numbers=v_res.get("page_numbers", []),
                     relationship_path=None
                 )
                 merged_map[key] = merged_result

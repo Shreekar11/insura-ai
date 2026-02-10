@@ -182,18 +182,18 @@ class EntityEvidenceRepository(BaseRepository[EntityEvidence]):
             EntityMention,
             CanonicalEntity,
             WorkflowEntityScope,
-            StableChunk
+            DocumentChunk
         )
 
         stmt = (
-            select(EntityEvidence, EntityMention, CanonicalEntity, StableChunk)
+            select(EntityEvidence, EntityMention, CanonicalEntity, DocumentChunk)
             .join(
                 WorkflowEntityScope,
                 EntityEvidence.canonical_entity_id == WorkflowEntityScope.canonical_entity_id
             )
             .join(EntityMention, EntityEvidence.entity_mention_id == EntityMention.id)
             .join(CanonicalEntity, EntityEvidence.canonical_entity_id == CanonicalEntity.id)
-            .outerjoin(StableChunk, EntityMention.source_stable_chunk_id == StableChunk.id)
+            .outerjoin(DocumentChunk, EntityMention.source_document_chunk_id == DocumentChunk.id)
             .where(WorkflowEntityScope.workflow_id == workflow_id)
             .distinct()
         )

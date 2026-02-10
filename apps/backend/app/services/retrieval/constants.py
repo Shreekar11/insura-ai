@@ -104,9 +104,12 @@ INTENT_SECTION_BOOSTS: dict[str, dict[str, float]] = {
     "QA": {
         "declarations": 0.15,
         "coverages": 0.12,
+        "exclusions": 0.10,
         "schedule": 0.10,
         "policy_info": 0.08,
         "insured_info": 0.08,
+        "conditions": 0.06,
+        "definitions": 0.06,
     },
     "ANALYSIS": {
         "coverages": 0.15,
@@ -226,25 +229,25 @@ QUERY_PATTERN_SECTION_HINTS: dict[str, list[str]] = {
 # Cypher query template for node mapping
 NODE_MAPPING_QUERY = """
 MATCH (e)
-WHERE e.entity_id IN $entity_ids
+WHERE ANY(vid IN e.vector_entity_ids WHERE vid IN $entity_ids)
   AND e.workflow_id = $workflow_id
-RETURN e as node, labels(e) as labels, id(e) as node_id
+RETURN e as node, labels(e) as labels, elementId(e) as node_id
 """
 
 # Cypher query template for adaptive traversal
 # Note: edge_filter will be dynamically constructed based on intent
 TRAVERSAL_QUERY_TEMPLATE = """
 MATCH (start)
-WHERE start.entity_id IN $start_entity_ids
+WHERE start.id IN $start_entity_ids
   AND start.workflow_id = $workflow_id
-MATCH path = (start)-[r{edge_filter}]-(related)
+MATCH path = (start)-[{edge_filter}]-(related)
 WHERE related.workflow_id = $workflow_id
-  AND id(related) <> id(start)
+  AND elementId(related) <> elementId(start)
 RETURN DISTINCT related,
        labels(related) as labels,
        length(path) as distance,
        [rel in relationships(path) | type(rel)] as relationship_chain,
-       id(related) as node_id
+       elementId(related) as node_id
 ORDER BY distance
 LIMIT $max_nodes
 """

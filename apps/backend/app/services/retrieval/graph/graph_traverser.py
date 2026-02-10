@@ -57,8 +57,8 @@ class GraphTraverserService:
         
         if edge_types:
             # Join and upper-case edge types
-            edge_filter = ":" + "|".join(edge_types)
-            path_spec = f"*{depth_range}{edge_filter}"
+            edge_filter = "|".join(edge_types)
+            path_spec = f":{edge_filter}*{depth_range}"
         else:
             # All edge types
             path_spec = f"*{depth_range}"
@@ -88,16 +88,28 @@ class GraphTraverserService:
                     LOGGER.error(f"Failed to parse GraphTraversalResult from record: {e}")
                     
             LOGGER.info(
-                "Completed graph traversal",
+                f"Completed graph traversal. Starts: {start_entity_ids}, Results: {len(traversal_results)}",
                 extra={
                     "intent": intent,
-                    "start_nodes_count": len(start_nodes),
+                    "start_entity_ids": start_entity_ids,
                     "traversal_results_count": len(traversal_results),
                     "max_depth": max_depth,
                     "workflow_id": str(workflow_id)
                 }
             )
             
+            # Log individual traversal paths
+            if traversal_results:
+                paths_log = []
+                for res in traversal_results[:5]:  # Log first 5 paths
+                    path_str = f"{res.node_id} -{res.relationship_chain}-> {res.entity_type}:{res.properties.get('name', 'unnamed')}"
+                    paths_log.append(path_str)
+                
+                LOGGER.info(
+                    f"Sample traversal paths: {paths_log}",
+                    extra={"count": len(traversal_results)}
+                )
+
             return traversal_results
 
         except Exception as e:

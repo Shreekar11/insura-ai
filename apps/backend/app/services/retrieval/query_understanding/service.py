@@ -265,6 +265,10 @@ class QueryUnderstandingService:
         """
         Derive section type filters from extracted hints and intent.
 
+        When explicit section hints are extracted from the query (e.g., user
+        asks about "exclusions"), those hints take priority.  Intent-based
+        defaults are only added as a fallback when no explicit hints exist.
+
         Args:
             section_hints: Section hints from entity extraction
             intent: Query intent (QA, ANALYSIS, AUDIT)
@@ -277,13 +281,15 @@ class QueryUnderstandingService:
         # Add hints from extraction
         filters.extend(section_hints)
 
-        # Add intent-based defaults (from INTENT_SECTION_BOOSTS)
-        if intent == "QA":
-            filters.extend(["declarations", "coverages", "schedule"])
-        elif intent == "ANALYSIS":
-            filters.extend(["coverages", "endorsements", "exclusions", "conditions"])
-        elif intent == "AUDIT":
-            filters.extend(["endorsements", "loss_run", "claims", "conditions"])
+        # Only add intent-based defaults if no explicit hints were extracted
+        # to avoid diluting the user's specific section focus
+        if not section_hints:
+            if intent == "QA":
+                filters.extend(["declarations", "coverages", "schedule"])
+            elif intent == "ANALYSIS":
+                filters.extend(["coverages", "endorsements", "exclusions", "conditions"])
+            elif intent == "AUDIT":
+                filters.extend(["endorsements", "loss_run", "claims", "conditions"])
 
         # Deduplicate and validate
         valid_filters = list(
@@ -298,6 +304,9 @@ class QueryUnderstandingService:
         """
         Derive entity type filters from extracted coverage types and intent.
 
+        When explicit entity types are extracted, they take priority over
+        generic intent defaults.
+
         Args:
             coverage_types: Extracted coverage types
             intent: Query intent (QA, ANALYSIS, AUDIT)
@@ -311,13 +320,14 @@ class QueryUnderstandingService:
         if coverage_types:
             filters.append("coverage")
 
-        # Add intent-based defaults
-        if intent == "QA":
-            filters.extend(["policy", "organization", "coverage"])
-        elif intent == "ANALYSIS":
-            filters.extend(["coverage", "endorsement", "exclusion", "condition"])
-        elif intent == "AUDIT":
-            filters.extend(["endorsement", "claim", "coverage"])
+        # Only add intent-based defaults if no explicit entity types extracted
+        if not filters:
+            if intent == "QA":
+                filters.extend(["policy", "organization", "coverage", "exclusion"])
+            elif intent == "ANALYSIS":
+                filters.extend(["coverage", "endorsement", "exclusion", "condition"])
+            elif intent == "AUDIT":
+                filters.extend(["endorsement", "claim", "coverage"])
 
         # Deduplicate and validate
         valid_filters = list(
