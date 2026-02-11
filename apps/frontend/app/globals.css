@@ -129,3 +129,45 @@
     @apply bg-background text-foreground;
   }
 }
+
+@layer utilities {
+  .prose-custom {
+    @apply text-base leading-relaxed text-zinc-800 dark:text-zinc-200;
+
+    h1, h2, h3, h4 {
+      @apply font-semibold tracking-tight mt-8 mb-4 text-zinc-900 dark:text-zinc-100;
+    }
+
+    h1 { @apply text-2xl; }
+    h2 { @apply text-xl; }
+    h3 { @apply text-lg; }
+
+    p {
+      @apply mb-4 leading-7;
+    }
+
+    ul, ol {
+      @apply my-6 ml-6 list-disc [&>li]:mt-2;
+    }
+
+    li {
+      @apply leading-7;
+    }
+
+    strong {
+      @apply font-semibold text-zinc-900 dark:text-zinc-100;
+    }
+
+    a {
+      @apply font-medium text-primary underline underline-offset-4 hover:text-primary/80;
+    }
+
+    blockquote {
+      @apply mt-6 border-l-2 border-zinc-300 pl-6 italic text-zinc-800/80 dark:border-zinc-700 dark:text-zinc-200/80;
+    }
+
+    code {
+      @apply relative rounded bg-zinc-100 px-[0.3rem] py-[0.2rem] font-mono text-sm font-semibold text-zinc-900 dark:bg-zinc-800 dark:text-zinc-100;
+    }
+  }
+}

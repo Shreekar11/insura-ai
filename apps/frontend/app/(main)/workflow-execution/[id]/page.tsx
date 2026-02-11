@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useCallback, useEffect, useMemo } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useWorkflowById, useExecuteWorkflow } from "@/hooks/use-workflows";
@@ -17,6 +19,9 @@ import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 import { cn } from "@/lib/utils";
+import { ChatInterface } from "@/components/custom/chat-interface";
+import { useChat } from "@/hooks/use-chat";
+import type { GraphRAGResponse } from "@/schema/generated/query";
 
 import {
   ResizableHandle,
@@ -28,6 +33,7 @@ import {
   PDFHighlightProvider,
   usePDFHighlight,
 } from "@/contexts/pdf-highlight-context";
+import { Input } from "@/components/ui/input";
 const ExtractionOutputSidebar = dynamic(
   () =>
     import("@/components/custom/extraction-output-sidebar").then(
@@ -99,6 +105,12 @@ function WorkflowExecutionContent() {
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isStarted, setIsStarted] = useState(false);
+  const [messages, setMessages] = useState<
+    { query: string; answer: string | null }[]
+  >([]);
+  const [showBlurOverlay, setShowBlurOverlay] = useState(false);
+
+  const chatMutation = useChat(workflowId);
 
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -352,7 +364,7 @@ function WorkflowExecutionContent() {
                 </div>
               ) : (
                 /* SSE Timeline Section */
-                <div className="w-full">
+                <div className="w-full max-w-2xl mx-auto flex flex-col gap-12 pb-48">
                   <WorkflowTimeline
                     definitionName={definitionName}
                     events={events}
@@ -362,10 +374,90 @@ function WorkflowExecutionContent() {
                     onViewComparison={handleViewComparison}
                     onViewProposal={handleViewProposal}
                   />
+
+                  {isComplete && (
+                    <div className="space-y-12">
+                      {messages.map((msg, idx) => (
+                        <div
+                          key={idx}
+                          className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500"
+                        >
+                          {/* User Query */}
+                          <div className="flex justify-end">
+                            <div className="max-w-[80%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2 shadow-sm">
+                              <p className="text-sm text-zinc-800 dark:text-zinc-200">
+                                {msg.query}
+                              </p>
+                            </div>
+                          </div>
+
+                          {/* LLM Response */}
+                          <div className="flex justify-start">
+                            <div className="max-w-full w-full">
+                              {!msg.answer ? (
+                                <div className="flex items-center gap-2 text-zinc-500 italic text-sm">
+                                  <IconLoader2 className="size-3 animate-spin" />
+                                  Thinking...
+                                </div>
+                              ) : (
+                                <div className="prose-custom max-w-none text-zinc-800 dark:text-zinc-200">
+                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                    {msg.answer}
+                                  </ReactMarkdown>
+                                </div>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
+
+          {isComplete && (
+            <div className="shrink-0 pt-4 pb-8 bg-gradient-to-t from-white via-white to-transparent dark:from-zinc-950 dark:via-zinc-950 px-6 sticky bottom-0 z-30">
+              <ChatInterface
+                isLoading={chatMutation.isPending}
+                showBlurOverlay={showBlurOverlay}
+                onAsk={(query: string) => {
+                  setShowBlurOverlay(true);
+                  setMessages((prev) => [...prev, { query, answer: null }]);
+                  chatMutation.mutate(
+                    { query },
+                    {
+                      onSuccess: (data: GraphRAGResponse) => {
+                        setShowBlurOverlay(true);
+                        setMessages((prev) =>
+                          prev.map((m, i) =>
+                            i === prev.length - 1
+                              ? { ...m, answer: data.answer }
+                              : m,
+                          ),
+                        );
+                        setShowBlurOverlay(false);
+                      },
+                      onError: () => {
+                        setMessages((prev) =>
+                          prev.map((m, i) =>
+                            i === prev.length - 1
+                              ? {
+                                  ...m,
+                                  answer:
+                                    "Failed to get response. Please try again.",
+                                }
+                              : m,
+                          ),
+                        );
+                      },
+                    },
+                  );
+                }}
+              />
+            </div>
+          )}
         </div>
       </ResizablePanel>
 
