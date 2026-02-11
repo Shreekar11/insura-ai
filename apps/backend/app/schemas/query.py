@@ -682,3 +682,26 @@ class GraphRAGResponse(BaseModel):
                 "timestamp": "2024-01-15T10:30:00Z",
             }
         }
+
+
+class WorkflowMessage(BaseModel):
+    """Chat message schema for history retrieval."""
+    
+    id: UUID
+    role: Literal["user", "model"]
+    content: str
+    additional_metadata: dict[str, Any] | None = None
+    created_at: datetime
+
+    class Config:
+        from_attributes = True
+        json_schema_extra = {
+            "example": {
+                "id": "123e4567-e89b-12d3-a456-426614174000",
+                "role": "user",
+                "content": "What is the deductible?",
+                "additional_metadata": None,
+                "created_at": "2024-01-15T10:30:00Z"
+            }
+        }
+

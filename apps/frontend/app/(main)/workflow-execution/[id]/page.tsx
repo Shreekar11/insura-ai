@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
 import dynamic from "next/dynamic";
@@ -21,6 +21,7 @@ import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 import { cn } from "@/lib/utils";
 import { ChatInterface } from "@/components/custom/chat-interface";
 import { useChat } from "@/hooks/use-chat";
+import { useChatMessages } from "@/hooks/use-chat-messages";
 import type { GraphRAGResponse } from "@/schema/generated/query";
 
 import {
@@ -155,6 +156,40 @@ function WorkflowExecutionContent() {
       });
     }
   }, [existingDocuments, workflow, setActiveWorkflowDefinitionId]);
+
+  // Load chat history
+  const { data: chatHistory } = useChatMessages(workflowId);
+  const historyLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (chatHistory && chatHistory.length > 0 && !historyLoadedRef.current) {
+      const historyPairs: { query: string; answer: string | null }[] = [];
+      let currentQuery: string | null = null;
+
+      chatHistory.forEach((msg) => {
+        if (msg.role === "user") {
+          // If there was a pending query without answer, push it
+          if (currentQuery) {
+            historyPairs.push({ query: currentQuery, answer: null });
+          }
+          currentQuery = msg.content;
+        } else if (msg.role === "model") {
+          if (currentQuery) {
+            historyPairs.push({ query: currentQuery, answer: msg.content });
+            currentQuery = null;
+          }
+        }
+      });
+
+      // Push last pending query
+      if (currentQuery) {
+        historyPairs.push({ query: currentQuery, answer: null });
+      }
+
+      setMessages((prev) => [...historyPairs, ...prev]);
+      historyLoadedRef.current = true;
+    }
+  }, [chatHistory]);
 
   const handleFilesSelect = useCallback(
     async (files: File[]) => {
@@ -418,44 +453,49 @@ function WorkflowExecutionContent() {
           </div>
 
           {isComplete && (
-            <div className="shrink-0 pt-4 pb-8 bg-gradient-to-t from-white via-white to-transparent dark:from-zinc-950 dark:via-zinc-950 px-6 sticky bottom-0 z-30">
-              <ChatInterface
-                isLoading={chatMutation.isPending}
-                showBlurOverlay={showBlurOverlay}
-                onAsk={(query: string) => {
-                  setShowBlurOverlay(true);
-                  setMessages((prev) => [...prev, { query, answer: null }]);
-                  chatMutation.mutate(
-                    { query },
-                    {
-                      onSuccess: (data: GraphRAGResponse) => {
-                        setShowBlurOverlay(true);
-                        setMessages((prev) =>
-                          prev.map((m, i) =>
-                            i === prev.length - 1
-                              ? { ...m, answer: data.answer }
-                              : m,
-                          ),
-                        );
-                        setShowBlurOverlay(false);
+            <div className="pb-2">
+              <div className="shrink-0 pt-4 bg-gradient-to-t from-white via-white to-transparent dark:from-zinc-950 dark:via-zinc-950 px-6 sticky bottom-0 z-30">
+                <ChatInterface
+                  isLoading={chatMutation.isPending}
+                  showBlurOverlay={showBlurOverlay}
+                  onAsk={(query: string) => {
+                    setShowBlurOverlay(true);
+                    setMessages((prev) => [...prev, { query, answer: null }]);
+                    chatMutation.mutate(
+                      { query },
+                      {
+                        onSuccess: (data: GraphRAGResponse) => {
+                          setShowBlurOverlay(true);
+                          setMessages((prev) =>
+                            prev.map((m, i) =>
+                              i === prev.length - 1
+                                ? { ...m, answer: data.answer }
+                                : m,
+                            ),
+                          );
+                          setShowBlurOverlay(false);
+                        },
+                        onError: () => {
+                          setMessages((prev) =>
+                            prev.map((m, i) =>
+                              i === prev.length - 1
+                                ? {
+                                    ...m,
+                                    answer:
+                                      "Failed to get response. Please try again.",
+                                  }
+                                : m,
+                            ),
+                          );
+                        },
                       },
-                      onError: () => {
-                        setMessages((prev) =>
-                          prev.map((m, i) =>
-                            i === prev.length - 1
-                              ? {
-                                  ...m,
-                                  answer:
-                                    "Failed to get response. Please try again.",
-                                }
-                              : m,
-                          ),
-                        );
-                      },
-                    },
-                  );
-                }}
-              />
+                    );
+                  }}
+                />
+              </div>
+              <p className="text-center mt-2 text-xs text-zinc-500">
+                AI can make mistakes. Check important info.
+              </p>
             </div>
           )}
         </div>

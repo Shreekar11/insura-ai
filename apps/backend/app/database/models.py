@@ -1031,6 +1031,9 @@ class Workflow(Base):
     proposals: Mapped[list["Proposal"]] = relationship(
         "Proposal", back_populates="workflow", cascade="all, delete-orphan"
     )
+    queries: Mapped[list["WorkflowQuery"]] = relationship(
+        "WorkflowQuery", back_populates="workflow", cascade="all, delete-orphan"
+    )
 
 
 class WorkflowRunEvent(Base):
@@ -1434,4 +1437,35 @@ class Citation(Base):
         UniqueConstraint("document_id", "source_type", "source_id", name="uq_citation_source"),
         {"comment": "Citation source mapping for extracted items"},
     )
+
+
+class WorkflowQuery(Base):
+    """Persisted chat history for workflows."""
+
+    __tablename__ = "workflow_queries"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), primary_key=True, default=uuid.uuid4
+    )
+    workflow_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True), 
+        ForeignKey("workflows.id", ondelete="CASCADE"), 
+        nullable=False
+    )
+    role: Mapped[str] = mapped_column(
+        String, nullable=False, comment="user | model"
+    )
+    content: Mapped[str] = mapped_column(
+        Text, nullable=False
+    )
+    additional_metadata: Mapped[dict | None] = mapped_column(
+        JSONB, nullable=True
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        TIMESTAMP(timezone=True), server_default="NOW()"
+    )
+
+    # Relationships
+    workflow: Mapped["Workflow"] = relationship("Workflow", back_populates="queries")
+
 

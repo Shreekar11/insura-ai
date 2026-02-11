@@ -53,7 +53,7 @@ export function ChatInterface({ onAsk, showBlurOverlay, isLoading }: ChatInterfa
             disabled={isLoading || !query.trim()}
             variant="ghost"
             size="icon"
-            className="h-9 w-9 bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80 rounded flex items-center justify-center transition-all shrink-0"
+            className="h-9 w-9 bg-[#0232D4]/90 !text-white hover:bg-[#0232D4]/80 rounded flex items-center justify-center transition-all shrink-0"
           >
             <ArrowRight className="size-4" />
           </Button>

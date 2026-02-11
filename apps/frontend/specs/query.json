@@ -49,6 +49,43 @@
           }
         ]
       }
+    },
+    "/api/v1/query/{workflow_id}/messages": {
+      "get": {
+        "summary": "Get workflow chat history",
+        "operationId": "get_workflow_messages",
+        "parameters": [
+          {
+            "name": "workflow_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful retrieval",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/WorkflowMessage"
+                  }
+                }
+              }
+            }
+          }
+        },
+        "security": [
+          {
+            "bearerAuth": []
+          }
+        ]
+      }
     }
   },
   "components": {
@@ -60,6 +97,31 @@
       }
     },
     "schemas": {
+      "WorkflowMessage": {
+        "type": "object",
+        "required": ["id", "role", "content", "created_at"],
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid"
+          },
+          "role": {
+            "type": "string",
+            "enum": ["user", "model"]
+          },
+          "content": {
+            "type": "string"
+          },
+          "additional_metadata": {
+            "type": "object",
+            "nullable": true
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time"
+          }
+        }
+      },
       "GraphRAGRequest": {
         "type": "object",
         "required": ["query"],

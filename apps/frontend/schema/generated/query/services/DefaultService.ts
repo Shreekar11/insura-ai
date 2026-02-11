@@ -4,6 +4,7 @@
 /* eslint-disable */
 import type { GraphRAGRequest } from '../models/GraphRAGRequest';
 import type { GraphRAGResponse } from '../models/GraphRAGResponse';
+import type { WorkflowMessage } from '../models/WorkflowMessage';
 import type { CancelablePromise } from '../core/CancelablePromise';
 import { OpenAPI } from '../core/OpenAPI';
 import { request as __request } from '../core/request';
@@ -27,6 +28,23 @@ export class DefaultService {
             },
             body: requestBody,
             mediaType: 'application/json',
+        });
+    }
+    /**
+     * Get workflow chat history
+     * @param workflowId
+     * @returns WorkflowMessage Successful retrieval
+     * @throws ApiError
+     */
+    public static getWorkflowMessages(
+        workflowId: string,
+    ): CancelablePromise<Array<WorkflowMessage>> {
+        return __request(OpenAPI, {
+            method: 'GET',
+            url: '/api/v1/query/{workflow_id}/messages',
+            path: {
+                'workflow_id': workflowId,
+            },
         });
     }
 }
