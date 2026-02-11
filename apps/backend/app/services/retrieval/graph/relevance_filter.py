@@ -124,9 +124,11 @@ class GraphRelevanceFilterService:
                 # PG attributes are often richer (contains source_text, full description)
                 result.properties.update(entity.attributes)
                 
-                # If source_text is available in PG, ensure it's in properties
-                if entity.source_text and "description" not in result.properties:
-                    result.properties["description"] = entity.source_text
+                # If source_text is available in PG attributes, ensure it's in properties
+                if entity.attributes and "description" not in result.properties:
+                    desc = entity.attributes.get("description") or entity.attributes.get("source_text")
+                    if desc:
+                        result.properties["description"] = desc
 
                 LOGGER.debug(
                     f"Hydrated sparse node {result.entity_type}:{canonical_key} from PostgreSQL",

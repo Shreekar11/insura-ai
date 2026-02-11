@@ -220,10 +220,25 @@ class EntityResolver:
             if additional_attributes:
                 if not existing.attributes:
                     existing.attributes = {}
-                # Update attributes with new data (conservative merge)
+                else:
+                    # Convert to dict if it's not (though it should be JSONB/dict)
+                    existing.attributes = dict(existing.attributes)
+                
+                # Update attributes with new data
                 for k, v in additional_attributes.items():
-                    if k not in existing.attributes or existing.attributes[k] is None:
+                    if v is None:
+                        continue
+                        
+                    # Overwrite if current value is missing, None, or significantly shorter (for descriptions)
+                    current_v = existing.attributes.get(k)
+                    if current_v is None:
                         existing.attributes[k] = v
+                    elif k in ["description", "source_text", "definition_text"] and isinstance(v, str) and isinstance(current_v, str):
+                        if len(v) > len(current_v):
+                            existing.attributes[k] = v
+                    elif k not in existing.attributes:
+                        existing.attributes[k] = v
+                
                 self.session.add(existing)
             return existing
         

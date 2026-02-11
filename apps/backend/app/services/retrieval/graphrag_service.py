@@ -23,7 +23,6 @@ from app.services.retrieval.context.result_merger import ResultMergerService
 from app.services.retrieval.context.hierarchical_builder import HierarchicalContextBuilder
 from app.services.retrieval.context.context_formatter import format_context_for_llm
 from app.services.retrieval.response.generation_service import ResponseGenerationService
-from app.services.retrieval.response.citation_formatter import CitationFormatterService
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -61,7 +60,6 @@ class GraphRAGService:
         self.result_merger = ResultMergerService()
         self.context_builder = HierarchicalContextBuilder()
         self.response_generator = ResponseGenerationService()
-        self.citation_formatter = CitationFormatterService()
 
     async def query(
         self, workflow_id: UUID, request: GraphRAGRequest
@@ -142,14 +140,43 @@ class GraphRAGService:
             context=context_payload
         )
         
-        formatted_response = self.citation_formatter.format_response(
-            generated=generated_response
-        )
         stage_latencies["response_generation"] = int((time.time() - s5_start) * 1000)
 
         # Final Metadata and Response Assembly
         total_latency_ms = int((time.time() - start_time) * 1000)
         
+        if vector_results:
+            # detailed logging for top 3 vector results
+            detailed_vector_log = []
+            for res in vector_results[:3]:
+                content_snippet = res.content[:100] if res.content else "EMPTY"
+                detailed_vector_log.append(
+                    f"[doc:{res.document_name} | sec:{res.section_type}] score:{res.final_score:.2f} content:{content_snippet}..."
+                )
+            
+            LOGGER.info(
+                f"Top 3 Vector Results (intent: {query_plan.intent} | count: {len(vector_results)} | "
+                f"top_score: {vector_results[0].final_score:.3f}):\n" + "\n".join(detailed_vector_log)
+            )
+
+        if graph_results:
+            # detailed logging for top 3 graph results
+            detailed_graph_log = []
+            for res in graph_results[:3]:
+                desc_snippet = res.properties.get('description', '')[:100]
+                detailed_graph_log.append(
+                    f"[{res.entity_type}:{res.properties.get('name', 'unnamed')}] chain:{res.relationship_chain} desc:{desc_snippet}..."
+                )
+            
+            LOGGER.info(
+                f"Top 3 Graph Results (count: {len(graph_results)}):\n" + "\n".join(detailed_graph_log)
+            )
+        LOGGER.info(
+            f"Context assembly complete | total_results: {len(context_payload.full_text_results) + len(context_payload.summary_results)} | "
+            f"full_text: {len(context_payload.full_text_results)} | "
+            f"summaries: {len(context_payload.summary_results)} | "
+            f"context_chars: {len(markdown_context)}"
+        )
         metadata = ResponseMetadata(
             intent=query_plan.intent,
             traversal_depth=query_plan.traversal_depth,
@@ -166,8 +193,8 @@ class GraphRAGService:
         )
 
         return GraphRAGResponse(
-            answer=formatted_response.answer,
-            sources=formatted_response.sources if request.include_sources else [],
+            answer=generated_response.answer,
+            sources=[],
             metadata=metadata,
             timestamp=datetime.now(timezone.utc)
         )

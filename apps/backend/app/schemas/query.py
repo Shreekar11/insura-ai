@@ -277,6 +277,12 @@ class GraphTraversalResult(BaseModel):
     relevance_score: float = Field(
         default=0.0, description="Computed relevance score"
     )
+    relationship_properties: list[dict[str, Any]] = Field(
+        default_factory=list, description="Properties of edges in the path"
+    )
+    evidence_quotes: list[str] = Field(
+        default_factory=list, description="Extracted quotes from relationship evidence"
+    )
 
     # Provenance
     document_id: UUID | None = Field(default=None)
@@ -315,7 +321,27 @@ class GraphTraversalResult(BaseModel):
             relevance_score=0.0,  # Will be computed by relevance filter
             document_id=related_dict.get("document_id"),
             source_section=related_dict.get("source_section"),
+            relationship_properties=record.get("relationship_properties", []),
+            evidence_quotes=cls._extract_evidence_quotes(record.get("relationship_properties", []))
         )
+
+    @staticmethod
+    def _extract_evidence_quotes(relationship_properties: list[dict[str, Any]]) -> list[str]:
+        """Extract 'quote' fields from relationship evidence objects."""
+        import json
+        quotes = []
+        for rel_props in relationship_properties:
+            evidence_list = rel_props.get("evidence", [])
+            for evidence_str in evidence_list:
+                try:
+                    # Relationship evidence is often JSON-encoded inside a list
+                    evidence_data = json.loads(evidence_str) if isinstance(evidence_str, str) else evidence_str
+                    if isinstance(evidence_data, dict) and "quote" in evidence_data:
+                        if evidence_data["quote"]:
+                            quotes.append(evidence_data["quote"])
+                except Exception:
+                    continue
+        return list(set(quotes))  # Deduplicate
 
     class Config:
         json_schema_extra = {

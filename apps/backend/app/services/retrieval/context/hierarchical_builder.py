@@ -42,17 +42,32 @@ class HierarchicalContextBuilder:
         full_text_results: List[MergedResult] = []
         summary_results: List[MergedResult] = []
         provenance_index: Dict[str, ProvenanceEntry] = {}
+        # Track unique provenance entries to deduplicate citation IDs
+        # Key: (document_id, section_type, tuple(page_numbers))
+        unique_provenance: Dict[Tuple[UUID, str, Tuple[int, ...]], str] = {}
         
         current_tokens = 0
         citation_counter = 1
-        
         effective_limit = int(max_tokens * 0.95)
 
         for i, result in enumerate(results):
             if current_tokens >= effective_limit:
                 break
 
-            citation_id = f"[{citation_counter}]"
+            # Deduplication check
+            prov_key = (
+                result.document_id,
+                result.section_type or "Unknown",
+                tuple(sorted(result.page_numbers)) if result.page_numbers else ()
+            )
+            
+            if prov_key in unique_provenance:
+                citation_id = unique_provenance[prov_key]
+                is_new_citation = False
+            else:
+                citation_id = f"[{citation_counter}]"
+                unique_provenance[prov_key] = citation_id
+                is_new_citation = True
             
             # Determine if this result gets full text or summary
             is_full_text = i < top_n_full_text
@@ -91,19 +106,19 @@ class HierarchicalContextBuilder:
             else:
                 summary_results.append(result)
 
-            # Update Provenance Index
-            # Keying by citation_id so the LLM generation service can look it up
-            provenance_index[citation_id] = ProvenanceEntry(
-                document_name=result.document_name,
-                document_id=result.document_id,
-                page_numbers=result.page_numbers,
-                section_type=result.section_type,
-                relationship_path=result.relationship_path
-            )
+            # Update Provenance Index (only for new citations)
+            if is_new_citation:
+                provenance_index[citation_id] = ProvenanceEntry(
+                    document_name=result.document_name,
+                    document_id=result.document_id,
+                    page_numbers=result.page_numbers,
+                    section_type=result.section_type,
+                    relationship_path=result.relationship_path
+                )
+                citation_counter += 1
+            
             result.citation_id = citation_id
-
             current_tokens += cost
-            citation_counter += 1
             
         return ContextPayload(
             full_text_results=full_text_results,

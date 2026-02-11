@@ -64,16 +64,19 @@ TraversalConfig = dict[
 
 TRAVERSAL_CONFIG: TraversalConfig = {
     "QA": {
-        "max_depth": 1,
+        "max_depth": 2,
         "edge_types": [
             "HAS_COVERAGE",
             "EXCLUDES",
             "HAS_INSURED",
             "ISSUED_BY",
             "HAS_LOCATION",
+            "DEFINED_IN",
+            "SUPPORTED_BY",
+            "REFERENCES",
         ],
-        "max_nodes": 10,
-        "description": "Simple factual questions - 1-hop traversal",
+        "max_nodes": 20,
+        "description": "Factual queries - 2-hop traversal with foundational relationships",
     },
     "ANALYSIS": {
         "max_depth": 2,
@@ -247,7 +250,8 @@ RETURN DISTINCT related,
        labels(related) as labels,
        length(path) as distance,
        [rel in relationships(path) | type(rel)] as relationship_chain,
-       elementId(related) as node_id
+       elementId(related) as node_id,
+       [rel in relationships(path) | properties(rel)] as relationship_properties
 ORDER BY distance
 LIMIT $max_nodes
 """

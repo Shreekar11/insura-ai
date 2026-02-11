@@ -158,15 +158,11 @@ class QueryUnderstandingService:
             entity_type_filters=entity_type_filters,
         )
 
+        target_docs_count = len(target_document_ids) if target_document_ids else "all"
         LOGGER.info(
-            "Query plan created",
-            extra={
-                "intent": intent,
-                "traversal_depth": traversal_depth,
-                "expanded_queries": len(expanded_queries),
-                "section_filters": len(section_type_filters),
-                "entity_filters": len(entity_type_filters),
-            },
+            f"Query plan created | intent: {intent} | depth: {traversal_depth} | "
+            f"expanded: {len(expanded_queries)} | section_filters: {len(section_type_filters)} | "
+            f"entity_filters: {len(entity_type_filters)} | docs: {target_docs_count}"
         )
 
         return query_plan

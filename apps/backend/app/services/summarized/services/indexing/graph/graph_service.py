@@ -367,7 +367,7 @@ class GraphService(BaseService):
         
         elif entity_type == "Coverage":
             props.update({
-                "name": attrs.get("name"),
+                "name": attrs.get("name") or display_name,
                 "coverage_type": attrs.get("coverage_type"),
                 "coverage_part": attrs.get("coverage_part"),
                 "description": attrs.get("description"),
@@ -941,7 +941,7 @@ class GraphService(BaseService):
         chunk_id = str(mention.source_stable_chunk_id) if mention.source_stable_chunk_id else None
 
         # Get source text (quote) from mention
-        quote = mention.raw_text if hasattr(mention, 'raw_text') and mention.raw_text else ""
+        quote = mention.mention_text if hasattr(mention, 'mention_text') and mention.mention_text else ""
         if not quote and chunk:
             # Fallback to chunk text if mention text not available
             quote = chunk.text[:500] if hasattr(chunk, 'text') and chunk.text else ""

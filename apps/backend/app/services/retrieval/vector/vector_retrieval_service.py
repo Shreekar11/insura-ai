@@ -127,14 +127,14 @@ class VectorRetrievalService:
             sample = results[0].content[:100] if results[0].content else "EMPTY"
             LOGGER.info(f"Resolved content for first result: {sample}")
 
+        # Calculate score statistics if results exist
+        min_score = min([r.final_score for r in results]) if results else 0.0
+        avg_score = sum([r.final_score for r in results]) / len(results) if results else 0.0
+
         LOGGER.info(
-            "Vector retrieval complete",
-            extra={
-                "intent": query_plan.intent,
-                "raw_count": len(raw_results),
-                "final_count": len(results),
-                "top_score": results[0].final_score if results else 0.0,
-            },
+            f"Vector retrieval complete | intent: {query_plan.intent} | raw_count: {len(raw_results)} | "
+            f"final_count: {len(results)} | top_score: {results[0].final_score if results else 0.0:.3f} | "
+            f"min_score: {min_score:.3f} | avg_score: {avg_score:.3f}"
         )
 
         return results

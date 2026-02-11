@@ -102,52 +102,12 @@
           "answer": {
             "type": "string"
           },
-          "sources": {
-            "type": "array",
-            "items": {
-              "$ref": "#/components/schemas/SourceCitation"
-            }
-          },
           "metadata": {
             "$ref": "#/components/schemas/ResponseMetadata"
           },
           "timestamp": {
             "type": "string",
             "format": "date-time"
-          }
-        }
-      },
-      "SourceCitation": {
-        "type": "object",
-        "required": [
-          "citation_id",
-          "document_name",
-          "document_id",
-          "section_type"
-        ],
-        "properties": {
-          "citation_id": {
-            "type": "string"
-          },
-          "document_name": {
-            "type": "string"
-          },
-          "document_id": {
-            "type": "string",
-            "format": "uuid"
-          },
-          "page_numbers": {
-            "type": "array",
-            "items": {
-              "type": "integer"
-            }
-          },
-          "section_type": {
-            "type": "string"
-          },
-          "relationship_context": {
-            "type": "string",
-            "nullable": true
           }
         }
       },

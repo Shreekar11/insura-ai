@@ -78,12 +78,22 @@ class GraphExpansionService:
                 )
                 return []
 
+            # Log sample of mapped nodes
+            sample_mapped = [n.properties.get('name', 'unnamed') for n in mapped_nodes[:5]]
+            LOGGER.info(
+                f"Mapped {len(mapped_nodes)} nodes | sample: {sample_mapped}"
+            )
+
             # 2. Graph Traversal
             # Navigate relationships based on intent (QA/ANALYSIS/AUDIT)
             traversal_results = await self.traverser.traverse(
                 mapped_nodes,
                 query_plan.intent,
                 workflow_id
+            )
+            
+            LOGGER.info(
+                f"Graph traversal found {len(traversal_results)} paths"
             )
             
             if not traversal_results:
@@ -101,14 +111,9 @@ class GraphExpansionService:
             latency_ms = int((time.time() - start_time) * 1000)
             
             LOGGER.info(
-                "Graph expansion completed successfully",
-                extra={
-                    "workflow_id": str(workflow_id),
-                    "vector_hits": len(vector_results),
-                    "mapped_nodes": len(mapped_nodes),
-                    "expanded_results": len(final_results),
-                    "latency_ms": latency_ms
-                }
+                f"Graph expansion complete | workflow: {workflow_id} | vector_hits: {len(vector_results)} | "
+                f"mapped: {len(mapped_nodes)} | paths: {len(traversal_results)} | "
+                f"expanded: {len(final_results)} | latency: {latency_ms}ms"
             )
             
             return final_results

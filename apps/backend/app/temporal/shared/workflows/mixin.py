@@ -77,10 +77,15 @@ class DocumentProcessingMixin:
 
         # 3. Enrichment Stage
         if not config.skip_enrichment:
+            effective_coverages = results.get("extracted", {}).get("effective_coverages", [])
+            effective_exclusions = results.get("extracted", {}).get("effective_exclusions", [])
+            
             enrichment_result = await self._execute_enrichment_stage(
                 config.workflow_id,
                 document_id,
-                config.document_name
+                config.document_name,
+                effective_coverages=effective_coverages,
+                effective_exclusions=effective_exclusions,
             )
             results["enriched"] = enrichment_result
 
@@ -365,7 +370,9 @@ class DocumentProcessingMixin:
         self,
         workflow_id: str,
         document_id: str,
-        document_name: Optional[str] = None
+        document_name: Optional[str] = None,
+        effective_coverages: Optional[List[Dict[str, Any]]] = None,
+        effective_exclusions: Optional[List[Dict[str, Any]]] = None,
     ) -> Dict[str, Any]:
         """Execute entity resolution and relationship extraction."""
         workflow.logger.info(f"Starting EnrichedStage for {document_id}")
@@ -378,9 +385,15 @@ class DocumentProcessingMixin:
 
         entity_ids = []
         try:
+            # Prepare rich context for enrichment
+            rich_context = {
+                "effective_coverages": effective_coverages,
+                "effective_exclusions": effective_exclusions
+            }
+            
             aggregated = await workflow.execute_activity(
                 "aggregate_document_entities",
-                args=[workflow_id, document_id],
+                args=[workflow_id, document_id, rich_context],
                 start_to_close_timeout=timedelta(minutes=5),
             )
             
