@@ -67,14 +67,17 @@ TRAVERSAL_CONFIG: TraversalConfig = {
         "edge_types": [
             "HAS_COVERAGE",
             "EXCLUDES",
+            "APPLIES_TO",
+            "MODIFIED_BY",
+            "SUBJECT_TO",
             "HAS_INSURED",
             "ISSUED_BY",
             "HAS_LOCATION",
             "DEFINED_IN",
             "SUPPORTED_BY",
         ],
-        "max_nodes": 20,
-        "description": "Factual queries - 2-hop traversal with foundational relationships",
+        "max_nodes": 25,
+        "description": "Factual queries - 2-hop traversal with foundational + coverage relationships",
     },
     "ANALYSIS": {
         "max_depth": 2,
@@ -227,13 +230,40 @@ QUERY_PATTERN_SECTION_HINTS: dict[str, list[str]] = {
     "declarations": ["declarations"],
 }
 
-# Cypher query template for node mapping
+# Cypher query template for node mapping (primary: match by vector_entity_ids)
 NODE_MAPPING_QUERY = """
 MATCH (e)
 WHERE ANY(vid IN e.vector_entity_ids WHERE vid IN $entity_ids)
   AND e.workflow_id = $workflow_id
 RETURN e as node, labels(e) as labels, elementId(e) as node_id
 """
+
+# Fallback node mapping: find entity nodes by label (entity_type) for unmapped results.
+# Used when vector_entity_ids bridge is incomplete (canonical_entity_id not set).
+NODE_MAPPING_FALLBACK_QUERY = """
+MATCH (e:{label})
+WHERE e.workflow_id = $workflow_id
+  AND NOT e.id IN $already_mapped_ids
+RETURN e as node, labels(e) as labels, elementId(e) as node_id
+"""
+
+# Map section_type prefixes to Neo4j entity labels for fallback matching
+SECTION_TO_ENTITY_LABEL = {
+    "coverages": "Coverage",
+    "exclusions": "Exclusion",
+    "endorsements": "Endorsement",
+    "conditions": "Condition",
+    "definitions": "Definition",
+    "declarations": "Policy",
+    "locations": "Location",
+    "claims": "Claim",
+    "policy_info": "Policy",
+    "insured_info": "Organization",
+    "vehicles": "Vehicle",
+    "drivers": "Driver",
+    "coverage_extension": "Coverage",
+    "coverages_context": "Coverage",
+}
 
 # Cypher query template for adaptive traversal
 # Note: edge_filter will be dynamically constructed based on intent

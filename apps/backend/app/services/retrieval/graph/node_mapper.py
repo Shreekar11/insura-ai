@@ -3,6 +3,12 @@ Node Mapper Service
 
 This service maps VectorSearchResult objects to Neo4j entity nodes
 to provide starting points for graph traversal.
+
+Uses a two-tier matching strategy:
+1. Primary: Match by vector_entity_ids property on entity nodes
+2. Fallback: For unmapped entity_ids, fetch ALL entity nodes of the same
+   type in the workflow (ensures coverage when canonical_entity_id bridge
+   is incomplete)
 """
 
 from uuid import UUID
@@ -10,7 +16,11 @@ from typing import List, Dict, Any
 
 from app.core.neo4j_client import Neo4jClientManager
 from app.schemas.query import VectorSearchResult, GraphNode
-from app.services.retrieval.constants import NODE_MAPPING_QUERY
+from app.services.retrieval.constants import (
+    NODE_MAPPING_QUERY,
+    NODE_MAPPING_FALLBACK_QUERY,
+    SECTION_TO_ENTITY_LABEL,
+)
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -24,21 +34,22 @@ class NodeMapperService:
         self.neo4j_client = neo4j_client
 
     async def map_nodes(
-        self, 
-        vector_results: List[VectorSearchResult], 
+        self,
+        vector_results: List[VectorSearchResult],
         workflow_id: UUID
     ) -> List[GraphNode]:
         """
-        Map vector results to Neo4j nodes.
-        
-        Uses the `entity_id` from vector results to find corresponding 
-        nodes in Neo4j that have this ID in their `vector_entity_ids` property
-        or as their primary `id`.
-        
+        Map vector results to Neo4j nodes using two-tier matching.
+
+        Tier 1: Match via vector_entity_ids property (fast, exact).
+        Tier 2: For unmapped entity_ids, fetch all entity nodes of the
+                 same type in the workflow (ensures no Coverage/Exclusion
+                 nodes are missed when canonical_entity_id bridge is incomplete).
+
         Args:
             vector_results: Results from VectorRetrievalService
             workflow_id: Workflow scope
-            
+
         Returns:
             List of GraphNode objects mapped from the graph
         """
@@ -51,36 +62,52 @@ class NodeMapperService:
             LOGGER.warning("No entity_ids found in vector results for node mapping")
             return []
 
-        # Clean duplicates
         unique_entity_ids = list(set(entity_ids))
-        
+
         try:
-            # Execute batch query            
+            # Tier 1: Primary match by vector_entity_ids
             parameters = {
                 "entity_ids": unique_entity_ids,
                 "workflow_id": str(workflow_id)
             }
-            
+
             records = await self.neo4j_client.run_query(NODE_MAPPING_QUERY, parameters)
-            
+
             mapped_nodes = []
+            mapped_vector_ids: set[str] = set()
             for record in records:
                 try:
                     node = GraphNode.from_neo4j(record)
                     mapped_nodes.append(node)
+                    # Track which vector_entity_ids were matched
+                    vids = node.properties.get("vector_entity_ids", [])
+                    mapped_vector_ids.update(vids)
                 except Exception as e:
                     LOGGER.error(f"Failed to parse GraphNode from record: {e}")
-                    
+
+            # Determine which entity_ids weren't matched
+            unmapped_ids = [eid for eid in unique_entity_ids if eid not in mapped_vector_ids]
+
+            # Tier 2: Fallback matching for unmapped entity_ids
+            if unmapped_ids:
+                fallback_nodes = await self._fallback_match(
+                    unmapped_ids, vector_results, mapped_nodes, workflow_id
+                )
+                mapped_nodes.extend(fallback_nodes)
+
             LOGGER.info(
-                f"Mapped {len(vector_results)} vector results to {len(mapped_nodes)} graph nodes. Inputs: {unique_entity_ids}",
+                f"Mapped {len(vector_results)} vector results to {len(mapped_nodes)} graph nodes. "
+                f"Inputs: {unique_entity_ids}",
                 extra={
                     "vector_results_count": len(vector_results),
                     "input_entity_ids": unique_entity_ids,
                     "mapped_nodes_count": len(mapped_nodes),
+                    "unmapped_count": len(unmapped_ids),
+                    "fallback_used": len(unmapped_ids) > 0,
                     "workflow_id": str(workflow_id)
                 }
             )
-            
+
             return mapped_nodes
 
         except Exception as e:
@@ -90,31 +117,59 @@ class NodeMapperService:
             )
             return []
 
-    async def map_by_canonical_ids(
-        self, 
-        canonical_ids: List[UUID], 
-        workflow_id: UUID
+    async def _fallback_match(
+        self,
+        unmapped_ids: list[str],
+        vector_results: List[VectorSearchResult],
+        already_mapped: List[GraphNode],
+        workflow_id: UUID,
     ) -> List[GraphNode]:
+        """Fallback: fetch entity nodes by label for unmapped vector results.
+
+        For each unmapped entity_id, determine the entity type from the
+        vector result's section_type, then fetch ALL entity nodes of that
+        type in the workflow that weren't already mapped.
         """
-        Map canonical entity UUIDs to Neo4j nodes.
-        
-        Args:
-            canonical_ids: List of canonical entity UUIDs
-            workflow_id: Workflow scope
-            
-        Returns:
-            List of GraphNode objects
-        """
-        if not canonical_ids:
+        # Determine which entity labels we need to fetch
+        labels_needed: set[str] = set()
+        for eid in unmapped_ids:
+            # Find the corresponding vector result to get section_type
+            for vr in vector_results:
+                if vr.entity_id == eid:
+                    label = SECTION_TO_ENTITY_LABEL.get(vr.section_type)
+                    if label:
+                        labels_needed.add(label)
+                    break
+
+        if not labels_needed:
             return []
 
-        # The Neo4j node `id` is the `canonical_key` (string hash), 
-        # not the UUID. However, Stage 0 bridge also added canonical_entity_id 
-        # to some nodes or we can match by canonical_key if we had them.
-        
-        # Actually, GraphService stores `canonical_key` as `id`.
-        # To map by UUID, we might need a separate query or have 
-        # stored the UUID on the node.
-        
-        # Let's assume we primarily map via entity_id from vector results.
-        return []
+        # Collect already-mapped node IDs to exclude
+        already_mapped_ids = [n.properties.get("id", "") for n in already_mapped]
+
+        fallback_nodes = []
+        for label in labels_needed:
+            try:
+                # Use parameterized label query (label is from our constant map, safe)
+                query = NODE_MAPPING_FALLBACK_QUERY.format(label=label)
+                parameters = {
+                    "workflow_id": str(workflow_id),
+                    "already_mapped_ids": already_mapped_ids,
+                }
+                records = await self.neo4j_client.run_query(query, parameters)
+
+                for record in records:
+                    try:
+                        node = GraphNode.from_neo4j(record)
+                        fallback_nodes.append(node)
+                    except Exception as e:
+                        LOGGER.error(f"Failed to parse fallback GraphNode: {e}")
+
+                LOGGER.info(
+                    f"Fallback matched {len(records)} {label} nodes",
+                    extra={"label": label, "workflow_id": str(workflow_id)}
+                )
+            except Exception as e:
+                LOGGER.warning(f"Fallback query failed for label {label}: {e}")
+
+        return fallback_nodes

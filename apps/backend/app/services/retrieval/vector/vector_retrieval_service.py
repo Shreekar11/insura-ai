@@ -174,7 +174,7 @@ class VectorRetrievalService:
 
         results: list[VectorSearchResult] = []
         for embedding, similarity, final_score in reranked:
-            content = self._resolve_entity_content(
+            content = await self._resolve_entity_content(
                 embedding, content_map
             )
             doc_name = doc_names.get(embedding.document_id, "unknown")
@@ -243,7 +243,7 @@ class VectorRetrievalService:
 
         return content_map
 
-    def _resolve_entity_content(
+    async def _resolve_entity_content(
         self,
         embedding: VectorEmbedding,
         content_map: dict[tuple[UUID, str], list],
@@ -272,11 +272,9 @@ class VectorRetrievalService:
             fields = extraction.extracted_fields or {}
             entity_data = self._find_entity_in_fields(fields, suffix, embedding.entity_type)
             if entity_data:
-                # Use VectorTemplateService to reconstruct deterministic text
+                # Use VectorTemplateService (async) to reconstruct deterministic text
                 try:
-                    text = self.template_service.run_sync(
-                        embedding.section_type, entity_data
-                    ) if hasattr(self.template_service, 'run_sync') else self._format_entity_data(
+                    text = await self.template_service.run(
                         embedding.section_type, entity_data
                     )
                     if text and len(text.strip()) >= 10:
@@ -332,15 +330,33 @@ class VectorRetrievalService:
         return None
 
     def _format_entity_data(self, section_type: str, data: dict) -> str:
-        """Format entity data into readable text."""
-        parts = [f"[{section_type}]"]
+        """Format entity data into readable text, including nested structures."""
+        lines = [f"[{section_type}]"]
         for key, value in data.items():
             if key.startswith("_") or value is None:
                 continue
-            if isinstance(value, (dict, list)):
-                continue
-            parts.append(f"{key}: {value}")
-        return " | ".join(parts) if len(parts) > 1 else parts[0]
+            if isinstance(value, list):
+                # Summarize lists (e.g., limits, sub-items)
+                if value and isinstance(value[0], dict):
+                    items = []
+                    for item in value[:5]:
+                        item_parts = [f"{k}: {v}" for k, v in item.items()
+                                      if v is not None and not str(k).startswith("_")]
+                        if item_parts:
+                            items.append("; ".join(item_parts))
+                    if items:
+                        lines.append(f"{key}: [{', '.join(items)}]")
+                elif value:
+                    lines.append(f"{key}: {', '.join(str(v) for v in value[:10])}")
+            elif isinstance(value, dict):
+                # Flatten one level of dict
+                sub_parts = [f"{k}: {v}" for k, v in value.items()
+                             if v is not None and not str(k).startswith("_")]
+                if sub_parts:
+                    lines.append(f"{key}: {'; '.join(sub_parts)}")
+            else:
+                lines.append(f"{key}: {value}")
+        return " | ".join(lines) if len(lines) > 1 else lines[0]
 
     def _format_section_summary(self, extraction, embedding: VectorEmbedding) -> str:
         """Format a summary from section extraction as fallback content."""

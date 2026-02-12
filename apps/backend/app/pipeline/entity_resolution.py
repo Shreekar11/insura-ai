@@ -3,7 +3,7 @@
 Combines DocumentEntityAggregator, EntityResolver, and RelationshipExtractorGlobal.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 

@@ -31,25 +31,15 @@ async def test_map_nodes_success(node_mapper, mock_neo4j_client):
         )
     ]
     
-    mock_node = MagicMock()
-    mock_node.id = "123"
-    mock_node.get.side_effect = {
-        "id": "canonical_key_1",
-        "entity_id": "coverages_cov_0",
-        "workflow_id": str(workflow_id),
-        "entity_type": "Coverage"
-    }.get
-    mock_node.__iter__.return_value = ["id", "entity_id", "workflow_id", "entity_type"]
-    mock_node.__getitem__.side_effect = {
-        "id": "canonical_key_1",
-        "entity_id": "coverages_cov_0",
-        "workflow_id": str(workflow_id),
-        "entity_type": "Coverage"
-    }.__getitem__
-
     mock_neo4j_client.run_query.return_value = [
         {
-            "node": mock_node,
+            "node": {
+                "id": "canonical_key_1",
+                "entity_id": "coverages_cov_0",
+                "workflow_id": str(workflow_id),
+                "entity_type": "Coverage",
+                "vector_entity_ids": ["coverages_cov_0"],
+            },
             "labels": ["Coverage"],
             "node_id": "123"
         }

@@ -15,18 +15,17 @@ def merger_service():
 def mock_vector_result():
     doc_id = str(uuid4())
     entity_id = "coverages_cov_0"
+    canonical_id = uuid4()
     return {
         "document_id": doc_id,
         "entity_id": entity_id,
         "section_type": "coverages",
         "entity_type": "coverage",
-        "relevance_score": 0.8,
-        "evidence": "Vector content",
-        "metadata": {
-            "document_name": "Policy.pdf",
-            "page_numbers": [1],
-            "canonical_entity_id": uuid4()
-        }
+        "final_score": 0.8,
+        "content": "Vector content",
+        "document_name": "Policy.pdf",
+        "page_numbers": [1],
+        "canonical_entity_id": canonical_id,
     }
 
 
@@ -35,7 +34,7 @@ def mock_graph_result(mock_vector_result):
     return GraphTraversalResult(
         node_id="node_1",
         entity_id=mock_vector_result["entity_id"],
-        canonical_entity_id=mock_vector_result["metadata"]["canonical_entity_id"],
+        canonical_entity_id=mock_vector_result["canonical_entity_id"],
         entity_type="Coverage",
         labels=["Coverage"],
         properties={"name": "Graph Coverage", "limit": "1M"},
@@ -53,10 +52,10 @@ async def test_merge_disjoint_results(merger_service):
     v_res = [{
         "document_id": str(uuid4()),
         "entity_id": "e1",
-        "relevance_score": 0.9,
-        "evidence": "V1"
+        "final_score": 0.9,
+        "content": "V1"
     }]
-    
+
     g_res = [GraphTraversalResult(
         node_id="n1",
         entity_id="e2",
@@ -68,9 +67,9 @@ async def test_merge_disjoint_results(merger_service):
         document_id=uuid4(),
         source_section="coverages"
     )]
-    
+
     merged = merger_service.merge(v_res, g_res)
-    
+
     assert len(merged) == 2
     assert merged[0].entity_id == "e1"  # Score 0.9
     assert merged[0].source == "vector"
@@ -127,7 +126,7 @@ async def test_graph_only_constructs_content(merger_service):
     assert "Entity Type: Exclusion" in content
     assert "Name: Flood Exclusion" in content
     assert "Description: No flood coverage" in content
-    assert "random_field" in content # It should include other fields too
+    assert "Random field" in content  # Field names are title-cased with spaces
 
 
 @pytest.mark.asyncio

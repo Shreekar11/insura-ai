@@ -252,11 +252,12 @@ class TestResolveEntityContent:
 
     def setup_method(self):
         self.service = VectorRetrievalService.__new__(VectorRetrievalService)
-        self.service.template_service = MagicMock()
-        # Make run_sync not available to force _format_entity_data path
-        del self.service.template_service.run_sync
+        self.service.template_service = AsyncMock()
+        # Template service returns None to force _format_entity_data fallback path
+        self.service.template_service.run.return_value = None
 
-    def test_resolve_content_with_list_entities(self):
+    @pytest.mark.asyncio
+    async def test_resolve_content_with_list_entities(self):
         """Should resolve content from extracted_fields list by index."""
         emb = _make_embedding_mock(entity_id="coverages_cov_1")
         extraction = _make_section_extraction(
@@ -269,12 +270,13 @@ class TestResolveEntityContent:
         )
         content_map = {(DOC_ID_1, "coverages"): [extraction]}
 
-        content = self.service._resolve_entity_content(emb, content_map)
+        content = await self.service._resolve_entity_content(emb, content_map)
 
         assert "Property" in content
         assert "$2M" in content
 
-    def test_resolve_content_first_item_fallback(self):
+    @pytest.mark.asyncio
+    async def test_resolve_content_first_item_fallback(self):
         """Should return first item if index cannot be parsed."""
         emb = _make_embedding_mock(entity_id="coverages_general")
         extraction = _make_section_extraction(
@@ -284,10 +286,11 @@ class TestResolveEntityContent:
         )
         content_map = {(DOC_ID_1, "coverages"): [extraction]}
 
-        content = self.service._resolve_entity_content(emb, content_map)
+        content = await self.service._resolve_entity_content(emb, content_map)
         assert "GL" in content
 
-    def test_resolve_content_flat_dict(self):
+    @pytest.mark.asyncio
+    async def test_resolve_content_flat_dict(self):
         """Should handle flat dict extracted_fields (no list)."""
         emb = _make_embedding_mock(
             entity_id="declarations_dec_0", section_type="declarations"
@@ -302,25 +305,27 @@ class TestResolveEntityContent:
         )
         content_map = {(DOC_ID_1, "declarations"): [extraction]}
 
-        content = self.service._resolve_entity_content(emb, content_map)
+        content = await self.service._resolve_entity_content(emb, content_map)
         assert "POL-123" in content
 
-    def test_resolve_content_no_extraction(self):
+    @pytest.mark.asyncio
+    async def test_resolve_content_no_extraction(self):
         """Should return fallback string when no extraction found."""
         emb = _make_embedding_mock(section_type="endorsements")
         content_map = {}
 
-        content = self.service._resolve_entity_content(emb, content_map)
+        content = await self.service._resolve_entity_content(emb, content_map)
         assert "endorsements" in content
         assert "unavailable" in content
 
-    def test_resolve_content_empty_fields(self):
+    @pytest.mark.asyncio
+    async def test_resolve_content_empty_fields(self):
         """Should return section summary when extracted_fields is empty."""
         emb = _make_embedding_mock(entity_id="coverages_cov_0")
         extraction = _make_section_extraction(extracted_fields={})
         content_map = {(DOC_ID_1, "coverages"): [extraction]}
 
-        content = self.service._resolve_entity_content(emb, content_map)
+        content = await self.service._resolve_entity_content(emb, content_map)
         assert "coverages" in content
 
 
@@ -629,13 +634,13 @@ class TestFormatEntityData:
         result = self.service._format_entity_data("coverages", data)
         assert "extra" not in result
 
-    def test_format_skips_complex_values(self):
-        """Should skip dict and list values."""
+    def test_format_includes_complex_values(self):
+        """Should include dict and list values in formatted output."""
         data = {"name": "GL", "nested": {"a": 1}, "items": [1, 2, 3]}
         result = self.service._format_entity_data("coverages", data)
-        assert "nested" not in result
-        assert "items" not in result
         assert "GL" in result
+        assert "nested" in result
+        assert "items" in result
 
     def test_format_empty_data(self):
         """Should return section prefix only for empty data."""
