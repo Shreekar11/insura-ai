@@ -13,7 +13,7 @@ import {
 } from "@/components/custom/file-dropzone";
 import { Button } from "@/components/ui/button";
 import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
-import { Sparkles, Loader2 } from "lucide-react";
+import { Sparkles, Loader2, Copy, Check, ArrowDown } from "lucide-react";
 import { useWorkflowStream } from "@/hooks/use-workflow-stream";
 import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
@@ -91,6 +91,36 @@ const PDFViewerPanel = dynamic(
   },
 );
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success("Copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7 text-zinc-400 rounded-sm hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      onClick={handleCopy}
+    >
+      {copied ? (
+        <Check className="size-3.5 text-emerald-500" />
+      ) : (
+        <Copy className="size-3.5" />
+      )}
+    </Button>
+  );
+}
+
 function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
@@ -110,8 +140,21 @@ function WorkflowExecutionContent() {
     { query: string; answer: string | null }[]
   >([]);
   const [showBlurOverlay, setShowBlurOverlay] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
 
   const chatMutation = useChat(workflowId);
+
+  // Scroll logic
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, []);
 
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -127,6 +170,30 @@ function WorkflowExecutionContent() {
   const { events, isConnected, isComplete } = useWorkflowStream(
     isStarted ? workflowId : null,
   );
+
+  useEffect(() => {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      // Show button if we are more than 100px from the bottom
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShowScrollButton(!isAtBottom);
+    };
+
+    handleScroll(); // Call once on mount to set initial state
+
+    scrollContainer.addEventListener("scroll", handleScroll);
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, [messages.length, isComplete]); // Re-run when messages change or completion state changes
+
+  // Scroll to bottom when new messages are added or thinking starts
+  useEffect(() => {
+    if (isComplete) {
+      scrollToBottom();
+    }
+  }, [messages.length, isComplete, scrollToBottom]);
 
   const { setActiveWorkflowDefinitionId } = useActiveWorkflow();
 
@@ -348,7 +415,7 @@ function WorkflowExecutionContent() {
             <PageHeader />
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" ref={scrollRef}>
             <div className="p-6">
               <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
                 <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
@@ -418,11 +485,16 @@ function WorkflowExecutionContent() {
                           className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500"
                         >
                           {/* User Query */}
-                          <div className="flex justify-end">
-                            <div className="max-w-[80%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
-                              <p className="text-sm text-zinc-800 dark:text-zinc-200">
-                                {msg.query}
-                              </p>
+                          <div className="flex justify-end group">
+                            <div className="flex flex-col items-end gap-1 max-w-[80%]">
+                              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
+                                <p className="text-sm text-zinc-800 dark:text-zinc-200">
+                                  {msg.query}
+                                </p>
+                              </div>
+                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                <CopyButton text={msg.query} />
+                              </div>
                             </div>
                           </div>
 
@@ -439,16 +511,21 @@ function WorkflowExecutionContent() {
                                 </div>
                               )}
                             </div>
-                            <div className="max-w-full w-full">
+                            <div className="max-w-full w-full group">
                               {!msg.answer ? (
                                 <div className="flex items-center gap-2 text-zinc-500 italic text-sm py-0.5">
                                   Thinking...
                                 </div>
                               ) : (
-                                <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200">
-                                  <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                    {msg.answer}
-                                  </ReactMarkdown>
+                                <div className="flex flex-col gap-1">
+                                  <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200">
+                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                                      {msg.answer}
+                                    </ReactMarkdown>
+                                  </div>
+                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                                    <CopyButton text={msg.answer} />
+                                  </div>
                                 </div>
                               )}
                             </div>
@@ -464,6 +541,20 @@ function WorkflowExecutionContent() {
 
           {isComplete && (
             <div className="relative pb-4">
+              {/* Scroll Down Button */}
+              {showScrollButton && (
+                <div className="absolute -top-12 left-0 right-0 flex justify-center z-40 animate-in fade-in zoom-in duration-200">
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="rounded-full text-[#2B2C36] size-9 shadow-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                    onClick={scrollToBottom}
+                  >
+                    <ArrowDown className="size-4" />
+                  </Button>
+                </div>
+              )}
+
               {/* Global Blur Overlay for content scrolling behind the chat */}
               <div className="absolute -top-16 left-0 right-0 h-16 bg-gradient-to-b from-transparent to-white/90 dark:to-zinc-950/90 pointer-events-none z-20 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black)]" />
 
