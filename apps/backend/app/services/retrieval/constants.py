@@ -46,7 +46,6 @@ EDGE_TYPES = [
     "HAS_EMBEDDING",
     "SUPPORTED_BY",
     "HAS_CLAIM",
-    "REFERENCES",
 ]
 
 # Organization Role Values
@@ -73,7 +72,6 @@ TRAVERSAL_CONFIG: TraversalConfig = {
             "HAS_LOCATION",
             "DEFINED_IN",
             "SUPPORTED_BY",
-            "REFERENCES",
         ],
         "max_nodes": 20,
         "description": "Factual queries - 2-hop traversal with foundational relationships",

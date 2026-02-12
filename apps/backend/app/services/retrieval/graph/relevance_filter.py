@@ -55,6 +55,20 @@ class GraphRelevanceFilterService:
         section_boosts = INTENT_SECTION_BOOSTS.get(intent, {})
 
         for result in traversal_results:
+            # Skip Evidence nodes with empty quotes
+            if result.entity_type == "Evidence":
+                quote = result.properties.get("quote", "")
+                if not quote or (isinstance(quote, str) and not quote.strip()):
+                    LOGGER.debug(
+                        f"[FIX 6] Skipping Evidence node with empty quote",
+                        extra={
+                            "node_id": result.properties.get("id"),
+                            "quote_empty": not quote,
+                            "quote_whitespace_only": isinstance(quote, str) and not quote.strip()
+                        }
+                    )
+                    continue
+
             # 1. Base score starts high (1.0) and decays with distance
             # Distance penalty: score = 0.9^distance
             score = 0.9 ** result.distance

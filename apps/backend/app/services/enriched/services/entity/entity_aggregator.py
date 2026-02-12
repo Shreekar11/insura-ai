@@ -382,9 +382,55 @@ class EntityAggregator:
             rich_item = None
             if entity_type == "Coverage":
                 rich_item = coverage_map.get(entity_id)
+                # Secondary lookup by coverage_name from attributes
+                if not rich_item:
+                    cov_name = (entity.get("coverage_name")
+                                or (entity.get("attributes") or {}).get("coverage_name"))
+                    if cov_name:
+                        name_based_id = self._generate_entity_id("Coverage", cov_name)
+                        rich_item = coverage_map.get(name_based_id)
+                        if rich_item:
+                            LOGGER.info(
+                                f"[FIX 2] Coverage enrichment: Secondary name-based lookup succeeded",
+                                extra={
+                                    "entity_id": entity_id,
+                                    "coverage_name": cov_name,
+                                    "has_description": bool(rich_item.get("description")),
+                                    "has_source_text": bool(rich_item.get("source_text"))
+                                }
+                            )
+                        else:
+                            LOGGER.debug(
+                                f"[FIX 2] Coverage enrichment: Both primary and secondary lookups failed",
+                                extra={"entity_id": entity_id, "coverage_name": cov_name}
+                            )
             elif entity_type == "Exclusion":
                 rich_item = exclusion_map.get(entity_id)
-            
+                # Secondary lookup by title from attributes
+                if not rich_item:
+                    excl_name = (entity.get("title")
+                                 or entity.get("exclusion_name")
+                                 or (entity.get("attributes") or {}).get("title")
+                                 or (entity.get("attributes") or {}).get("exclusion_name"))
+                    if excl_name:
+                        name_based_id = self._generate_entity_id("Exclusion", excl_name)
+                        rich_item = exclusion_map.get(name_based_id)
+                        if rich_item:
+                            LOGGER.info(
+                                f"[FIX 2] Exclusion enrichment: Secondary name-based lookup succeeded",
+                                extra={
+                                    "entity_id": entity_id,
+                                    "exclusion_name": excl_name,
+                                    "has_description": bool(rich_item.get("description")),
+                                    "has_source_text": bool(rich_item.get("source_text"))
+                                }
+                            )
+                        else:
+                            LOGGER.debug(
+                                f"[FIX 2] Exclusion enrichment: Both primary and secondary lookups failed",
+                                extra={"entity_id": entity_id, "exclusion_name": excl_name}
+                            )
+
             # Fallback (or primary for other types): Match against step_section_outputs
             if not rich_item:
                 rich_item = section_lookup_map.get(entity_id)
@@ -406,11 +452,25 @@ class EntityAggregator:
                 description = rich_item.get("description") or rich_item.get("definition_text")
                 if description:
                     entity["description"] = description
-                
+
                 source_text = rich_item.get("source_text")
                 if source_text:
                     entity["source_text"] = source_text
-                
+
+                # FIX 2 VERIFICATION: Log when rich context data is merged
+                if description or source_text:
+                    LOGGER.info(
+                        f"[FIX 2] Entity enriched with rich context data",
+                        extra={
+                            "entity_id": entity_id,
+                            "entity_type": entity_type,
+                            "added_description": bool(description),
+                            "added_source_text": bool(source_text),
+                            "description_length": len(description) if description else 0,
+                            "source_text_length": len(source_text) if source_text else 0
+                        }
+                    )
+
                 enriched_count += 1
         
         if enriched_count > 0:

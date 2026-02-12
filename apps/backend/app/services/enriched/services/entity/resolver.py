@@ -74,14 +74,40 @@ class EntityResolver:
         
         # Generate canonical key
         canonical_key = self._generate_canonical_key(entity_type, normalized_value)
-        
+
+        # Prepare additional attributes from entity mention
+        additional_attributes = entity_mention.get("attributes", {})
+        if not isinstance(additional_attributes, dict):
+            additional_attributes = {}
+
+        # Merge top-level enrichment fields that _enrich_with_rich_context sets
+        merged_fields = []
+        for key in ["description", "source_text", "definition_text"]:
+            val = entity_mention.get(key)
+            if val and key not in additional_attributes:
+                additional_attributes[key] = val
+                merged_fields.append(key)
+
+        # FIX 3 VERIFICATION: Log when top-level enrichment fields are merged
+        if merged_fields:
+            LOGGER.info(
+                f"[FIX 3] Top-level enrichment fields merged into additional_attributes",
+                extra={
+                    "entity_type": entity_type,
+                    "normalized_value": normalized_value,
+                    "merged_fields": merged_fields,
+                    "has_description": "description" in merged_fields,
+                    "has_source_text": "source_text" in merged_fields
+                }
+            )
+
         # Check if canonical entity exists
         canonical_entity = await self._get_or_create_canonical_entity(
             entity_type=entity_type,
             canonical_key=canonical_key,
             normalized_value=normalized_value,
             raw_value=entity_mention.get("raw_value", normalized_value),
-            additional_attributes=entity_mention.get("attributes", {})
+            additional_attributes=additional_attributes
         )
         
         # Create entity mention (document-scoped) and evidence
@@ -97,11 +123,36 @@ class EntityResolver:
                 source_document_chunk_id = document_chunk.id
                 source_stable_chunk_id = document_chunk.stable_chunk_id
         
+        # Derive human-readable name for mention text (used in Evidence quotes)
+        readable_name = (
+            entity_mention.get("title")
+            or entity_mention.get("coverage_name")
+            or entity_mention.get("exclusion_name")
+            or entity_mention.get("name")
+            or entity_mention.get("term")
+            or (entity_mention.get("attributes") or {}).get("coverage_name")
+            or (entity_mention.get("attributes") or {}).get("title")
+            or (entity_mention.get("attributes") or {}).get("exclusion_name")
+            or entity_mention.get("raw_value", normalized_value)
+        )
+
+        # FIX 4 VERIFICATION: Log when readable_name differs from normalized_value (Evidence improvement)
+        if readable_name != normalized_value and entity_type in ["Coverage", "Exclusion"]:
+            LOGGER.info(
+                f"[FIX 4] Human-readable mention_text derived for Evidence quote",
+                extra={
+                    "entity_type": entity_type,
+                    "normalized_value": normalized_value,
+                    "readable_name": readable_name,
+                    "improves_evidence_quote": True
+                }
+            )
+
         # Create EntityMention record (document-scoped)
         mention = await self.mention_repo.create_entity_mention(
             document_id=document_id,
             entity_type=entity_type,
-            mention_text=entity_mention.get("raw_value", normalized_value),
+            mention_text=readable_name,
             extracted_fields={
                 "normalized_value": normalized_value,
                 "raw_value": entity_mention.get("raw_value", normalized_value),

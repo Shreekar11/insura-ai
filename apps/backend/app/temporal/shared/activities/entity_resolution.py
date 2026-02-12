@@ -42,10 +42,23 @@ async def aggregate_document_entities(workflow_id: str, document_id: str, rich_c
 
             pipeline = EntityResolutionPipeline(session)
             result = await pipeline.aggregate_entities(
-                document_id=UUID(document_id), 
+                document_id=UUID(document_id),
                 workflow_id=UUID(workflow_id),
                 rich_context=rich_context
             )
+
+            # FIX VERIFICATION: Log aggregation results for monitoring
+            LOGGER.info(
+                f"[FIX VERIFICATION] Entity aggregation completed - Monitor logs for [FIX 2] enrichment tags",
+                extra={
+                    "document_id": document_id,
+                    "workflow_id": workflow_id,
+                    "total_entities": result.get("total_entities"),
+                    "unique_entities": result.get("unique_entities"),
+                    "note": "Check for [FIX 2] logs showing secondary lookup success and rich context merging"
+                }
+            )
+
             return result
     except Exception as e:
         activity.logger.error(f"Entity aggregation failed for {document_id}: {e}")
@@ -66,6 +79,18 @@ async def resolve_canonical_entities(workflow_id: str, document_id: str, aggrega
                 entities=entities,
             )
             await session.commit()
+
+            # FIX VERIFICATION: Log resolution completion
+            LOGGER.info(
+                f"[FIX VERIFICATION] Canonical entities resolved - Monitor logs for [FIX 3] and [FIX 4] tags",
+                extra={
+                    "document_id": document_id,
+                    "workflow_id": workflow_id,
+                    "canonical_entities_count": len(canonical_ids),
+                    "note": "Check for [FIX 3] logs showing enrichment fields merged, [FIX 4] logs showing readable mention_text"
+                }
+            )
+
             return [str(id) for id in canonical_ids]
     except Exception as e:
         activity.logger.error(f"Canonical entity resolution failed: {e}")

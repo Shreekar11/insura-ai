@@ -326,6 +326,8 @@ class GraphService(BaseService):
         display_name = (
             attrs.get("name")
             or attrs.get("title")
+            or attrs.get("coverage_name")
+            or attrs.get("exclusion_name")
             or attrs.get("term")
             or attrs.get("coverage_type")
             or attrs.get("policy_number")
@@ -333,6 +335,27 @@ class GraphService(BaseService):
             or attrs.get("endorsement_number")
             or entity.canonical_key  # last resort: use the hash key
         )
+
+        # FIX 1 VERIFICATION: Log when coverage_name/exclusion_name is used for display_name
+        if entity_type == "Coverage" and attrs.get("coverage_name"):
+            LOGGER.info(
+                f"[FIX 1] Coverage display_name resolved from coverage_name",
+                extra={
+                    "canonical_key": entity.canonical_key,
+                    "coverage_name": attrs.get("coverage_name"),
+                    "coverage_type": attrs.get("coverage_type"),
+                    "display_name": display_name
+                }
+            )
+        elif entity_type == "Exclusion" and attrs.get("exclusion_name"):
+            LOGGER.info(
+                f"[FIX 1] Exclusion display_name resolved from exclusion_name",
+                extra={
+                    "canonical_key": entity.canonical_key,
+                    "exclusion_name": attrs.get("exclusion_name"),
+                    "display_name": display_name
+                }
+            )
         
         # Base properties — always set entity_type and name so nodes
         # are identifiable during traversal and context assembly
@@ -366,8 +389,9 @@ class GraphService(BaseService):
             })
         
         elif entity_type == "Coverage":
+            coverage_name_prop = attrs.get("name") or attrs.get("coverage_name") or display_name
             props.update({
-                "name": attrs.get("name") or display_name,
+                "name": coverage_name_prop,
                 "coverage_type": attrs.get("coverage_type"),
                 "coverage_part": attrs.get("coverage_part"),
                 "description": attrs.get("description"),
@@ -380,7 +404,19 @@ class GraphService(BaseService):
                 "valuation_method": attrs.get("valuation_method"),
                 "included": attrs.get("included"),
             })
-        
+
+            # FIX 1 VERIFICATION: Log Coverage node properties including description
+            LOGGER.info(
+                f"[FIX 1] Coverage node properties mapped",
+                extra={
+                    "canonical_key": entity.canonical_key,
+                    "name": coverage_name_prop,
+                    "coverage_type": attrs.get("coverage_type"),
+                    "has_description": bool(attrs.get("description")),
+                    "description_length": len(attrs.get("description", ""))
+                }
+            )
+
         elif entity_type == "Condition":
             props.update({
                 "title": attrs.get("title") or attrs.get("name"),
