@@ -13,7 +13,7 @@ import {
 } from "@/components/custom/file-dropzone";
 import { Button } from "@/components/ui/button";
 import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Loader2 } from "lucide-react";
 import { useWorkflowStream } from "@/hooks/use-workflow-stream";
 import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
@@ -419,7 +419,7 @@ function WorkflowExecutionContent() {
                         >
                           {/* User Query */}
                           <div className="flex justify-end">
-                            <div className="max-w-[80%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2 shadow-sm">
+                            <div className="max-w-[80%] bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
                               <p className="text-sm text-zinc-800 dark:text-zinc-200">
                                 {msg.query}
                               </p>
@@ -427,15 +427,25 @@ function WorkflowExecutionContent() {
                           </div>
 
                           {/* LLM Response */}
-                          <div className="flex justify-start">
+                          <div className="flex justify-start gap-3">
+                            <div className="shrink-0">
+                              {!msg.answer ? (
+                                <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20 flex items-center justify-center">
+                                  <Loader2 className="size-4 text-[#0232D4]/80 animate-spin stroke-[3]" />
+                                </div>
+                              ) : (
+                                <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20">
+                                  <Sparkles className="size-4 text-[#0232D4]/80" />
+                                </div>
+                              )}
+                            </div>
                             <div className="max-w-full w-full">
                               {!msg.answer ? (
-                                <div className="flex items-center gap-2 text-zinc-500 italic text-sm">
-                                  <IconLoader2 className="size-3 animate-spin" />
+                                <div className="flex items-center gap-2 text-zinc-500 italic text-sm py-0.5">
                                   Thinking...
                                 </div>
                               ) : (
-                                <div className="prose-custom max-w-none text-zinc-800 dark:text-zinc-200">
+                                <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200">
                                   <ReactMarkdown remarkPlugins={[remarkGfm]}>
                                     {msg.answer}
                                   </ReactMarkdown>
@@ -453,8 +463,11 @@ function WorkflowExecutionContent() {
           </div>
 
           {isComplete && (
-            <div className="pb-2">
-              <div className="shrink-0 pt-4 bg-gradient-to-t from-white via-white to-transparent dark:from-zinc-950 dark:via-zinc-950 px-6 sticky bottom-0 z-30">
+            <div className="relative pb-4">
+              {/* Global Blur Overlay for content scrolling behind the chat */}
+              <div className="absolute -top-16 left-0 right-0 h-16 bg-gradient-to-b from-transparent to-white/90 dark:to-zinc-950/90 pointer-events-none z-20 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black)]" />
+
+              <div className="shrink-0 bg-white/90 dark:bg-zinc-950/90 px-6 sticky bottom-0 z-30">
                 <ChatInterface
                   isLoading={chatMutation.isPending}
                   showBlurOverlay={showBlurOverlay}

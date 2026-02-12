@@ -410,7 +410,7 @@ class GraphService(BaseService):
                 f"[FIX 1] Coverage node properties mapped",
                 extra={
                     "canonical_key": entity.canonical_key,
-                    "name": coverage_name_prop,
+                    "node_name": coverage_name_prop,
                     "coverage_type": attrs.get("coverage_type"),
                     "has_description": bool(attrs.get("description")),
                     "description_length": len(attrs.get("description", ""))

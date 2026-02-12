@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GalleryVerticalEnd, FileText, Blocks } from "lucide-react";
+import { FileText, Blocks, Sparkle } from "lucide-react";
 import { IconChartBar, IconFileWord } from "@tabler/icons-react";
 import { GitCompare } from "lucide-react";
 
@@ -43,7 +43,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             className="hover:bg-transparent rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
             <div className="bg-[#0232D4]/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
-              <GalleryVerticalEnd className="size-4" />
+              <Sparkle className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">InsuraAI</span>

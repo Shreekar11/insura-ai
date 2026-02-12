@@ -4,7 +4,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { useEffect, useState } from "react";
 import { motion, AnimatePresence } from "framer-motion";
-import { GalleryVerticalEnd, Menu, X, ArrowRight } from "lucide-react";
+import { Menu, X, ArrowRight, Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LineShadowText } from "@/components/ui/line-shadow-text";
 
@@ -72,8 +72,8 @@ export default function Home() {
         <div className="max-w-5xl mx-auto px-6 md:px-8">
           <nav className="flex items-center justify-between">
             {/* Logo */}
-            <Link href="/" className="flex items-center gap-2 group">
-              <GalleryVerticalEnd className="size-5 text-[#2B2C36]" />
+            <Link href="/" className="flex items-center gap-1 group">
+              <Sparkle className="size-5 text-[#2B2C36]" />
               <span className="text-xl font-bold tracking-tight text-[#2B2C36]">
                 InsuraAI
               </span>
@@ -96,7 +96,7 @@ export default function Home() {
                 <Link href="/sign-in">
                   <Button
                     variant="ghost"
-                    className="text-[#2B2C36] hover:text-[#2B2C36] hover:bg-gray-100"
+                    className="text-[#2B2C36] rounded-sm hover:text-[#2B2C36] hover:bg-gray-100"
                   >
                     Log in
                   </Button>
@@ -104,7 +104,7 @@ export default function Home() {
                 <Link href="/sign-up">
                   <Button
                     variant="default"
-                    className="bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80"
+                    className="bg-[#0232D4]/90 rounded-sm text-white hover:bg-[#0232D4]/80"
                   >
                     Sign up
                   </Button>
@@ -127,13 +127,13 @@ export default function Home() {
                     <Link href="/sign-in">
                       <Button
                         variant="outline"
-                        className="text-[#2B2C36] hover:text-[#2B2C36] hover:bg-gray-100"
+                        className="text-[#2B2C36] rounded-sm hover:text-[#2B2C36] hover:bg-gray-100"
                       >
                         Log in
                       </Button>
                     </Link>
                     <Link href="/sign-up">
-                      <Button className="bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80">
+                      <Button className="bg-[#0232D4]/90 rounded-sm text-white hover:bg-[#0232D4]/80">
                         Sign up
                       </Button>
                     </Link>
@@ -187,7 +187,7 @@ export default function Home() {
               <Link href="/sign-up" className="w-full sm:w-auto">
                 <Button
                   size="lg"
-                  className="w-full sm:w-auto bg-[#0232D4]/90 text-white hover:bg-[#0232D4]/80 transition-all duration-300 ease-in-out transform hover:scale-105"
+                  className="w-full sm:w-auto bg-[#0232D4]/90 rounded-sm text-white hover:bg-[#0232D4]/80 transition-all duration-300 ease-in-out transform hover:scale-105"
                 >
                   Get Started <ArrowRight className="ml-2 size-5" />
                 </Button>
@@ -219,7 +219,7 @@ export default function Home() {
         <div className="max-w-7xl mx-auto px-6 md:px-8 py-12">
           <div className="flex flex-col md:flex-row justify-between items-center gap-8">
             <Link href="/" className="flex items-center gap-2">
-              <GalleryVerticalEnd className="size-5 text-white/40" />
+              <Sparkle className="size-5 text-white/40" />
               <span className="text-lg font-semibold text-white/40">
                 InsuraAI
               </span>

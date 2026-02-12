@@ -12,7 +12,11 @@ interface ChatInterfaceProps {
   isLoading?: boolean;
 }
 
-export function ChatInterface({ onAsk, showBlurOverlay, isLoading }: ChatInterfaceProps) {
+export function ChatInterface({
+  onAsk,
+  showBlurOverlay,
+  isLoading,
+}: ChatInterfaceProps) {
   const [query, setQuery] = useState("");
 
   const handleAsk = () => {
@@ -34,7 +38,7 @@ export function ChatInterface({ onAsk, showBlurOverlay, isLoading }: ChatInterfa
       {/* Top Blur Overlay */}
       <div
         className={cn(
-          "absolute top-0 left-0 right-0 h-10 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-b from-white via-white/80 to-transparent dark:from-zinc-950 dark:via-zinc-950/80 dark:to-transparent",
+          "absolute -top-12 left-0 right-0 h-12 z-20 pointer-events-none transition-opacity duration-300 bg-gradient-to-b from-white/50 via-white/20 to-transparent dark:from-zinc-950/50 dark:via-zinc-950/20 dark:to-transparent backdrop-blur-md [mask-image:linear-gradient(to_bottom,black,transparent)]",
           showBlurOverlay ? "opacity-100" : "opacity-0",
         )}
       />
