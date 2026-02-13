@@ -2,11 +2,16 @@
 /* istanbul ignore file */
 /* tslint:disable */
 /* eslint-disable */
+import type { MentionedDocument } from './MentionedDocument';
 export type GraphRAGRequest = {
     /**
      * User's natural language question
      */
     query: string;
+    /**
+     * Documents explicitly mentioned via @ in the chat
+     */
+    mentioned_documents?: Array<MentionedDocument> | null;
     /**
      * Specific documents to query (None = all workflow docs)
      */

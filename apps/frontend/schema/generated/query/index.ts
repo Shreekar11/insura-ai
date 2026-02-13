@@ -9,11 +9,13 @@ export type { OpenAPIConfig } from './core/OpenAPI';
 
 export { GraphRAGRequest } from './models/GraphRAGRequest';
 export type { GraphRAGResponse } from './models/GraphRAGResponse';
+export type { MentionedDocument } from './models/MentionedDocument';
 export type { ResponseMetadata } from './models/ResponseMetadata';
 export { WorkflowMessage } from './models/WorkflowMessage';
 
 export { $GraphRAGRequest } from './schemas/$GraphRAGRequest';
 export { $GraphRAGResponse } from './schemas/$GraphRAGResponse';
+export { $MentionedDocument } from './schemas/$MentionedDocument';
 export { $ResponseMetadata } from './schemas/$ResponseMetadata';
 export { $WorkflowMessage } from './schemas/$WorkflowMessage';
 

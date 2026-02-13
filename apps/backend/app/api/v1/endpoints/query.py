@@ -84,12 +84,22 @@ async def execute_query(
         )
 
     # 2. Persist user query
+    # Auto-populate document_ids from mentioned_documents if not explicitly set
+    if request.mentioned_documents and not request.document_ids:
+        request.document_ids = [doc.id for doc in request.mentioned_documents]
+
     try:
         await query_repo.create_query(
             workflow_id=workflow_id,
             role="user",
             content=request.query,
-            additional_metadata={"intent_override": request.intent_override}
+            additional_metadata={
+                "intent_override": request.intent_override,
+                "mentioned_documents": [
+                    {"id": str(doc.id), "name": doc.name}
+                    for doc in request.mentioned_documents
+                ] if request.mentioned_documents else None
+            }
         )
     except Exception as e:
         LOGGER.error(
@@ -110,7 +120,8 @@ async def execute_query(
             content=response.answer,
             additional_metadata={
                 "citations_count": len(response.sources) if response.sources else 0,
-                "latency_ms": response.metadata.latency_ms
+                "latency_ms": response.metadata.latency_ms,
+                "target_document_ids": [str(d) for d in request.document_ids] if request.document_ids else None
             }
         )
         

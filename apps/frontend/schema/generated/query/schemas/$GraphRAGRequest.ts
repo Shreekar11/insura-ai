@@ -10,6 +10,13 @@ export const $GraphRAGRequest = {
             isRequired: true,
             minLength: 1,
         },
+        mentioned_documents: {
+            type: 'array',
+            contains: {
+                type: 'MentionedDocument',
+            },
+            isNullable: true,
+        },
         document_ids: {
             type: 'array',
             contains: {

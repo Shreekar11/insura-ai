@@ -22,7 +22,10 @@ import { cn } from "@/lib/utils";
 import { ChatInterface } from "@/components/custom/chat-interface";
 import { useChat } from "@/hooks/use-chat";
 import { useChatMessages } from "@/hooks/use-chat-messages";
-import type { GraphRAGResponse } from "@/schema/generated/query";
+import type {
+  GraphRAGResponse,
+  MentionedDocument,
+} from "@/schema/generated/query";
 
 import {
   ResizableHandle,
@@ -562,11 +565,19 @@ function WorkflowExecutionContent() {
                 <ChatInterface
                   isLoading={chatMutation.isPending}
                   showBlurOverlay={showBlurOverlay}
-                  onAsk={(query: string) => {
+                  documents={existingDocuments?.documents ?? []}
+                  onAsk={(
+                    query: string,
+                    mentionedDocs: MentionedDocument[],
+                  ) => {
                     setShowBlurOverlay(true);
                     setMessages((prev) => [...prev, { query, answer: null }]);
                     chatMutation.mutate(
-                      { query },
+                      {
+                        query,
+                        mentioned_documents: mentionedDocs,
+                        document_ids: mentionedDocs.map((d) => d.id),
+                      },
                       {
                         onSuccess: (data: GraphRAGResponse) => {
                           setShowBlurOverlay(true);
