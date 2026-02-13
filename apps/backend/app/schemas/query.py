@@ -91,11 +91,11 @@ class QueryPlan(BaseModel):
     """Complete query plan produced by Stage 1."""
 
     original_query: str = Field(description="Raw user query")
-    intent: Literal["QA", "ANALYSIS", "AUDIT"] = Field(
+    intent: Literal["QA", "ANALYSIS", "AUDIT", "GENERAL"] = Field(
         description="Classified intent type"
     )
     traversal_depth: int = Field(
-        ge=1, le=5, description="Graph traversal depth (1-5 hops)"
+        ge=0, le=5, description="Graph traversal depth (0-5 hops)"
     )
     extracted_entities: ExtractedQueryEntities
     expanded_queries: list[str] = Field(
@@ -570,7 +570,7 @@ class GraphRAGRequest(BaseModel):
         le=32000,
         description="Maximum tokens for context assembly",
     )
-    intent_override: Literal["QA", "ANALYSIS", "AUDIT"] | None = Field(
+    intent_override: Literal["QA", "ANALYSIS", "AUDIT", "GENERAL"] | None = Field(
         default=None,
         description="Override automatic intent classification (for testing)",
     )

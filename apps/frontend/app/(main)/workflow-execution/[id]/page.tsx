@@ -22,6 +22,7 @@ import { cn } from "@/lib/utils";
 import { ChatInterface } from "@/components/custom/chat-interface";
 import { useChat } from "@/hooks/use-chat";
 import { useChatMessages } from "@/hooks/use-chat-messages";
+import { useTypewriter } from "@/hooks/use-typewriter";
 import type {
   GraphRAGResponse,
   MentionedDocument,
@@ -124,6 +125,94 @@ function CopyButton({ text }: { text: string }) {
   );
 }
 
+function MessageBubble({
+  msg,
+  onScrollToBottom,
+}: {
+  msg: {
+    query: string;
+    answer: string | null;
+    created_at: string;
+    isNew: boolean;
+  };
+  onScrollToBottom: () => void;
+}) {
+  const { displayedText, isTyping } = useTypewriter(msg.answer, msg.isNew);
+
+  // Auto-scroll while typing
+  useEffect(() => {
+    if (isTyping) {
+      onScrollToBottom();
+    }
+  }, [displayedText, isTyping, onScrollToBottom]);
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* User Query */}
+      <div className="flex justify-end group">
+        <div className="flex flex-col items-end gap-1 max-w-[80%]">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
+            <p className="text-sm text-zinc-800 dark:text-zinc-200">
+              {msg.query}
+            </p>
+          </div>
+          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {msg.created_at &&
+                new Date(msg.created_at).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                })}
+            </span>
+            <CopyButton text={msg.query} />
+          </div>
+        </div>
+      </div>
+
+      {/* LLM Response */}
+      <div className="flex justify-start gap-3">
+        <div className="shrink-0">
+          {!msg.answer || isTyping ? (
+            <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20 flex items-center justify-center">
+              {!msg.answer ? (
+                <Loader2 className="size-4 text-[#0232D4]/80 animate-spin stroke-[3]" />
+              ) : (
+                <Sparkles className="size-4 text-[#0232D4]/80" />
+              )}
+            </div>
+          ) : (
+            <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20">
+              <Sparkles className="size-4 text-[#0232D4]/80" />
+            </div>
+          )}
+        </div>
+        <div className="max-w-full w-full group">
+          {!msg.answer ? (
+            <div className="flex items-center gap-2 text-zinc-500 italic text-sm py-0.5">
+              Thinking...
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200 min-h-[1.5em]">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {displayedText}
+                </ReactMarkdown>
+                {isTyping && (
+                  <span className="inline-block w-1.5 h-4 ml-0.5 align-middle bg-zinc-400 animate-pulse" />
+                )}
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <CopyButton text={msg.answer} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
@@ -140,7 +229,12 @@ function WorkflowExecutionContent() {
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isStarted, setIsStarted] = useState(false);
   const [messages, setMessages] = useState<
-    { query: string; answer: string | null }[]
+    {
+      query: string;
+      answer: string | null;
+      created_at: string;
+      isNew: boolean;
+    }[]
   >([]);
   const [showBlurOverlay, setShowBlurOverlay] = useState(false);
   const [showScrollButton, setShowScrollButton] = useState(false);
@@ -233,19 +327,34 @@ function WorkflowExecutionContent() {
 
   useEffect(() => {
     if (chatHistory && chatHistory.length > 0 && !historyLoadedRef.current) {
-      const historyPairs: { query: string; answer: string | null }[] = [];
+      const historyPairs: {
+        query: string;
+        answer: string | null;
+        created_at: string;
+        isNew: boolean;
+      }[] = [];
       let currentQuery: string | null = null;
 
       chatHistory.forEach((msg) => {
         if (msg.role === "user") {
           // If there was a pending query without answer, push it
           if (currentQuery) {
-            historyPairs.push({ query: currentQuery, answer: null });
+            historyPairs.push({
+              query: currentQuery,
+              answer: null,
+              created_at: msg.created_at,
+              isNew: false,
+            });
           }
           currentQuery = msg.content;
         } else if (msg.role === "model") {
           if (currentQuery) {
-            historyPairs.push({ query: currentQuery, answer: msg.content });
+            historyPairs.push({
+              query: currentQuery,
+              answer: msg.content,
+              created_at: msg.created_at,
+              isNew: false,
+            });
             currentQuery = null;
           }
         }
@@ -253,7 +362,12 @@ function WorkflowExecutionContent() {
 
       // Push last pending query
       if (currentQuery) {
-        historyPairs.push({ query: currentQuery, answer: null });
+        historyPairs.push({
+          query: currentQuery,
+          answer: null,
+          created_at: "",
+          isNew: false,
+        });
       }
 
       setMessages((prev) => [...historyPairs, ...prev]);
@@ -483,57 +597,11 @@ function WorkflowExecutionContent() {
                   {isComplete && (
                     <div className="space-y-12">
                       {messages.map((msg, idx) => (
-                        <div
+                        <MessageBubble
                           key={idx}
-                          className="space-y-8 animate-in fade-in slide-in-from-bottom-4 duration-500"
-                        >
-                          {/* User Query */}
-                          <div className="flex justify-end group">
-                            <div className="flex flex-col items-end gap-1 max-w-[80%]">
-                              <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
-                                <p className="text-sm text-zinc-800 dark:text-zinc-200">
-                                  {msg.query}
-                                </p>
-                              </div>
-                              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                <CopyButton text={msg.query} />
-                              </div>
-                            </div>
-                          </div>
-
-                          {/* LLM Response */}
-                          <div className="flex justify-start gap-3">
-                            <div className="shrink-0">
-                              {!msg.answer ? (
-                                <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20 flex items-center justify-center">
-                                  <Loader2 className="size-4 text-[#0232D4]/80 animate-spin stroke-[3]" />
-                                </div>
-                              ) : (
-                                <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20">
-                                  <Sparkles className="size-4 text-[#0232D4]/80" />
-                                </div>
-                              )}
-                            </div>
-                            <div className="max-w-full w-full group">
-                              {!msg.answer ? (
-                                <div className="flex items-center gap-2 text-zinc-500 italic text-sm py-0.5">
-                                  Thinking...
-                                </div>
-                              ) : (
-                                <div className="flex flex-col gap-1">
-                                  <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200">
-                                    <ReactMarkdown remarkPlugins={[remarkGfm]}>
-                                      {msg.answer}
-                                    </ReactMarkdown>
-                                  </div>
-                                  <div className="opacity-0 group-hover:opacity-100 transition-opacity">
-                                    <CopyButton text={msg.answer} />
-                                  </div>
-                                </div>
-                              )}
-                            </div>
-                          </div>
-                        </div>
+                          msg={msg}
+                          onScrollToBottom={scrollToBottom}
+                        />
                       ))}
                     </div>
                   )}
@@ -571,7 +639,15 @@ function WorkflowExecutionContent() {
                     mentionedDocs: MentionedDocument[],
                   ) => {
                     setShowBlurOverlay(true);
-                    setMessages((prev) => [...prev, { query, answer: null }]);
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        query,
+                        answer: null,
+                        created_at: new Date().toISOString(),
+                        isNew: true,
+                      },
+                    ]);
                     chatMutation.mutate(
                       {
                         query,

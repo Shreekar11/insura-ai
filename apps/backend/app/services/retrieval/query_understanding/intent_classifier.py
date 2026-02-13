@@ -18,13 +18,30 @@ from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
-IntentType = Literal["QA", "ANALYSIS", "AUDIT"]
+IntentType = Literal["QA", "ANALYSIS", "AUDIT", "GENERAL"]
 
 
 class IntentClassifier:
     """Classifies user query intent using rule-based patterns."""
 
     # Rule-based patterns for intent classification
+    GENERAL_PATTERNS = [
+        r"\bhello\b",
+        r"\bhi\b",
+        r"\bhey\b",
+        r"\bgood\s+morning\b",
+        r"\bgood\s+afternoon\b",
+        r"\bgood\s+evening\b",
+        r"\bhow\s+can\s+you\s+help\b",
+        r"\bwhat\s+(can|do|does)\s+you\s+(do|help)\b",
+        r"\bwhat\s+is\s+your\s+purpose\b",
+        r"\bwho\s+are\s+you\b",
+        r"\bwhat\s+are\s+you\b",
+        r"\byour\s+capabilities\b",
+        r"\bhow\s+do\s+you\s+work\b",
+        r"\bhelp\b",
+    ]
+
     QA_PATTERNS = [
         r"\bwhat\s+is\b",
         r"\bwho\s+is\b",
@@ -59,12 +76,12 @@ class IntentClassifier:
         r"\bexclusion\b",
         r"\bsubject\s+to\b",
         r"\bcondition\b",
-        r"\bhow\s+do(es)?\b",
         r"\bwhy\b",
         r"\bexplain\b",
         r"\banalyze\b",
         r"\bsummarize\b",
         r"\boverview\b",
+        r"\bdiffer\b",
     ]
 
     AUDIT_PATTERNS = [
@@ -94,7 +111,7 @@ class IntentClassifier:
 
         Returns:
             Tuple of (intent_type, confidence, traversal_depth)
-            - intent_type: "QA", "ANALYSIS", or "AUDIT"
+            - intent_type: "QA", "ANALYSIS", "AUDIT", or "GENERAL"
             - confidence: Float between 0.0 and 1.0
             - traversal_depth: Recommended graph traversal depth
         """
@@ -105,6 +122,10 @@ class IntentClassifier:
 
         query_lower = query.lower()
 
+        general_score = sum(
+            1 for pattern in self.GENERAL_PATTERNS if re.search(pattern, query_lower)
+        )
+        
         # Count pattern matches for each intent type
         qa_score = sum(
             1 for pattern in self.QA_PATTERNS if re.search(pattern, query_lower)
@@ -117,6 +138,13 @@ class IntentClassifier:
         audit_score = sum(
             1 for pattern in self.AUDIT_PATTERNS if re.search(pattern, query_lower)
         )
+
+        if general_score > 0 and qa_score == 0 and analysis_score == 0 and audit_score == 0:
+            LOGGER.info(
+                "Classified as GENERAL conversational intent",
+                extra={"query": query[:100], "general_score": general_score},
+            )
+            return "GENERAL", 1.0, 0
 
         # Apply pattern weighting - AUDIT patterns have highest priority
         # This ensures provenance/evidence queries are classified correctly
@@ -159,7 +187,7 @@ class IntentClassifier:
             raw_score = qa_score
 
         # Get traversal depth from config
-        traversal_depth = TRAVERSAL_CONFIG[intent]["max_depth"]
+        traversal_depth = TRAVERSAL_CONFIG.get(intent, {}).get("max_depth", 1)
 
         # Cap base confidence to leave room for boost to differentiate multi-pattern queries
         # Only apply cap when there are multiple patterns to allow for differentiation

@@ -63,7 +63,7 @@ TraversalConfig = dict[
 
 TRAVERSAL_CONFIG: TraversalConfig = {
     "QA": {
-        "max_depth": 2,
+        "max_depth": 1,
         "edge_types": [
             "HAS_COVERAGE",
             "EXCLUDES",
@@ -323,6 +323,26 @@ ERROR_MESSAGES = {
     "workflow_not_found": "Workflow not found or access denied.",
     "no_results": "No relevant information found for your query.",
 }
+
+
+GENERAL_QUERY_RESPONSE = """
+I am your **Insura-AI Assistant**, specialized in analyzing and querying complex insurance policy documents. 
+
+I can help you with:
+
+- **Policy Q&A**: Ask about specific coverages, limits, deductibles, or effective dates.
+- **Deep Analysis**: Compare different policies or understand how endorsements modify your base coverage.
+- **Exclusion Mapping**: Find where specific exclusions apply and identify potential coverage gaps.
+- **Evidence Tracing**: Locate the exact section, page, and provenance for any coverage statement.
+
+**How to get started:**
+Simply ask a question about the documents in this workflow, for example:
+- *"What is the per-occurrence limit for General Liability?"*
+- *"Does this policy cover cyber-related losses?"*
+- *"Compare the deductibles between the primary and excess layers."*
+
+How can I help you with your policies today?
+"""
 
 
 # Intent classification confidence threshold

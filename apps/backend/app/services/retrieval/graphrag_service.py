@@ -93,6 +93,38 @@ class GraphRAGService:
             
         stage_latencies["query_understanding"] = int((time.time() - s1_start) * 1000)
 
+        # Early exit for GENERAL intent (conversational queries)
+        if query_plan.intent == "GENERAL":
+            from app.services.retrieval.constants import GENERAL_QUERY_RESPONSE
+            
+            LOGGER.info(
+                "Short-circuiting GraphRAG pipeline for GENERAL intent",
+                extra={"query": request.query[:100]}
+            )
+            
+            total_latency_ms = int((time.time() - start_time) * 1000)
+            metadata = ResponseMetadata(
+                intent="GENERAL",
+                traversal_depth=0,
+                vector_results_count=0,
+                graph_results_count=0,
+                merged_results_count=0,
+                full_text_count=0,
+                summary_count=0,
+                total_context_tokens=0,
+                latency_ms=total_latency_ms,
+                stage_latencies=stage_latencies,
+                graph_available=True,
+                fallback_mode=False
+            )
+            
+            return GraphRAGResponse(
+                answer=GENERAL_QUERY_RESPONSE.strip(),
+                sources=[],
+                metadata=metadata,
+                timestamp=datetime.now(timezone.utc)
+            )
+
         # 2. Stage 2: Vector Retrieval
         s2_start = time.time()
         vector_results = await self.vector_retrieval.retrieve(query_plan)
