@@ -3,7 +3,7 @@
 Combines DocumentEntityAggregator, EntityResolver, and RelationshipExtractorGlobal.
 """
 
-from typing import List, Dict, Any
+from typing import List, Dict, Any, Optional
 from uuid import UUID
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -31,9 +31,9 @@ class EntityResolutionPipeline:
             openrouter_api_url=settings.openrouter_api_url,
         )
 
-    async def aggregate_entities(self, document_id: UUID, workflow_id: UUID) -> Dict:
+    async def aggregate_entities(self, document_id: UUID, workflow_id: UUID, rich_context: Optional[Dict[str, Any]] = None) -> Dict:
         """Aggregate entities from all chunks."""
-        aggregated = await self.aggregator.aggregate_entities(document_id, workflow_id)
+        aggregated = await self.aggregator.aggregate_entities(document_id, workflow_id, rich_context=rich_context)
         return {
             "entities": aggregated.entities,
             "total_chunks": aggregated.total_chunks,

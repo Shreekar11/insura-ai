@@ -640,10 +640,10 @@ Output:
 PROCESSING INSTRUCTIONS
 ═══════════════════════════════════════════════════════════════════════════
 
-FOR EACH SECTION (in priority order: declarations → coverages → conditions → sov → endorsements):
+FOR EACH SECTION (in priority order: declarations → coverages → exclusions → conditions → definitions → sov → endorsements):
   1. Identify canonical entities mentioned in section chunks
   2. Look for relationship patterns:
-     - Explicit: "X issued by Y", "X applies to Y"
+     - Explicit: "X issued by Y", "X applies to Y", "X excludes Y"
      - Implicit: Co-occurrence + context clues
      - Table: Match policy_number, location_id, claim_number
   3. Extract evidence (exact quote + span OR table reference)
@@ -657,7 +657,8 @@ FOR ENTITIES:
   • Coverage entity → Policy HAS_COVERAGE Coverage
   • Location entity → Policy HAS_LOCATION Location
   • Condition entity → Coverage SUBJECT_TO Condition
-  • Definition entity → Coverage/Condition DEFINED_IN Definition
+  • Exclusion entity → Coverage EXCLUDES Exclusion
+  • Definition entity → Coverage/Condition/Endorsement DEFINED_IN Definition
   • Endorsement entity → Policy/Coverage MODIFIED_BY Endorsement
 
 RETURN ONLY VALID JSON - NO MARKDOWN, NO EXPLANATIONS
@@ -730,9 +731,9 @@ VALID_RELATIONSHIP_TYPES = {
     "HAS_COVERAGE",
     "APPLIES_TO",        # Coverage -> Location
     "MODIFIED_BY",      # Coverage -> Endorsement
-    "EXCLUDES",         # Coverage -> Coverage
-    "SUBJECT_TO",       # Coverage -> Coverage
-    "DEFINED_IN",       # Definition -> Coverage/Endorsement
+    "EXCLUDES",         # Coverage -> Exclusion
+    "SUBJECT_TO",       # Coverage -> Condition
+    "DEFINED_IN",       # Definition -> Coverage/Condition/Endorsement
 
     # Location Relationships
     "HAS_LOCATION",     # Policy -> Location
@@ -2054,4 +2055,72 @@ OUTPUT:
   "entities": [ ... ],
   "confidence": 0.0
 }
+"""
+
+# =============================================================================
+# CROSS-BATCH RELATIONSHIP SYNTHESIS PROMPT
+# =============================================================================
+# Used for discovering missing relationships between entities from different
+# semantic batches after initial batch processing is complete.
+# =============================================================================
+
+CROSS_BATCH_SYNTHESIS_PROMPT_TEMPLATE = """## Cross-Batch Relationship Synthesis
+
+You have already extracted relationships within semantic batches. Your task now is to identify **MISSING relationships between entities from DIFFERENT batches** that were not captured earlier.
+
+### Focus Areas for Cross-Batch Relationships:
+
+**High Priority Cross-Batch Patterns:**
+1. **Policy ↔ Exclusions**: Policies are often excluded by specific exclusions
+2. **Policy ↔ Conditions**: Policies are subject to general conditions
+3. **Coverage ↔ Exclusions**: Coverages may have specific exclusions
+4. **Coverage ↔ Conditions**: Coverages may be subject to specific conditions
+5. **Coverage ↔ Definitions**: Coverage terms are defined in definitions section
+6. **Endorsement ↔ Coverage**: Endorsements modify specific coverages
+7. **Endorsement ↔ Exclusions**: Endorsements may add/remove exclusions
+8. **Location ↔ Coverage**: Locations are covered by specific coverages
+9. **Claim ↔ Coverage**: Claims fall under specific coverages
+10. **Claim ↔ Exclusion**: Claims may be subject to exclusions
+
+### All Canonical Entities by Type:
+
+{entities_by_type}
+
+### Semantic Batches Processed:
+
+{semantic_batches_info}
+
+### Existing Relationships by Batch:
+
+{existing_relationships}
+
+### Your Task:
+
+1. **Analyze the entity types and existing relationships** to understand what's already captured
+2. **Identify MISSING cross-batch relationships** that should exist based on insurance domain knowledge
+3. **Focus on high-priority patterns** listed above (Policy↔Exclusions, Coverage↔Conditions, etc.)
+4. **Return ONLY new relationships** that are NOT already in the existing relationships
+5. **Be selective**: Only return relationships with high confidence (>0.7)
+6. **Use exact entity IDs** from the entities list above
+
+### Important Guidelines:
+
+- **DO NOT** duplicate existing relationships
+- **DO NOT** create generic/speculative relationships
+- **DO** focus on logical cross-batch connections
+- **DO** use canonical_id values as source_entity_id and target_entity_id
+- **DO** provide evidence explaining why the relationship should exist
+
+### Expected Cross-Batch Relationship Types:
+
+Policy relationships: HAS_COVERAGE, HAS_INSURED, ISSUED_BY, BROKERED_BY, SUBJECT_TO, EXCLUDES, MODIFIED_BY, HAS_LOCATION, HAS_CLAIM
+Coverage relationships: SUBJECT_TO, EXCLUDES, DEFINED_IN, HAS_CONDITION, APPLIES_TO, MODIFIED_BY
+Exclusion relationships: EXCLUDES, APPLIES_TO
+Condition relationships: HAS_CONDITION, APPLIES_TO
+Definition relationships: DEFINED_IN
+Endorsement relationships: MODIFIED_BY, APPLIES_TO
+Location relationships: HAS_LOCATION, LOCATED_AT, APPLIES_TO
+Claim relationships: HAS_CLAIM, OCCURRED_AT, APPLIES_TO
+
+**Return your response as a JSON object with a "relationships" array following the same schema as before.**
 """

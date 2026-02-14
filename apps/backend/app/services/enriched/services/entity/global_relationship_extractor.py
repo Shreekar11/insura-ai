@@ -29,12 +29,15 @@ from app.database.models import (
 from app.repositories.entity_mention_repository import EntityMentionRepository
 from app.repositories.table_repository import TableRepository
 from app.services.processed.services.chunking.hybrid_models import SectionType, SECTION_CONFIG
-from app.prompts import RELATIONSHIP_EXTRACTION_PROMPT, VALID_RELATIONSHIP_TYPES
+from app.prompts.system_prompts import (
+    RELATIONSHIP_EXTRACTION_PROMPT,
+    VALID_RELATIONSHIP_TYPES,
+    CROSS_BATCH_SYNTHESIS_PROMPT_TEMPLATE
+)
+from app.utils.relationship_config import SECTION_PAIRINGS
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
-
-# Valid relationship types imported from centralized prompts
 
 
 class RelationshipExtractorGlobal:
@@ -442,9 +445,111 @@ class RelationshipExtractorGlobal:
                 "sections": {k: len(v) for k, v in section_groups.items()}
             }
         )
-        
+
         return section_groups
-    
+
+    def _partition_sections_into_batches(
+        self,
+        section_chunks: Dict[str, List[Dict[str, Any]]],
+        sov_items: List[SOVItem],
+        loss_run_claims: List[LossRunClaim],
+        document_tables: List[DocumentTable]
+    ) -> List[Dict[str, Any]]:
+        """Partition sections into semantic batches based on relationship bridges.
+
+        Instead of processing one section per batch, this groups related sections
+        that commonly have cross-section relationships. This allows the LLM to see
+        both sides of a relationship (e.g., Policy in declarations + Coverage in coverages).
+
+        Args:
+            section_chunks: Chunks grouped by section type
+            sov_items: SOV items for location relationships
+            loss_run_claims: Loss run claims for claim relationships
+            document_tables: All document tables for routing
+
+        Returns:
+            List of batch configurations with sections and routed table data
+        """
+        available_sections = set(section_chunks.keys())
+        batches = []
+        processed_sections = set()
+
+        # Sort pairings by priority
+        sorted_pairings = sorted(SECTION_PAIRINGS, key=lambda p: p["priority"])
+
+        for pairing in sorted_pairings:
+            # Find which sections from this pairing are available
+            pairing_sections = [s for s in pairing["sections"] if s in available_sections]
+
+            if not pairing_sections:
+                continue  # Skip if no sections from this pairing exist
+
+            # Build batch configuration
+            batch = {
+                "name": pairing["name"],
+                "description": pairing["description"],
+                "sections": pairing_sections,
+                "expected_rels": pairing["expected_rels"],
+                "priority": pairing["priority"],
+            }
+
+            # Route table data to this batch only if relevant
+            batch["sov_items"] = sov_items if pairing["include_sov"] else []
+            batch["loss_run_claims"] = loss_run_claims if pairing["include_loss_runs"] else []
+
+            # Route document tables by table_type
+            if pairing["table_types"]:
+                batch["document_tables"] = [
+                    tbl for tbl in document_tables
+                    if tbl.table_type in pairing["table_types"]
+                ]
+            else:
+                batch["document_tables"] = []
+
+            # Merge section chunks for this batch
+            batch_chunks = []
+            for section_key in pairing_sections:
+                batch_chunks.extend(section_chunks[section_key])
+                processed_sections.add(section_key)
+
+            batch["chunks"] = batch_chunks
+            batch["section_count"] = len(pairing_sections)
+            batch["chunk_count"] = len(batch_chunks)
+            batch["total_tokens"] = sum(c.get("token_count", 0) for c in batch_chunks)
+
+            batches.append(batch)
+
+        # Catch any sections not covered by pairings (fallback to individual batches)
+        uncovered_sections = available_sections - processed_sections
+        for section_key in sorted(uncovered_sections):
+            batch = {
+                "name": f"uncovered_{section_key}",
+                "description": f"Uncovered section: {section_key}",
+                "sections": [section_key],
+                "expected_rels": [],
+                "priority": 99,
+                "sov_items": [],
+                "loss_run_claims": [],
+                "document_tables": [],
+                "chunks": section_chunks[section_key],
+                "section_count": 1,
+                "chunk_count": len(section_chunks[section_key]),
+                "total_tokens": sum(c.get("token_count", 0) for c in section_chunks[section_key]),
+            }
+            batches.append(batch)
+
+        LOGGER.info(
+            f"Partitioned {len(available_sections)} sections into {len(batches)} semantic batches",
+            extra={
+                "total_sections": len(available_sections),
+                "batches": len(batches),
+                "batch_names": [b["name"] for b in batches],
+                "uncovered_sections": list(uncovered_sections)
+            }
+        )
+
+        return batches
+
     async def _build_global_context(
         self,
         document: Optional[Document],
@@ -690,84 +795,189 @@ class RelationshipExtractorGlobal:
         return candidates
     
     async def _call_llm_api(self, context: Dict[str, Any]) -> List[Dict[str, Any]]:
-        """Call LLM API for relationship extraction using partitioned section batches.
-        
-        This implements the batch-oriented processing to avoid output truncation
-        as described in docs/llm_truncation_error_relationship_generation.md.
-        
+        """Call LLM API for relationship extraction using semantic section batches.
+
+        This implements semantic batch-oriented processing where related sections
+        are grouped together (e.g., declarations + coverages) to enable extraction
+        of cross-section relationships while avoiding output truncation.
+
         Args:
             context: Global context dictionary with section-aware data
-            
+
         Returns:
             List of aggregated relationship dictionaries
         """
-        # Parse structured sections
-        section_batches_str = context.get("chunks_by_section_structured")
-        if not section_batches_str:
+        # Get section chunks, SOV items, loss runs, and tables from context
+        section_chunks_str = context.get("chunks_by_section_structured")
+        if not section_chunks_str:
             LOGGER.warning("No structured sections found for batching, falling back to full context")
             user_message = self._build_user_message(context)
             return await self._execute_llm_call(user_message)
-            
+
         try:
-            section_batches = json.loads(section_batches_str)
+            section_data = json.loads(section_chunks_str)
         except Exception as e:
             LOGGER.error(f"Failed to parse structured sections: {e}")
             user_message = self._build_user_message(context)
             return await self._execute_llm_call(user_message)
-        
-        if not section_batches:
-            LOGGER.warning("Empty section batches, falling back to full context")
+
+        if not section_data:
+            LOGGER.warning("Empty section data, falling back to full context")
+            user_message = self._build_user_message(context)
+            return await self._execute_llm_call(user_message)
+
+        # Convert section_data list into a dict keyed by section_type for easier lookup
+        section_chunks = {}
+        for section_info in section_data:
+            section_type = section_info.get("section_type")
+            if section_type:
+                section_chunks[section_type] = section_info.get("chunks", [])
+
+        # Get table data from context (already as JSON strings)
+        sov_items_str = context.get("sov_items_json", "[]")
+        loss_run_claims_str = context.get("loss_run_claims_json", "[]")
+        document_tables_str = context.get("document_tables_json", "[]")
+
+        try:
+            document_tables_data = json.loads(document_tables_str)
+        except Exception as e:
+            LOGGER.error(f"Failed to parse document tables data: {e}")
+            document_tables_data = []
+
+        # Create empty lists for partitioning
+        # We'll route the actual JSON strings to batches based on configuration
+        # The partitioning logic only needs empty lists since it checks include_sov/include_loss_runs flags
+        empty_sov_items = []
+        empty_loss_runs = []
+        empty_tables = []
+
+        # Partition sections into semantic batches
+        semantic_batches = self._partition_sections_into_batches(
+            section_chunks=section_chunks,
+            sov_items=empty_sov_items,  # Routing handled via JSON strings
+            loss_run_claims=empty_loss_runs,  # Routing handled via JSON strings
+            document_tables=empty_tables  # Routing handled via JSON strings
+        )
+
+        if not semantic_batches:
+            LOGGER.warning("No semantic batches created, falling back to full context")
             user_message = self._build_user_message(context)
             return await self._execute_llm_call(user_message)
 
         all_relationships = []
-        
-        # Process each section as a separate batch
-        for i, batch in enumerate(section_batches):
-            section_type = batch.get("section_type", "unknown")
+
+        # Process each semantic batch
+        for i, batch in enumerate(semantic_batches):
+            batch_name = batch.get("name", "unknown")
             LOGGER.info(
-                f"Processing relationship extraction batch {i+1}/{len(section_batches)}",
-                extra={"section_type": section_type, "document_id": context.get("document_id")}
+                f"Processing relationship extraction batch {i+1}/{len(semantic_batches)}: {batch_name}",
+                extra={
+                    "batch_name": batch_name,
+                    "sections": batch.get("sections", []),
+                    "section_count": batch.get("section_count", 0),
+                    "chunk_count": batch.get("chunk_count", 0),
+                }
             )
-            
+
+            # Route table data to batch based on configuration
+            # Since we don't have the actual objects, we'll filter the JSON arrays
+            if batch.get("include_sov"):
+                batch["sov_items_json"] = sov_items_str
+            else:
+                batch["sov_items_json"] = "[]"
+
+            if batch.get("include_loss_runs"):
+                batch["loss_run_claims_json"] = loss_run_claims_str
+            else:
+                batch["loss_run_claims_json"] = "[]"
+
+            # Filter document tables by table_type if specified
+            if batch.get("table_types"):
+                filtered_tables = [
+                    tbl for tbl in document_tables_data
+                    if tbl.get("table_type") in batch["table_types"]
+                ]
+                batch["document_tables_json"] = json.dumps(filtered_tables, indent=2)
+            else:
+                batch["document_tables_json"] = "[]"
+
             # Build batch-specific user message
             user_message = self._build_batch_user_message(context, batch)
-            
+
             try:
                 # Execute LLM call for this batch
                 batch_data = await self._execute_llm_call(user_message)
-                
-                # Filter out candidates if they arrived (schema allows them but we use relationships here)
-                # Note: _execute_llm_call already returns just the relationships list
-                
-                # Tag relationships with source section for debugging
+
+                # Tag relationships with batch name for provenance tracking
                 for rel in batch_data:
                     if "attributes" not in rel:
                         rel["attributes"] = {}
-                    rel["attributes"]["extraction_section"] = section_type
-                
+                    rel["attributes"]["extraction_batch"] = batch_name
+                    rel["attributes"]["extraction_sections"] = batch.get("sections", [])
+
                 all_relationships.extend(batch_data)
-                
+
+                LOGGER.info(
+                    f"Batch {batch_name} extracted {len(batch_data)} relationships",
+                    extra={
+                        "batch_name": batch_name,
+                        "relationships_count": len(batch_data)
+                    }
+                )
+
             except Exception as e:
                 LOGGER.error(
-                    f"Batch extraction failed for section {section_type}: {e}",
-                    extra={"section_type": section_type}
+                    f"Batch extraction failed for {batch_name}: {e}",
+                    extra={"batch_name": batch_name},
+                    exc_info=True
                 )
                 # Continue with next batch to be resilient
                 continue
 
         # Deduplicate relationships
         unique_relationships = self._deduplicate_relationships(all_relationships)
-        
+
         LOGGER.info(
-            f"Completed batch relationship extraction",
+            f"Completed semantic batch relationship extraction",
             extra={
-                "total_batches": len(section_batches),
+                "total_batches": len(semantic_batches),
                 "raw_relationships": len(all_relationships),
                 "unique_relationships": len(unique_relationships)
             }
         )
-        
+
+        # Run cross-batch synthesis pass to capture missing cross-pairing relationships
+        try:
+            cross_batch_relationships = await self._cross_batch_synthesis_pass(
+                context=context,
+                existing_relationships=unique_relationships,
+                semantic_batches=semantic_batches
+            )
+
+            if cross_batch_relationships:
+                LOGGER.info(
+                    f"Cross-batch synthesis discovered {len(cross_batch_relationships)} additional relationships",
+                    extra={"cross_batch_count": len(cross_batch_relationships)}
+                )
+
+                # Merge and deduplicate again
+                all_relationships.extend(cross_batch_relationships)
+                unique_relationships = self._deduplicate_relationships(all_relationships)
+        except Exception as e:
+            LOGGER.error(
+                f"Cross-batch synthesis pass failed: {e}",
+                exc_info=True
+            )
+            # Continue with existing relationships if synthesis fails
+
+        LOGGER.info(
+            f"Final relationship extraction completed",
+            extra={
+                "total_batches": len(semantic_batches),
+                "final_unique_relationships": len(unique_relationships)
+            }
+        )
+
         return unique_relationships
 
     async def _execute_llm_call(self, user_message: str) -> List[Dict[str, Any]]:
@@ -844,18 +1054,204 @@ class RelationshipExtractorGlobal:
                 
         return list(seen.values())
 
+    async def _cross_batch_synthesis_pass(
+        self,
+        context: Dict[str, Any],
+        existing_relationships: List[Dict[str, Any]],
+        semantic_batches: List[Dict[str, Any]]
+    ) -> List[Dict[str, Any]]:
+        """Run a focused synthesis pass to discover missing cross-batch relationships.
+
+        This addresses the limitation where relationships between entities from different
+        semantic groups (e.g., Policy->Exclusion, Endorsement->Coverage) may be missed
+        because they weren't in the same batch.
+
+        Strategy:
+        - Present all canonical entities organized by type
+        - Show existing relationships organized by batch
+        - Ask LLM to identify missing cross-batch relationships
+        - Focus on common cross-pairing patterns
+
+        Args:
+            context: Global context with all entities
+            existing_relationships: Relationships extracted from semantic batches
+            semantic_batches: List of semantic batch configurations
+
+        Returns:
+            List of additional relationships discovered
+        """
+        LOGGER.info("Starting cross-batch synthesis pass to discover missing relationships")
+
+        # Get all canonical entities from context
+        canonical_entities_str = context.get("canonical_entities", "[]")
+        try:
+            canonical_entities = json.loads(canonical_entities_str)
+        except Exception as e:
+            LOGGER.error(f"Failed to parse canonical entities for synthesis: {e}")
+            return []
+
+        if not canonical_entities:
+            LOGGER.warning("No canonical entities found for cross-batch synthesis")
+            return []
+
+        # Organize entities by type for better LLM comprehension
+        entities_by_type = {}
+        for entity in canonical_entities:
+            entity_type = entity.get("entity_type", "Unknown")
+            if entity_type not in entities_by_type:
+                entities_by_type[entity_type] = []
+            entities_by_type[entity_type].append(entity)
+
+        # Organize existing relationships by batch for analysis
+        relationships_by_batch = {}
+        for rel in existing_relationships:
+            batch_name = rel.get("attributes", {}).get("extraction_batch", "unknown")
+            if batch_name not in relationships_by_batch:
+                relationships_by_batch[batch_name] = []
+            relationships_by_batch[batch_name].append({
+                "source": rel.get("source_entity_id") or rel.get("source_canonical_id"),
+                "target": rel.get("target_entity_id") or rel.get("target_canonical_id"),
+                "type": rel.get("type") or rel.get("relationship_type")
+            })
+
+        # Build synthesis prompt
+        synthesis_prompt = self._build_synthesis_prompt(
+            entities_by_type=entities_by_type,
+            relationships_by_batch=relationships_by_batch,
+            semantic_batches=semantic_batches
+        )
+
+        # Execute synthesis LLM call
+        try:
+            cross_batch_rels = await self._execute_llm_call(synthesis_prompt)
+
+            # Tag these relationships as cross-batch synthesis
+            for rel in cross_batch_rels:
+                if "attributes" not in rel:
+                    rel["attributes"] = {}
+                rel["attributes"]["extraction_batch"] = "cross_batch_synthesis"
+                rel["attributes"]["synthesis_pass"] = True
+
+            LOGGER.info(
+                f"Cross-batch synthesis discovered {len(cross_batch_rels)} relationships",
+                extra={"cross_batch_count": len(cross_batch_rels)}
+            )
+
+            return cross_batch_rels
+
+        except Exception as e:
+            LOGGER.error(f"Cross-batch synthesis LLM call failed: {e}", exc_info=True)
+            return []
+
+    def _build_synthesis_prompt(
+        self,
+        entities_by_type: Dict[str, List[Dict[str, Any]]],
+        relationships_by_batch: Dict[str, List[Dict[str, Any]]],
+        semantic_batches: List[Dict[str, Any]]
+    ) -> str:
+        """Build the prompt for cross-batch relationship synthesis.
+
+        Args:
+            entities_by_type: All canonical entities organized by type
+            relationships_by_batch: Existing relationships grouped by extraction batch
+            semantic_batches: List of semantic batch configurations
+
+        Returns:
+            Formatted prompt string for LLM
+        """
+        # Build entities by type section
+        entities_section = ""
+        for entity_type, entities in sorted(entities_by_type.items()):
+            entities_section += f"\n#### {entity_type} ({len(entities)} entities)\n"
+            for entity in entities[:20]:  # Limit to first 20 per type to avoid token bloat
+                entity_id = entity.get("canonical_id") or entity.get("id")
+                name = entity.get("name") or entity.get("title") or entity.get("term") or "N/A"
+                entities_section += f"- ID: {entity_id}, Name: {name}\n"
+            if len(entities) > 20:
+                entities_section += f"  ... and {len(entities) - 20} more\n"
+
+        # Build semantic batches section
+        batches_section = ""
+        for batch in semantic_batches:
+            batch_name = batch.get("name", "unknown")
+            description = batch.get("description", "")
+            sections = batch.get("sections", [])
+            expected_rels = batch.get("expected_rels", [])
+            batches_section += f"\n#### {batch_name}: {description}\n"
+            batches_section += f"- Sections: {', '.join(sections)}\n"
+            batches_section += f"- Expected relationships: {', '.join(expected_rels)}\n"
+
+        # Build existing relationships section
+        relationships_section = ""
+        for batch_name, rels in sorted(relationships_by_batch.items()):
+            relationships_section += f"\n#### Batch: {batch_name} ({len(rels)} relationships)\n"
+            # Show a sample of relationships
+            for rel in rels[:10]:  # Limit sample
+                relationships_section += f"- {rel['source']} --[{rel['type']}]--> {rel['target']}\n"
+            if len(rels) > 10:
+                relationships_section += f"  ... and {len(rels) - 10} more\n"
+
+        # Format the imported template with the dynamic content
+        return CROSS_BATCH_SYNTHESIS_PROMPT_TEMPLATE.format(
+            entities_by_type=entities_section,
+            semantic_batches_info=batches_section,
+            existing_relationships=relationships_section
+        )
+
     def _build_batch_user_message(self, context: Dict[str, Any], batch: Dict[str, Any]) -> str:
-        """Build user message for a specific section batch focused extraction."""
-        
-        section_type = batch.get("section_type", "unknown")
-        section_name = batch.get("section_name", section_type.replace("_", " ").title())
-        
-        # Format the specific section text
-        batch_chunks_text = f"### Section: {section_name}\n"
+        """Build user message for a semantic batch with multiple related sections.
+
+        This method handles batches that may contain multiple sections (e.g., declarations + coverages)
+        to enable extraction of cross-section relationships.
+
+        Args:
+            context: Global context with all entities
+            batch: Batch configuration with sections, chunks, and routed table data
+
+        Returns:
+            Formatted user prompt for the LLM
+        """
+        batch_name = batch.get("name", "unknown")
+        batch_description = batch.get("description", "")
+        sections = batch.get("sections", [])
+        expected_rels = batch.get("expected_rels", [])
+
+        # Format multi-section content
+        batch_chunks_text = ""
+        if len(sections) == 1:
+            # Single section batch
+            section_name = sections[0].replace("_", " ").title()
+            batch_chunks_text += f"### Section: {section_name}\n"
+        else:
+            # Multi-section batch
+            batch_chunks_text += f"### Batch: {batch_description}\n"
+            batch_chunks_text += f"### Sections included: {', '.join([s.replace('_', ' ').title() for s in sections])}\n\n"
+
+        # Group chunks by section for clarity
+        chunks_by_section = {}
         for chunk in batch.get("chunks", []):
-            batch_chunks_text += f"\n[Chunk {chunk['chunk_id'][:8]}...]\n"
-            batch_chunks_text += chunk.get('text', '')
-            batch_chunks_text += "\n"
+            section_key = chunk.get("section_type", "unknown")
+            if section_key not in chunks_by_section:
+                chunks_by_section[section_key] = []
+            chunks_by_section[section_key].append(chunk)
+
+        # Format each section's content
+        for section_key in sections:
+            if section_key not in chunks_by_section:
+                continue
+
+            section_name = section_key.replace("_", " ").title()
+            section_chunks = chunks_by_section[section_key]
+
+            batch_chunks_text += f"\n## {section_name} Section\n"
+            for chunk in section_chunks:
+                chunk_text = chunk.get('text', '')
+                # Limit chunk text to 2000 chars to avoid token explosion
+                if len(chunk_text) > 2000:
+                    chunk_text = chunk_text[:2000] + "\n... (truncated)"
+                batch_chunks_text += f"\n[Chunk {chunk['chunk_id'][:8]}...]\n"
+                batch_chunks_text += chunk_text
+                batch_chunks_text += "\n"
 
         # Simplified entity summary for the batch
         entities = json.loads(context['entities_json'])
@@ -863,39 +1259,96 @@ class RelationshipExtractorGlobal:
         for entity in entities:
             etype = entity.get('entity_type', 'Unknown')
             entity_summary[etype] = entity_summary.get(etype, 0) + 1
-        
+
         entity_breakdown = "\n".join([f"  • {etype}: {count}" for etype, count in sorted(entity_summary.items())])
 
+        # Get routed table data (already as JSON strings from _call_llm_api)
+        sov_json = batch.get("sov_items_json", "[]")
+        loss_run_json = batch.get("loss_run_claims_json", "[]")
+        tables_json = batch.get("document_tables_json", "[]")
+
+        # Count items for display
+        try:
+            sov_count = len(json.loads(sov_json))
+            loss_run_count = len(json.loads(loss_run_json))
+            tables_count = len(json.loads(tables_json))
+        except:
+            sov_count = 0
+            loss_run_count = 0
+            tables_count = 0
+
+        # Build expected relationships hint
+        expected_rels_str = ", ".join(expected_rels) if expected_rels else "any valid relationships"
+
         user_message = f"""
-            Extract relationships from this {context['document_type']} document.
-            
-            IMPORTANT: You are receiving PARTIAL CONTEXT (only the {section_name} section).
-            Extract ONLY the relationships that are explicitly supported by the text provided below.
+Extract relationships from this {context['document_type']} document.
 
-            Entity Summary ({len(entities)} total available for linking):
-            {entity_breakdown}
+BATCH CONTEXT: {batch_description}
+You are analyzing a semantically grouped batch containing MULTIPLE SECTIONS that commonly have cross-section relationships.
+This allows you to see both sides of relationships (e.g., Policy in declarations + Coverage in coverages).
 
-            CANONICAL ENTITIES (deduplicated, normalized)
-            {context['entities_json']}
+Sections in this batch: {', '.join([s.replace('_', ' ').title() for s in sections])}
+Expected relationship types: {expected_rels_str}
 
-            CURRENT SECTION CONTENT ({section_name})
-            {batch_chunks_text}
+Entity Summary ({len(entities)} total available for linking):
+{entity_breakdown}
 
-            TABLE DATA (Global context)
-            SOV Items: {context.get('sov_items_json', '[]')}
-            Loss Run Claims: {context.get('loss_run_claims_json', '[]')}
-            Document Tables: {context.get('document_tables_json', '[]')}
+CANONICAL ENTITIES (deduplicated, normalized)
+{context['entities_json']}
 
-            RELATIONSHIP EXTRACTION STRATEGY:
-            1. Scrutinize the CURRENT SECTION CONTENT for links between the CANONICAL ENTITIES.
-            2. Match entities mentioned in text to the provided CANONICAL ENTITIES.
-            3. Use the global TABLE DATA if the section text refers to specific locations, claims, or table entries.
-            4. If no relationships are found in this specific section, return an empty relationships list.
+SECTION CONTENT (Multi-section batch - look for cross-section links!)
+{batch_chunks_text}
 
-            EXPECTED OUTPUT
-            Return ONLY valid JSON following the schema.
-            NO markdown backticks, NO explanations, JUST the JSON object.
-            """
+TABLE DATA (Routed to this batch only)
+SOV Items ({sov_count} items):
+{sov_json}
+
+Loss Run Claims ({loss_run_count} claims):
+{loss_run_json}
+
+Document Tables ({tables_count} tables):
+{tables_json}
+
+RELATIONSHIP EXTRACTION STRATEGY:
+1. **Cross-Section Awareness**: Look for relationships ACROSS the sections provided above.
+   - Example: Policy entity in declarations + Coverage entity in coverages → HAS_COVERAGE relationship
+   - Example: Coverage entity in coverages + Condition entity in conditions → SUBJECT_TO relationship
+   - Example: Policy in declarations + Exclusion in exclusions → EXCLUDES relationship
+   - Example: Coverage in coverages + Exclusion in exclusions → EXCLUDES relationship
+   - Example: Coverage in coverages + Definition in definitions → DEFINED_IN relationship
+   - Example: Policy in declarations + Location in SOV → HAS_LOCATION relationship
+   - Example: Policy in declarations + Claim in loss runs → HAS_CLAIM relationship
+   - Example: Endorsement + Coverage → MODIFIED_BY relationship
+
+2. **Contextual Relationship Discovery**: Beyond expected types, identify ALL valid relationships present.
+   - **Policy Hub Relationships**: Policies connect to coverages, insureds, locations, claims, endorsements, exclusions, conditions
+   - **Coverage Relationships**: Coverages connect to conditions, exclusions, definitions, limits, deductibles, endorsements, locations
+   - **Exclusion Relationships**: Exclusions apply to coverages or policies, may reference definitions
+   - **Condition Relationships**: Conditions apply to coverages or policies
+   - **Endorsement Relationships**: Endorsements modify coverages or policies
+   - **Location Relationships**: Locations have coverages, are referenced in claims
+   - **Claim Relationships**: Claims relate to coverages, locations, vehicles, drivers
+   - **Definition Relationships**: Definitions are referenced by coverages, exclusions, conditions
+
+3. **Focus on Expected Types**: Prioritize extracting {expected_rels_str} from this batch, but don't limit yourself to these.
+
+4. **Use Routed Table Data**: The table data above has been specifically routed to this batch as it's relevant.
+   - Match entities to table rows by IDs, addresses, claim numbers, etc.
+   - Table evidence is high-confidence (0.85-0.95)
+
+5. **Evidence Requirements**: Each relationship MUST have evidence (text quote OR table reference).
+
+6. **Confidence Scoring**:
+   - 0.90-1.00: Explicit labeled phrase or table match
+   - 0.70-0.89: Strong implicit or multi-chunk corroboration
+   - 0.45-0.69: Use as CANDIDATE instead
+
+7. **Completeness**: Extract ALL valid relationships you can find in this batch, not just a sample.
+
+EXPECTED OUTPUT
+Return ONLY valid JSON following the schema.
+NO markdown backticks, NO explanations, JUST the JSON object.
+"""
         return user_message
 
     

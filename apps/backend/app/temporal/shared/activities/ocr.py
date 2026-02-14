@@ -9,6 +9,7 @@ from app.core.database import async_session_maker
 from app.pipeline.ocr_extraction import OCRExtractionPipeline
 from app.utils.logging import get_logger
 from app.temporal.core.activity_registry import ActivityRegistry
+from app.services.storage_service import StorageService
 
 logger = get_logger(__name__)
 
@@ -42,20 +43,22 @@ async def extract_ocr(
 
             # Load PDF bytes for coordinate extraction (enables page dimensions)
             pdf_bytes = None
-            file_path = document.file_path
+            
+            # Use signed URL for storage access (bucket "docs" is private)
+            storage_service = StorageService()
+            document_url = await storage_service.create_download_url(
+                bucket="docs",
+                path=document.file_path,
+                expires_in=3600 # 1 hour for extraction
+            )
+            
             try:
-                if file_path.startswith(("http://", "https://")):
-                    # Download from URL
-                    import httpx
-                    async with httpx.AsyncClient() as client:
-                        response = await client.get(file_path, timeout=120.0)
-                        response.raise_for_status()
-                        pdf_bytes = response.content
-                else:
-                    # Read from local file
-                    import aiofiles
-                    async with aiofiles.open(file_path, "rb") as f:
-                        pdf_bytes = await f.read()
+                # Download from signed URL
+                import httpx
+                async with httpx.AsyncClient() as client:
+                    response = await client.get(document_url, timeout=120.0)
+                    response.raise_for_status()
+                    pdf_bytes = response.content
 
                 activity.logger.info(
                     f"Loaded PDF bytes for coordinate extraction: {len(pdf_bytes)} bytes",
@@ -70,10 +73,10 @@ async def extract_ocr(
             # Create pipeline and extract pages
             pipeline = OCRExtractionPipeline(session)
 
-            # Pass pdf_bytes for coordinate extraction and page dimensions
+            # Pass (signed) document_url for coordinate extraction and page dimensions
             pages = await pipeline.extract_and_store_pages(
                 document_id=UUID(document_id),
-                document_url=document.file_path,
+                document_url=document_url,
                 pdf_bytes=pdf_bytes,
             )
             

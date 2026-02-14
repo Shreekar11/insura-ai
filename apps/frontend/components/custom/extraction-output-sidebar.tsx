@@ -244,8 +244,8 @@ export function ExtractionOutputSidebar({
 
   const handleItemClick = React.useCallback(
     (sourceType: string, sourceId: string) => {
-      if (!citationsData?.citations || !pdfUrl) {
-        console.warn("Citations or PDF URL not available");
+      if (!citationsData?.citations || !pdfUrl || !documentId) {
+        console.warn("Citations, PDF URL, or Document ID not available");
         return;
       }
 
@@ -255,12 +255,17 @@ export function ExtractionOutputSidebar({
         sourceId,
       );
       if (citation) {
-        highlightCitation(citation, pdfUrl, citationsData.pageDimensions);
+        highlightCitation(
+          citation,
+          pdfUrl,
+          documentId,
+          citationsData.pageDimensions,
+        );
       } else {
         console.warn(`Citation not found for ${sourceType}:${sourceId}`);
       }
     },
-    [citationsData, pdfUrl, highlightCitation],
+    [citationsData, pdfUrl, documentId, highlightCitation],
   );
 
   if (!open) return null;
@@ -308,16 +313,6 @@ export function ExtractionOutputSidebar({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 rounded px-3 text-xs gap-2"
-            >
-              <Download className="size-3.5" />
-              Export
-            </Button>
           </div>
         </div>
 

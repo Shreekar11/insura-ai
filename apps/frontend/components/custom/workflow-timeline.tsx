@@ -62,7 +62,10 @@ export function WorkflowTimeline({
       // Logic to unify events into stable steps
       if (event_type === "proposal:completed") {
         stepKey = `global:proposal`;
-      } else if (event_type === "comparison:completed") {
+      } else if (
+        event_type === "comparison:completed" ||
+        stageName === "comparison"
+      ) {
         stepKey = `global:comparison`;
       } else if (stageName === "processed") {
         stepKey = `${docId}:processed`;
@@ -75,9 +78,15 @@ export function WorkflowTimeline({
       } else if (stageName === "summarized") {
         stepKey = `${docId}:summarized`;
       } else if (stageName) {
-        stepKey = `${docId}:${stageName}`;
+        stepKey = docId ? `${docId}:${stageName}` : `global:${stageName}`;
+      } else if (event_type === "workflow:started") {
+        stepKey = `global:workflow_started`;
       } else if (event_type === "workflow:progress") {
-        return;
+        if (message) {
+          stepKey = `global:workflow_progress`;
+        } else {
+          return;
+        }
       } else if (event_type.startsWith("workflow:")) {
         return;
       } else {

@@ -6,7 +6,7 @@ from sqlalchemy import select, and_
 from sqlalchemy.orm import selectinload
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun, WorkflowRunEvent
+from app.database.models import Workflow, WorkflowDefinition, WorkflowDocument, WorkflowStageRun, WorkflowDocumentStageRun, WorkflowRunEvent, WorkflowQuery
 from app.repositories.base_repository import BaseRepository
 
 
@@ -473,6 +473,68 @@ class WorkflowDocumentStageRunRepository(BaseRepository[WorkflowDocumentStageRun
         if status == "completed":
             stage_run.completed_at = datetime.now(timezone.utc)
         
+        self.session.add(stage_run)
         await self.session.flush()
         return stage_run
+
+
+class WorkflowQueryRepository(BaseRepository[Any]):
+    """Repository for managing WorkflowQuery records."""
+
+    def __init__(self, session: AsyncSession):
+        from app.database.models import WorkflowQuery
+        super().__init__(session, WorkflowQuery)
+
+    async def create_query(
+        self,
+        workflow_id: uuid.UUID,
+        role: str,
+        content: str,
+        additional_metadata: Optional[dict] = None
+    ) -> Any:
+        """Create a new workflow query record.
+        
+        Args:
+            workflow_id: Parent workflow ID
+            role: sender role (user/model)
+            content: Message content
+            additional_metadata: Optional metadata
+            
+        Returns:
+            Created WorkflowQuery instance
+        """
+  
+        query = WorkflowQuery(
+            workflow_id=workflow_id,
+            role=role,
+            content=content,
+            additional_metadata=additional_metadata,
+            created_at=datetime.now(timezone.utc)
+        )
+        self.session.add(query)
+        await self.session.commit()
+
+        return query
+
+
+    async def get_by_workflow_id(
+        self,
+        workflow_id: uuid.UUID
+    ) -> Sequence[Any]:
+        """Get all queries for a workflow ordered by time.
+        
+        Args:
+            workflow_id: Workflow ID
+            
+        Returns:
+            List of WorkflowQuery instances
+        """
+        
+        query = select(WorkflowQuery).where(
+            WorkflowQuery.workflow_id == workflow_id
+        ).order_by(WorkflowQuery.created_at.asc())
+        
+        result = await self.session.execute(query)
+        return result.scalars().all()
+
 

@@ -99,6 +99,13 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         # Core Comparison
         self._current_step = "core_comparison"
         self._progress = 0.60
+
+        await workflow.execute_activity(
+            "emit_workflow_event",
+            args=[workflow_id, "workflow:progress", {"message": "Starting policy comparison...", "stage_name": "comparison"}],
+            start_to_close_timeout=timedelta(seconds=10),
+        )
+
         core_result = await self._execute_core_comparison(workflow_id, document_ids, doc_names)
 
         phase_b_result = core_result.get("phase_b_result")

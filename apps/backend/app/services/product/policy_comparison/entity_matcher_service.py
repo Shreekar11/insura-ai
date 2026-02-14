@@ -490,7 +490,7 @@ Return empty array [] if no high-confidence cross-type matches found.
 
         try:
             response = await self.client.generate_content(contents=prompt)
-            matches_data = parse_json_safely(response, fallback=[])
+            matches_data = parse_json_safely(response) or []
 
             if not isinstance(matches_data, list):
                 LOGGER.warning(f"Cross-type LLM response not a list: {matches_data}")

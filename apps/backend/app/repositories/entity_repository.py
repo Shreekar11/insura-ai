@@ -69,6 +69,22 @@ class EntityRepository(BaseRepository[CanonicalEntity]):
         result = await self.session.execute(query)
         return result.all()
 
+    async def get_canonical_keys_by_ids(
+        self, ids: list[uuid.UUID]
+    ) -> dict[uuid.UUID, tuple[str, str]]:
+        """Bulk fetch canonical_key and entity_type for a list of entity IDs.
+
+        Returns:
+            Dict mapping entity UUID to (canonical_key, entity_type).
+        """
+        if not ids:
+            return {}
+        query = select(
+            CanonicalEntity.id, CanonicalEntity.canonical_key, CanonicalEntity.entity_type
+        ).where(CanonicalEntity.id.in_(ids))
+        result = await self.session.execute(query)
+        return {row.id: (row.canonical_key, row.entity_type) for row in result}
+
     async def add_to_workflow_scope(self, workflow_id: uuid.UUID, canonical_entity_id: uuid.UUID) -> None:
         """Add a canonical entity to a workflow scope (idempotent)."""
         from sqlalchemy.dialects.postgresql import insert

@@ -13,7 +13,7 @@ Includes endorsement continuation detection signals:
 
 import re
 import hashlib
-from typing import List, Optional, Dict, Tuple, Any
+from typing import List, Optional, Dict, Any, Tuple
 from app.models.page_analysis_models import PageSignals, DocumentType
 from app.utils.logging import get_logger
 

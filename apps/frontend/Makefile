@@ -23,3 +23,8 @@ generate-frontend-schemas:
 		--input $(SPEC_DIR)/citations.json \
 		--output $(OUTPUT_DIR)/citations \
 		--exportSchemas true
+
+	pnpm dlx openapi-typescript-codegen \
+		--input $(SPEC_DIR)/query.json \
+		--output $(OUTPUT_DIR)/query \
+		--exportSchemas true

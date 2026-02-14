@@ -1,22 +1,36 @@
 "use client";
 
-import { useState, useCallback, useEffect, useMemo } from "react";
+import { useState, useCallback, useEffect, useMemo, useRef } from "react";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useWorkflowById, useExecuteWorkflow } from "@/hooks/use-workflows";
-import { useUploadDocument, useDocuments } from "@/hooks/use-documents";
+import {
+  useUploadDocument,
+  useDocuments,
+  type DocumentResponse,
+} from "@/hooks/use-documents";
 import {
   FileDropzone,
   type UploadedFile,
 } from "@/components/custom/file-dropzone";
 import { Button } from "@/components/ui/button";
 import { IconLoader2, IconPlayerPlay } from "@tabler/icons-react";
-import { Sparkles } from "lucide-react";
+import { Sparkles, Loader2, Copy, Check, ArrowDown } from "lucide-react";
 import { useWorkflowStream } from "@/hooks/use-workflow-stream";
 import { WorkflowTimeline } from "@/components/custom/workflow-timeline";
 import { toast } from "sonner";
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 import { cn } from "@/lib/utils";
+import { ChatInterface } from "@/components/custom/chat-interface";
+import { useChat } from "@/hooks/use-chat";
+import { useChatMessages } from "@/hooks/use-chat-messages";
+import { useTypewriter } from "@/hooks/use-typewriter";
+import type {
+  GraphRAGResponse,
+  MentionedDocument,
+} from "@/schema/generated/query";
 
 import {
   ResizableHandle,
@@ -28,6 +42,7 @@ import {
   PDFHighlightProvider,
   usePDFHighlight,
 } from "@/contexts/pdf-highlight-context";
+import { Input } from "@/components/ui/input";
 const ExtractionOutputSidebar = dynamic(
   () =>
     import("@/components/custom/extraction-output-sidebar").then(
@@ -84,6 +99,174 @@ const PDFViewerPanel = dynamic(
   },
 );
 
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false);
+
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopied(true);
+      toast.success("Copied to clipboard");
+      setTimeout(() => setCopied(false), 2000);
+    } catch (err) {
+      toast.error("Failed to copy");
+    }
+  };
+
+  return (
+    <Button
+      variant="ghost"
+      size="icon"
+      className="size-7 text-zinc-400 rounded-sm hover:text-zinc-600 dark:hover:text-zinc-300 hover:bg-zinc-100 dark:hover:bg-zinc-800"
+      onClick={handleCopy}
+    >
+      {copied ? (
+        <Check className="size-3.5 text-emerald-500" />
+      ) : (
+        <Copy className="size-3.5" />
+      )}
+    </Button>
+  );
+}
+
+function MessageBubble({
+  msg,
+  onScrollToBottom,
+  documents,
+  onComplete,
+}: {
+  msg: {
+    query: string;
+    answer: string | null;
+    created_at: string;
+    isNew: boolean;
+  };
+  onScrollToBottom: () => void;
+  documents: DocumentResponse[];
+  onComplete: () => void;
+}) {
+  const { displayedText, isTyping } = useTypewriter(
+    msg.answer,
+    msg.isNew,
+    30,
+    onComplete,
+  );
+
+  // Auto-scroll while typing
+  useEffect(() => {
+    if (isTyping) {
+      onScrollToBottom();
+    }
+  }, [displayedText, isTyping, onScrollToBottom]);
+  // Function to render user query with highlighted mentions
+  const renderMessageText = (text: string) => {
+    if (!text) return null;
+
+    const sortedDocs = [...documents].sort(
+      (a, b) => (b.document_name?.length || 0) - (a.document_name?.length || 0),
+    );
+
+    let parts: (string | React.ReactNode)[] = [text];
+
+    sortedDocs.forEach((doc) => {
+      if (!doc.document_name) return;
+      const mentionText = `@${doc.document_name}`;
+      const newParts: (string | React.ReactNode)[] = [];
+
+      parts.forEach((part) => {
+        if (typeof part !== "string") {
+          newParts.push(part);
+          return;
+        }
+
+        const subParts = part.split(mentionText);
+        subParts.forEach((subPart, i) => {
+          if (subPart) newParts.push(subPart);
+          if (i < subParts.length - 1) {
+            newParts.push(
+              <span
+                key={`${doc.id}-${i}`}
+                className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 rounded border border-blue-200 dark:border-blue-800 font-medium whitespace-nowrap"
+              >
+                {mentionText}
+              </span>,
+            );
+          }
+        });
+      });
+      parts = newParts;
+    });
+
+    return parts;
+  };
+
+  return (
+    <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
+      {/* User Query */}
+      <div className="flex justify-end group">
+        <div className="flex flex-col items-end gap-1 max-w-[80%]">
+          <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
+            <div className="text-sm text-zinc-800 dark:text-zinc-200 flex flex-wrap gap-1 leading-relaxed">
+              {renderMessageText(msg.query)}
+            </div>
+          </div>
+          <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
+            <span className="text-xs text-zinc-500 dark:text-zinc-400">
+              {msg.created_at &&
+                new Date(msg.created_at).toLocaleTimeString("en-US", {
+                  hour: "numeric",
+                  minute: "2-digit",
+                  hour12: true,
+                })}
+            </span>
+            <CopyButton text={msg.query} />
+          </div>
+        </div>
+      </div>
+
+      {/* LLM Response */}
+      <div className="flex justify-start gap-3">
+        <div className="shrink-0">
+          {!msg.answer || isTyping ? (
+            <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20 flex items-center justify-center">
+              {!msg.answer ? (
+                <Loader2 className="size-4 text-[#0232D4]/80 animate-spin stroke-[3]" />
+              ) : (
+                <Sparkles className="size-4 text-[#0232D4]/80" />
+              )}
+            </div>
+          ) : (
+            <div className="bg-[#0232D4]/10 p-1 rounded-full ring-1 ring-[#0232D4]/20">
+              <Sparkles className="size-4 text-[#0232D4]/80" />
+            </div>
+          )}
+        </div>
+        <div className="max-w-full w-full group">
+          {!msg.answer ? (
+            <div className="flex items-center gap-2 text-zinc-500 italic text-sm py-0.5">
+              Thinking...
+            </div>
+          ) : (
+            <div className="flex flex-col gap-1">
+              <div className="prose-custom [&>*:first-child]:mt-0 max-w-none text-zinc-800 dark:text-zinc-200 min-h-[1.5em]">
+                <ReactMarkdown remarkPlugins={[remarkGfm]}>
+                  {displayedText}
+                </ReactMarkdown>
+                {isTyping && (
+                  <span className="inline-block w-1.5 h-4 ml-0.5 align-middle bg-zinc-400 animate-pulse" />
+                )}
+              </div>
+              <div className="opacity-0 group-hover:opacity-100 transition-opacity">
+                <CopyButton text={msg.answer} />
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 function WorkflowExecutionContent() {
   const { id } = useParams();
   const workflowId = id as string;
@@ -99,6 +282,30 @@ function WorkflowExecutionContent() {
 
   const [uploadedFiles, setUploadedFiles] = useState<UploadedFile[]>([]);
   const [isStarted, setIsStarted] = useState(false);
+  const [messages, setMessages] = useState<
+    {
+      query: string;
+      answer: string | null;
+      created_at: string;
+      isNew: boolean;
+    }[]
+  >([]);
+  const [showBlurOverlay, setShowBlurOverlay] = useState(false);
+  const [showScrollButton, setShowScrollButton] = useState(false);
+
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  const chatMutation = useChat(workflowId);
+
+  // Scroll logic
+  const scrollToBottom = useCallback(() => {
+    if (scrollRef.current) {
+      scrollRef.current.scrollTo({
+        top: scrollRef.current.scrollHeight,
+        behavior: "smooth",
+      });
+    }
+  }, []);
 
   // Sidebar states
   const [sidebarOpen, setSidebarOpen] = useState(false);
@@ -114,6 +321,30 @@ function WorkflowExecutionContent() {
   const { events, isConnected, isComplete } = useWorkflowStream(
     isStarted ? workflowId : null,
   );
+
+  useEffect(() => {
+    const scrollContainer = scrollRef.current;
+    if (!scrollContainer) return;
+
+    const handleScroll = () => {
+      const { scrollTop, scrollHeight, clientHeight } = scrollContainer;
+      // Show button if we are more than 100px from the bottom
+      const isAtBottom = scrollHeight - scrollTop - clientHeight < 100;
+      setShowScrollButton(!isAtBottom);
+    };
+
+    handleScroll(); // Call once on mount to set initial state
+
+    scrollContainer.addEventListener("scroll", handleScroll);
+    return () => scrollContainer.removeEventListener("scroll", handleScroll);
+  }, [messages.length, isComplete]); // Re-run when messages change or completion state changes
+
+  // Scroll to bottom when new messages are added or thinking starts
+  useEffect(() => {
+    if (isComplete) {
+      scrollToBottom();
+    }
+  }, [messages.length, isComplete, scrollToBottom]);
 
   const { setActiveWorkflowDefinitionId } = useActiveWorkflow();
 
@@ -143,6 +374,66 @@ function WorkflowExecutionContent() {
       });
     }
   }, [existingDocuments, workflow, setActiveWorkflowDefinitionId]);
+
+  // Load chat history
+  const { data: chatHistory } = useChatMessages(workflowId);
+  const historyLoadedRef = useRef(false);
+
+  useEffect(() => {
+    if (chatHistory && chatHistory.length > 0 && !historyLoadedRef.current) {
+      const historyPairs: {
+        query: string;
+        answer: string | null;
+        created_at: string;
+        isNew: boolean;
+      }[] = [];
+      let currentQuery: string | null = null;
+
+      chatHistory.forEach((msg) => {
+        if (msg.role === "user") {
+          // If there was a pending query without answer, push it
+          if (currentQuery) {
+            historyPairs.push({
+              query: currentQuery,
+              answer: null,
+              created_at: msg.created_at,
+              isNew: false,
+            });
+          }
+          currentQuery = msg.content;
+        } else if (msg.role === "model") {
+          if (currentQuery) {
+            historyPairs.push({
+              query: currentQuery,
+              answer: msg.content,
+              created_at: msg.created_at,
+              isNew: false,
+            });
+            currentQuery = null;
+          }
+        }
+      });
+
+      // Push last pending query
+      if (currentQuery) {
+        historyPairs.push({
+          query: currentQuery,
+          answer: null,
+          created_at: "",
+          isNew: false,
+        });
+      }
+
+      setMessages((prev) => [...historyPairs, ...prev]);
+      historyLoadedRef.current = true;
+    }
+  }, [chatHistory]);
+
+  const handleTypingComplete = useCallback((index: number) => {
+    setMessages((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, isNew: false } : m)),
+    );
+  }, []);
 
   const handleFilesSelect = useCallback(
     async (files: File[]) => {
@@ -280,7 +571,6 @@ function WorkflowExecutionContent() {
     <ResizablePanelGroup
       direction="horizontal"
       className="h-svh max-h-svh overflow-hidden"
-      key={layoutState}
     >
       <ResizablePanel
         defaultSize={
@@ -301,7 +591,7 @@ function WorkflowExecutionContent() {
             <PageHeader />
           </div>
 
-          <div className="flex-1 overflow-y-auto">
+          <div className="flex-1 overflow-y-auto" ref={scrollRef}>
             <div className="p-6">
               <div className="space-y-4 w-full flex justify-center items-center flex-col mb-4">
                 <div className="flex items-center gap-3 text-muted-foreground w-full max-w-2xl mx-auto">
@@ -352,7 +642,7 @@ function WorkflowExecutionContent() {
                 </div>
               ) : (
                 /* SSE Timeline Section */
-                <div className="w-full">
+                <div className="w-full max-w-2xl mx-auto flex flex-col gap-12 pb-48">
                   <WorkflowTimeline
                     definitionName={definitionName}
                     events={events}
@@ -362,10 +652,104 @@ function WorkflowExecutionContent() {
                     onViewComparison={handleViewComparison}
                     onViewProposal={handleViewProposal}
                   />
+
+                  {isComplete && (
+                    <div className="space-y-12">
+                      {messages.map((msg, idx) => (
+                        <MessageBubble
+                          key={idx}
+                          msg={msg}
+                          onScrollToBottom={scrollToBottom}
+                          documents={existingDocuments?.documents ?? []}
+                          onComplete={() => handleTypingComplete(idx)}
+                        />
+                      ))}
+                    </div>
+                  )}
                 </div>
               )}
             </div>
           </div>
+
+          {isComplete && (
+            <div className="relative pb-4">
+              {/* Scroll Down Button */}
+              {showScrollButton && (
+                <div className="absolute -top-12 left-0 right-0 flex justify-center z-40 animate-in fade-in zoom-in duration-200">
+                  <Button
+                    variant="secondary"
+                    size="icon"
+                    className="rounded-full text-[#2B2C36] size-9 shadow-lg bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 hover:bg-zinc-50 dark:hover:bg-zinc-800"
+                    onClick={scrollToBottom}
+                  >
+                    <ArrowDown className="size-4" />
+                  </Button>
+                </div>
+              )}
+
+              {/* Global Blur Overlay for content scrolling behind the chat */}
+              <div className="absolute -top-16 left-0 right-0 h-16 bg-gradient-to-b from-transparent to-white/90 dark:to-zinc-950/90 pointer-events-none z-20 backdrop-blur-md [mask-image:linear-gradient(to_bottom,transparent,black)]" />
+
+              <div className="shrink-0 bg-white/90 dark:bg-zinc-950/90 px-6 sticky bottom-0 z-30">
+                <ChatInterface
+                  isLoading={chatMutation.isPending}
+                  showBlurOverlay={showBlurOverlay}
+                  documents={existingDocuments?.documents ?? []}
+                  onAsk={(
+                    query: string,
+                    mentionedDocs: MentionedDocument[],
+                  ) => {
+                    setShowBlurOverlay(true);
+                    setMessages((prev) => [
+                      ...prev,
+                      {
+                        query,
+                        answer: null,
+                        created_at: new Date().toISOString(),
+                        isNew: true,
+                      },
+                    ]);
+                    chatMutation.mutate(
+                      {
+                        query,
+                        mentioned_documents: mentionedDocs,
+                        document_ids: mentionedDocs.map((d) => d.id),
+                      },
+                      {
+                        onSuccess: (data: GraphRAGResponse) => {
+                          setShowBlurOverlay(true);
+                          setMessages((prev) =>
+                            prev.map((m, i) =>
+                              i === prev.length - 1
+                                ? { ...m, answer: data.answer }
+                                : m,
+                            ),
+                          );
+                          setShowBlurOverlay(false);
+                        },
+                        onError: () => {
+                          setMessages((prev) =>
+                            prev.map((m, i) =>
+                              i === prev.length - 1
+                                ? {
+                                    ...m,
+                                    answer:
+                                      "Failed to get response. Please try again.",
+                                  }
+                                : m,
+                            ),
+                          );
+                        },
+                      },
+                    );
+                  }}
+                />
+              </div>
+              <p className="text-center mt-2 text-xs text-zinc-500">
+                AI can make mistakes. Check important info.
+              </p>
+            </div>
+          )}
         </div>
       </ResizablePanel>
 

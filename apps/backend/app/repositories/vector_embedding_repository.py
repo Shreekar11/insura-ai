@@ -26,57 +26,137 @@ class VectorEmbeddingRepository(BaseRepository[VectorEmbedding]):
         """Get all embeddings for a specific document."""
         return await self.get_all(filters={"document_id": document_id})
 
+    async def get_by_workflow(self, workflow_id: UUID) -> List[VectorEmbedding]:
+        """Get all embeddings for a specific workflow."""
+        return await self.get_all(filters={"workflow_id": workflow_id})
+
     async def semantic_search(
-        self, 
-        embedding: List[float], 
+        self,
+        embedding: List[float],
         top_k: int = 5,
         document_id: Optional[UUID] = None,
+        workflow_id: Optional[UUID] = None,
         section_type: Optional[str] = None,
+        entity_types: Optional[List[str]] = None,
         filters: Optional[Dict[str, Any]] = None,
         max_distance: Optional[float] = None
     ) -> List[VectorEmbedding]:
         """Semantic search with distance filtering.
-        
+
         Args:
             embedding: Query embedding vector (384 dimensions)
             top_k: Number of results to return
             document_id: Optional document scope filter
-            section_type: Optional section type scope filter
+            workflow_id: Optional workflow scope filter
+            section_type: Optional section type scope filter (str or list)
+            entity_types: Optional entity type filter (list of types)
             filters: Optional additional metadata filters
             max_distance: Optional maximum cosine distance threshold
-            
+
         Returns:
             List of VectorEmbedding records ordered by relevance
         """
         query = select(self.model)
-        
+
         # Apply standard filters
         if document_id:
             query = query.where(self.model.document_id == document_id)
+        if workflow_id:
+            query = query.where(self.model.workflow_id == workflow_id)
         if section_type:
             if isinstance(section_type, list):
                 query = query.where(self.model.section_type.in_(section_type))
             else:
                 query = query.where(self.model.section_type == section_type)
-            
+        if entity_types:
+            query = query.where(self.model.entity_type.in_(entity_types))
+
         # Apply extra combined filters
         if filters:
             for field, value in filters.items():
                 if hasattr(self.model, field):
                     query = query.where(getattr(self.model, field) == value)
-        
+
         # Calculate and order by cosine distance
         distance_expr = self.model.embedding.cosine_distance(embedding)
-        
+
         # Apply distance threshold if specified
         if max_distance is not None:
             query = query.where(distance_expr <= max_distance)
-        
+
         query = query.order_by(distance_expr)
         query = query.limit(top_k)
-        
+
         result = await self.session.execute(query)
         return list(result.scalars().all())
+
+    async def semantic_search_multi_query(
+        self,
+        embeddings: List[List[float]],
+        top_k: int = 20,
+        workflow_id: Optional[UUID] = None,
+        document_ids: Optional[List[UUID]] = None,
+        section_types: Optional[List[str]] = None,
+        entity_types: Optional[List[str]] = None,
+        max_distance: float = 0.7,
+    ) -> List[Tuple[VectorEmbedding, float]]:
+        """Multi-query semantic search with deduplication and real distance scores.
+
+        Executes multiple expanded query embeddings, deduplicates results by
+        (document_id, entity_id), and keeps the best distance for each unique result.
+
+        Args:
+            embeddings: List of query embedding vectors (e.g., from expanded queries)
+            top_k: Final number of results to return after dedup
+            workflow_id: Workflow scope filter
+            document_ids: Optional specific document scope
+            section_types: Optional section type filters
+            entity_types: Optional entity type filters
+            max_distance: Maximum cosine distance threshold (0-2, lower = more similar)
+
+        Returns:
+            List of (VectorEmbedding, best_distance) tuples, sorted by distance ascending
+        """
+        # Track best distance per unique (document_id, entity_id)
+        seen: Dict[str, Tuple[VectorEmbedding, float]] = {}
+        per_query_k = max(top_k, top_k * 2 // len(embeddings)) if embeddings else top_k
+
+        for query_embedding in embeddings:
+            # Build query with actual distance column
+            query = select(
+                self.model,
+                self.model.embedding.cosine_distance(query_embedding).label("distance"),
+            )
+
+            # Apply filters
+            if workflow_id:
+                query = query.where(self.model.workflow_id == workflow_id)
+            if document_ids:
+                query = query.where(self.model.document_id.in_(document_ids))
+            if section_types:
+                query = query.where(self.model.section_type.in_(section_types))
+            if entity_types:
+                query = query.where(self.model.entity_type.in_(entity_types))
+
+            query = query.where(
+                self.model.embedding.cosine_distance(query_embedding) <= max_distance
+            )
+            query = query.order_by("distance")
+            query = query.limit(per_query_k)
+
+            result = await self.session.execute(query)
+
+            for row in result:
+                emb = row.VectorEmbedding
+                dist = float(row.distance)
+                dedup_key = f"{emb.document_id}:{emb.entity_id}"
+
+                if dedup_key not in seen or dist < seen[dedup_key][1]:
+                    seen[dedup_key] = (emb, dist)
+
+        # Sort by best distance and return top_k
+        sorted_results = sorted(seen.values(), key=lambda x: x[1])
+        return sorted_results[:top_k]
 
     async def hybrid_search(
         self,

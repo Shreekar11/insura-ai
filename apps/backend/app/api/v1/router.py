@@ -1,5 +1,5 @@
 from fastapi import APIRouter
-from app.api.v1.endpoints import workflows, documents, users, citations
+from app.api.v1.endpoints import workflows, documents, users, query, citations
 from app.api.v1.middleware.auth import JWTAuthenticationMiddleware
 
 # Create API router
@@ -9,6 +9,7 @@ api_router = APIRouter()
 api_router.include_router(users.router, prefix="/users", tags=["User"])
 api_router.include_router(workflows.router, prefix="/workflows", tags=["Workflows"])
 api_router.include_router(documents.router, prefix="/documents", tags=["Documents"])
+api_router.include_router(query.router, prefix="/query", tags=["Query"])
 api_router.include_router(citations.router, tags=["Citations"])
 
 __all__ = ["api_router"]

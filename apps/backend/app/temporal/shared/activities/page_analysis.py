@@ -43,9 +43,16 @@ async def extract_page_signals(document_id: str) -> List[Dict]:
                     pages=markdown_pages
                 )
             else:
+                from app.services.storage_service import StorageService
+                storage_service = StorageService()
+                signed_url = await storage_service.create_download_url(
+                    bucket="docs",
+                    path=document.file_path,
+                    expires_in=3600 # 1 hour
+                )
                 signals = await pipeline.extract_signals(
                     document_id=UUID(document_id), 
-                    document_url=document.file_path
+                    document_url=signed_url
                 )
             
             await session.commit()

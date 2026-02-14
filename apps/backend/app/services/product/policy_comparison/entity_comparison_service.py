@@ -470,6 +470,9 @@ class EntityComparisonService:
             exclusions_added=exclusions_added,
             exclusions_removed=exclusions_removed,
             exclusions_unchanged=exclusions_unchanged,
+            total_added=coverages_added + exclusions_added,
+            total_removed=coverages_removed + exclusions_removed,
+            total_modified=coverage_partial_matches + exclusion_partial_matches,
             entities_reclassified=entities_reclassified,
         )
 
@@ -493,7 +496,7 @@ class EntityComparisonService:
         # Prepare summary for LLM
         summary_lines = []
         for c in material_changes[:20]:  # Limit to 20 changes
-            entity_name = c.doc1_name or c.doc2_name or "Unknown"
+            entity_name = c.doc1_name or c.doc2_name or c.entity_name or "Unknown"
             if c.match_type == MatchType.ADDED:
                 summary_lines.append(f"- ADDED {c.entity_type.value}: {entity_name}")
             elif c.match_type == MatchType.REMOVED:

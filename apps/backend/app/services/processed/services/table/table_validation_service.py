@@ -5,6 +5,7 @@ This service validates tables according to business rules:
 - Loss Run: Paid ≤ incurred, dates within policy term, claim numbers unique
 """
 
+from datetime import datetime
 from typing import List, Dict, Any, Optional
 from dataclasses import dataclass
 from decimal import Decimal

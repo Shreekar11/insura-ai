@@ -198,6 +198,17 @@ class DefinitionNode(GraphNode):
     source_chunk_id: Optional[str] = None
 
 
+class ExclusionNode(GraphNode):
+    """Represents a policy exclusion."""
+    name: Optional[str] = None
+    exclusion_type: Optional[str] = None
+    description: Optional[str] = None
+    applies_to: Optional[str] = None
+
+    source_section: Optional[str] = "exclusions"
+    source_chunk_id: Optional[str] = None
+
+
 class EvidenceNode(GraphNode):
     """
     Represents raw text evidence supporting an entity or relationship.
@@ -249,3 +260,6 @@ class RelationshipType(str, Enum):
 
     # Evidence
     SUPPORTED_BY = "SUPPORTED_BY"
+
+    # Embedding link
+    HAS_EMBEDDING = "HAS_EMBEDDING"

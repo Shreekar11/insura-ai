@@ -8,6 +8,8 @@ from typing import Any, Dict, List, Optional, Type
 import logging
 from pydantic import ValidationError
 
+from app.utils.canonical_key import slugify_entity_id
+
 from app.schemas.graph import (
     PolicyNode,
     OrganizationNode,
@@ -113,22 +115,16 @@ class EntitySynthesisStrategy(ABC):
     def _normalize_id(self, text: str, prefix: str = "") -> str:
         """Normalize text for use as entity ID.
         
+        Delegates to shared utility in app.utils.canonical_key.
+        
         Args:
             text: Text to normalize
             prefix: Optional prefix for the ID
             
         Returns:
-            Normalized identifier
+            Normalized identifier (slug)
         """
-        normalized = text.lower().replace(' ', '_').replace('-', '_').replace('/', '_')
-        # Remove special characters
-        normalized = ''.join(c if c.isalnum() or c == '_' else '_' for c in normalized)
-        # Remove consecutive underscores
-        while '__' in normalized:
-            normalized = normalized.replace('__', '_')
-        normalized = normalized.strip('_')
-        
-        return f"{prefix}_{normalized}" if prefix else normalized
+        return slugify_entity_id(text, prefix)
     
     def _get_nested_value(self, data: Dict[str, Any], *keys: str, default: Any = None) -> Any:
         """Safely get nested dictionary values.

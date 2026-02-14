@@ -4,7 +4,10 @@ import React, { useState } from "react";
 import { Button } from "@/components/ui/button";
 import { motion } from "framer-motion";
 import Link from "next/link";
+import Image from "next/image";
+import { Diamond, Sparkle } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
+import authLanding from "@/app/assets/auth-landing.png";
 
 interface AuthPageProps {
   mode: "sign-in" | "sign-up";
@@ -45,100 +48,115 @@ export function AuthPage({ mode }: AuthPageProps) {
   };
 
   return (
-    <div className="flex min-h-screen w-full flex-col lg:flex-row">
+    <div className="flex min-h-screen w-full flex-col lg:flex-row bg-white">
       {/* Left Panel */}
-      <div className="flex w-full flex-col items-center justify-center p-8 lg:w-[40%] lg:p-12">
-        <div className="w-full max-w-sm space-y-8">
-          <div className="space-y-2 flex flex-col justify-center items-center text-center lg:text-left">
-            <h1 className="text-3xl font-semibold tracking-tight">
-              {isSignIn ? "Welcome back" : "Get started"}
-            </h1>
-            <p className="text-muted-foreground text-sm">
-              {isSignIn
-                ? "Sign in to your account to continue"
-                : "Create an account to start using the platform"}
-            </p>
-          </div>
+      <div className="flex w-full flex-col p-8 lg:w-[40%] lg:p-12 relative">
+        <div
+          onClick={() => (window.location.href = "/")}
+          className="absolute top-8 left-8 lg:top-12 lg:left-12 flex items-center gap-1 cursor-pointer"
+        >
+          <Sparkle className="text-neutral-800" />
 
-          {error && (
-            <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
-              {error}
+          <span className="font-semibold text-lg tracking-tight text-neutral-900">
+            Insura AI
+          </span>
+        </div>
+
+        <div className="flex-1 flex flex-col items-center justify-center">
+          <div className="w-full max-w-sm space-y-8">
+            <div className="space-y-2 flex flex-col justify-center items-center text-center">
+              <h1 className="text-3xl font-semibold tracking-tight text-neutral-900">
+                {isSignIn ? "Welcome back" : "Get started"}
+              </h1>
+              <p className="text-muted-foreground text-sm">
+                {isSignIn
+                  ? "Sign in to your account to continue"
+                  : "Create an account to start using the platform"}
+              </p>
             </div>
-          )}
 
-          <Button
-            variant="outline"
-            className="w-full justify-center gap-3 rounded border shadow-xs transition-all hover:bg-neutral-50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
-            onClick={signInWithGoogle}
-            disabled={isLoading}
-          >
-            {isLoading ? (
-              <svg
-                className="h-5 w-5 animate-spin text-gray-500"
-                xmlns="http://www.w3.org/2000/svg"
-                fill="none"
-                viewBox="0 0 24 24"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
-                />
-              </svg>
-            ) : (
-              <svg
-                viewBox="0 0 24 24"
-                className="h-5 w-5"
-                xmlns="http://www.w3.org/2000/svg"
-              >
-                <path
-                  d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
-                  fill="#4285F4"
-                />
-                <path
-                  d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
-                  fill="#34A853"
-                />
-                <path
-                  d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
-                  fill="#FBBC05"
-                />
-                <path
-                  d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
-                  fill="#EA4335"
-                />
-              </svg>
+            {error && (
+              <div className="rounded-md bg-red-50 p-3 text-sm text-red-600">
+                {error}
+              </div>
             )}
-            <span>{isLoading ? "Signing in..." : "Continue with Google"}</span>
-          </Button>
 
-          <div className="text-center text-sm">
-            <span className="text-muted-foreground">
-              {isSignIn
-                ? "Don't have an account? "
-                : "Already have an account? "}
-            </span>
-            <Link
-              href={isSignIn ? "/sign-up" : "/sign-in"}
-              className="font-medium text-[#0232D4]/90 hover:text-[#0232D4]/80 underline-offset-4 hover:underline"
+            <Button
+              variant="outline"
+              className="w-full justify-center gap-3 rounded border shadow-xs transition-all hover:bg-neutral-50 active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
+              onClick={signInWithGoogle}
+              disabled={isLoading}
             >
-              {isSignIn ? "Sign up" : "Sign in"}
-            </Link>
+              {isLoading ? (
+                <svg
+                  className="h-5 w-5 animate-spin text-gray-500"
+                  xmlns="http://www.w3.org/2000/svg"
+                  fill="none"
+                  viewBox="0 0 24 24"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4zm2 5.291A7.962 7.962 0 014 12H0c0 3.042 1.135 5.824 3 7.938l3-2.647z"
+                  />
+                </svg>
+              ) : (
+                <svg
+                  viewBox="0 0 24 24"
+                  className="h-5 w-5"
+                  xmlns="http://www.w3.org/2000/svg"
+                >
+                  <path
+                    d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92c-.26 1.37-1.04 2.53-2.21 3.31v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.09z"
+                    fill="#4285F4"
+                  />
+                  <path
+                    d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z"
+                    fill="#34A853"
+                  />
+                  <path
+                    d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l3.66-2.84z"
+                    fill="#FBBC05"
+                  />
+                  <path
+                    d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z"
+                    fill="#EA4335"
+                  />
+                </svg>
+              )}
+              <span>
+                {isLoading ? "Signing in..." : "Continue with Google"}
+              </span>
+            </Button>
+
+            <div className="text-center text-sm">
+              <span className="text-muted-foreground">
+                {isSignIn
+                  ? "Don't have an account? "
+                  : "Already have an account? "}
+              </span>
+              <Link
+                href={isSignIn ? "/sign-up" : "/sign-in"}
+                className="font-medium text-[#0232D4]/90 hover:text-[#0232D4]/80 underline-offset-4 hover:underline"
+              >
+                {isSignIn ? "Sign up" : "Sign in"}
+              </Link>
+            </div>
           </div>
         </div>
       </div>
 
       {/* Right Panel */}
       <div
-        className="hidden lg:flex w-[60%] flex-col items-center justify-center relative overflow-hidden h-screen"
+        className="hidden lg:flex w-[60%] flex-col items-center relative overflow-hidden"
         style={{
           background:
             "linear-gradient(to bottom, #04091B 0%, #171BB6 40%, #1F49D3 60%, #66A1EE 80%, #DAE5FA 100%)",
@@ -168,19 +186,34 @@ export function AuthPage({ mode }: AuthPageProps) {
           ))}
         </div>
 
-        <motion.div
-          initial={{ opacity: 0, y: 20 }}
-          animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, ease: "easeOut" }}
-          className="relative z-10 w-full max-w-xl px-12"
-        >
-          <div className="mt-8 text-center text-white/80">
-            <h2 className="text-xl font-medium">Build next-gen insurance AI</h2>
-            <p className="mt-2 text-sm text-white/60 font-medium">
-              Experience the future of automated policy analysis
+        <div className="relative z-10 w-full flex flex-col items-center justify-end h-full pt-32">
+          <div className="text-center">
+            <h2 className="text-2xl font-semibold text-white">
+              AI-workspace for insurance
+            </h2>
+            <p className="mt-2 text-white/70 font-medium">
+              Automate your insurance document processing with AI
             </p>
           </div>
-        </motion.div>
+
+          <div className="mt-12 w-full max-w-3xl px-8">
+            <motion.div
+              initial={{ opacity: 0, y: 40 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.8, delay: 0.2, ease: "easeOut" }}
+              className="w-full rounded-t-2xl border-x border-t border-white/20 bg-white/5 pt-2 pl-2 pr-2 shadow-2xl backdrop-blur-sm"
+            >
+              <div className="rounded-t-xl overflow-hidden border border-white/10">
+                <Image
+                  src={authLanding}
+                  alt="Insura AI Dashboard"
+                  className="w-full h-auto object-cover"
+                  priority
+                />
+              </div>
+            </motion.div>
+          </div>
+        </div>
       </div>
     </div>
   );

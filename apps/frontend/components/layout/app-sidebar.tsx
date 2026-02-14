@@ -1,7 +1,7 @@
 "use client";
 
 import * as React from "react";
-import { GalleryVerticalEnd, FileText, Blocks } from "lucide-react";
+import { FileText, Blocks, Sparkle } from "lucide-react";
 import { IconChartBar, IconFileWord } from "@tabler/icons-react";
 import { GitCompare } from "lucide-react";
 
@@ -24,19 +24,15 @@ import { useWorkflowDefinitions } from "@/hooks/use-workflow-definitions";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
-
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
   const pathname = usePathname();
-  const {
-    data: workflowDefinitions,
-    isLoading,
-    error,
-  } = useWorkflowDefinitions();
-  const { activeWorkflowDefinitionId } = useActiveWorkflow();
+  const { data: workflowDefinitions, isLoading } = useWorkflowDefinitions();
 
   const workflowDefId = pathname.split("/")[2];
+
+  const { activeWorkflowDefinitionId } = useActiveWorkflow();
 
   return (
     <Sidebar collapsible="icon" {...props}>
@@ -47,7 +43,7 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
             className="hover:bg-transparent rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
             <div className="bg-[#0232D4]/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
-              <GalleryVerticalEnd className="size-4" />
+              <Sparkle className="size-4" />
             </div>
             <div className="grid flex-1 text-left text-sm leading-tight">
               <span className="truncate font-medium">InsuraAI</span>

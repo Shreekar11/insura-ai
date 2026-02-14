@@ -253,25 +253,6 @@ export function ProposalOutputSidebar({
                   )}
                 </section>
               ))}
-
-              {/* Export Section */}
-              <div className="pt-4 sticky bottom-0 bg-background/80 backdrop-blur-sm pb-6">
-                <Button
-                  className="w-full gap-2 shadow-sm"
-                  disabled={!data.pdf_path}
-                  onClick={() => {
-                    if (data.pdf_path) {
-                      window.open(
-                        `${process.env.NEXT_PUBLIC_API_URL}${data.pdf_path}`,
-                        "_blank",
-                      );
-                    }
-                  }}
-                >
-                  <Download className="size-4" />
-                  Download Complete PDF
-                </Button>
-              </div>
             </>
           ) : (
             <div className="flex flex-col items-center justify-center py-12 text-center text-muted-foreground">

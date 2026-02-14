@@ -100,13 +100,16 @@ class EntityAggregator:
     async def aggregate_entities(
         self,
         document_id: UUID,
-        workflow_id: UUID
+        workflow_id: UUID,
+        rich_context: Optional[Dict[str, Any]] = None
     ) -> AggregatedEntities:
         """Aggregate entities from all chunks of a document.
         
         Args:
             document_id: Document ID to aggregate entities
             workflow_id: Workflow ID
+            rich_context: Optional dictionary containing rich data from extraction
+                (e.g., effective_coverages, effective_exclusions, step_section_outputs)
             
         Returns:
             AggregatedEntities: Aggregated and deduplicated entities
@@ -251,6 +254,10 @@ class EntityAggregator:
         # Deduplicate entities
         unique_entities = self._deduplicate_entities(filtered_entities)
 
+        # Enrich unique entities with rich context if available
+        if rich_context:
+            unique_entities = self._enrich_with_rich_context(unique_entities, rich_context)
+
         # Log filtering statistics
         if filter_stats["total_filtered"] > 0:
             LOGGER.info(
@@ -289,6 +296,190 @@ class EntityAggregator:
         )
         
         return result
+
+    def _enrich_with_rich_context(
+        self,
+        entities: List[Dict[str, Any]],
+        rich_context: Dict[str, Any]
+    ) -> List[Dict[str, Any]]:
+        """Enrich entities with rich attributes from context.
+        
+        Args:
+            entities: Unique entities to enrich
+            rich_context: Rich data from extraction
+            
+        Returns:
+            List of enriched entities
+        """
+        effective_coverages = rich_context.get("effective_coverages", [])
+        effective_exclusions = rich_context.get("effective_exclusions", [])
+        step_section_outputs = rich_context.get("step_section_outputs", [])
+
+        # Create lookup maps for faster matching
+        # User specified: effective coverage uses "coverage_name" instead of "name"
+        coverage_map = {
+            self._generate_entity_id("Coverage", c.get("coverage_name", "")): c 
+            for c in effective_coverages if c.get("coverage_name") 
+        }
+        # User specified: effective exclusion uses "exclusion_name" instead of "title"
+        exclusion_map = {
+            self._generate_entity_id("Exclusion", e.get("exclusion_name", "")): e 
+            for e in effective_exclusions if e.get("exclusion_name")
+        }
+
+        # Build a nested map for step_section_outputs for faster lookup
+        # key: entity_id, value: rich_item
+        section_lookup_map = {}
+        for so in step_section_outputs:
+            payload = so.get("display_payload", {})
+            if not isinstance(payload, dict):
+                continue
+            
+            # Check for generic 'entities' list in payload
+            for item in payload.get("entities", []):
+                item_type = item.get("type") or item.get("entity_type")
+                item_name = item.get("name") or item.get("normalized_value") or item.get("id") or item.get("value")
+                if item_type and item_name:
+                    item_id = self._generate_entity_id(item_type, item_name)
+                    # Use attributes if present, otherwise the item itself
+                    section_lookup_map[item_id] = item.get("attributes") or item
+
+            # Check for section-specific lists (e.g., 'definitions', 'coverages')
+            for key, items in payload.items():
+                if isinstance(items, list) and key in ["definitions", "coverages", "exclusions", "conditions"]:
+                    for item in items:
+                        if not isinstance(item, dict):
+                            continue
+                        
+                        # Match by term (definitions), coverage_name (coverages), etc.
+                        name = (
+                            item.get("term") or 
+                            item.get("coverage_name") or 
+                            item.get("exclusion_name") or 
+                            item.get("name") or 
+                            item.get("title")
+                        )
+                        
+                        # Map plural keys to singular entity types
+                        type_map = {
+                            "definitions": "Definition",
+                            "coverages": "Coverage",
+                            "exclusions": "Exclusion",
+                            "conditions": "Condition"
+                        }
+                        entity_type = type_map.get(key)
+                        
+                        if name and entity_type:
+                            item_id = self._generate_entity_id(entity_type, name)
+                            if item_id not in section_lookup_map:
+                                section_lookup_map[item_id] = item
+
+        enriched_count = 0
+        for entity in entities:
+            entity_id = entity.get("entity_id")
+            entity_type = entity.get("entity_type")
+
+            rich_item = None
+            if entity_type == "Coverage":
+                rich_item = coverage_map.get(entity_id)
+                # Secondary lookup by coverage_name from attributes
+                if not rich_item:
+                    cov_name = (entity.get("coverage_name")
+                                or (entity.get("attributes") or {}).get("coverage_name"))
+                    if cov_name:
+                        name_based_id = self._generate_entity_id("Coverage", cov_name)
+                        rich_item = coverage_map.get(name_based_id)
+                        if rich_item:
+                            LOGGER.info(
+                                f"[FIX 2] Coverage enrichment: Secondary name-based lookup succeeded",
+                                extra={
+                                    "entity_id": entity_id,
+                                    "coverage_name": cov_name,
+                                    "has_description": bool(rich_item.get("description")),
+                                    "has_source_text": bool(rich_item.get("source_text"))
+                                }
+                            )
+                        else:
+                            LOGGER.debug(
+                                f"[FIX 2] Coverage enrichment: Both primary and secondary lookups failed",
+                                extra={"entity_id": entity_id, "coverage_name": cov_name}
+                            )
+            elif entity_type == "Exclusion":
+                rich_item = exclusion_map.get(entity_id)
+                # Secondary lookup by title from attributes
+                if not rich_item:
+                    excl_name = (entity.get("title")
+                                 or entity.get("exclusion_name")
+                                 or (entity.get("attributes") or {}).get("title")
+                                 or (entity.get("attributes") or {}).get("exclusion_name"))
+                    if excl_name:
+                        name_based_id = self._generate_entity_id("Exclusion", excl_name)
+                        rich_item = exclusion_map.get(name_based_id)
+                        if rich_item:
+                            LOGGER.info(
+                                f"[FIX 2] Exclusion enrichment: Secondary name-based lookup succeeded",
+                                extra={
+                                    "entity_id": entity_id,
+                                    "exclusion_name": excl_name,
+                                    "has_description": bool(rich_item.get("description")),
+                                    "has_source_text": bool(rich_item.get("source_text"))
+                                }
+                            )
+                        else:
+                            LOGGER.debug(
+                                f"[FIX 2] Exclusion enrichment: Both primary and secondary lookups failed",
+                                extra={"entity_id": entity_id, "exclusion_name": excl_name}
+                            )
+
+            # Fallback (or primary for other types): Match against step_section_outputs
+            if not rich_item:
+                rich_item = section_lookup_map.get(entity_id)
+
+            if rich_item:
+                # Merge attributes, prioritize rich_item fields
+                attributes = entity.get("attributes", {})
+                if not isinstance(attributes, dict):
+                    attributes = {}
+                
+                # Update attributes with rich data
+                for k, v in rich_item.items():
+                    if v and k not in ["entity_id"]: # Avoid overwriting entity_id
+                        attributes[k] = v
+                
+                entity["attributes"] = attributes
+                
+                # Update top-level fields
+                description = rich_item.get("description") or rich_item.get("definition_text")
+                if description:
+                    entity["description"] = description
+
+                source_text = rich_item.get("source_text")
+                if source_text:
+                    entity["source_text"] = source_text
+
+                # FIX 2 VERIFICATION: Log when rich context data is merged
+                if description or source_text:
+                    LOGGER.info(
+                        f"[FIX 2] Entity enriched with rich context data",
+                        extra={
+                            "entity_id": entity_id,
+                            "entity_type": entity_type,
+                            "added_description": bool(description),
+                            "added_source_text": bool(source_text),
+                            "description_length": len(description) if description else 0,
+                            "source_text_length": len(source_text) if source_text else 0
+                        }
+                    )
+
+                enriched_count += 1
+        
+        if enriched_count > 0:
+            LOGGER.info(
+                f"Enriched {enriched_count} entities with rich context data",
+                extra={"total_entities": len(entities)}
+            )
+
+        return entities
     
     async def _fetch_entity_mentions(
         self,

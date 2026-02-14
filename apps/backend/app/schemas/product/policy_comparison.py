@@ -82,6 +82,12 @@ class EntityComparison(BaseModel):
         None,
         description="Broker-friendly summarized comparison between the entities"
     )
+
+    # Added for cross-type matching and display consistency
+    doc1_name: Optional[str] = Field(None, description="Name of the entity in document 1")
+    doc2_name: Optional[str] = Field(None, description="Name of the entity in document 2")
+    doc1_canonical_id: Optional[str] = Field(None, description="Canonical ID in document 1")
+    doc2_canonical_id: Optional[str] = Field(None, description="Canonical ID in document 2")
     
     # Raw data for front-end consumption
     doc1_content: Optional[Dict[str, Any]] = Field(None, description="Raw data from document 1")
@@ -123,6 +129,10 @@ class EntityComparisonSummary(BaseModel):
     exclusions_added: int = Field(0, description="Exclusions added in document 2")
     exclusions_removed: int = Field(0, description="Exclusions removed from document 1")
     exclusions_unchanged: int = Field(0, description="Base exclusions not modified by endorsement")
+
+    total_added: int = Field(0, description="Total entities added")
+    total_removed: int = Field(0, description="Total entities removed")
+    total_modified: int = Field(0, description="Total entities modified (partial matches)")
 
     entities_reclassified: int = Field(0, description="Entities classified as different types across documents")
 

@@ -160,8 +160,13 @@ export function ComparisonOutputSidebar({
         return;
 
       const citation = findCitation(citData.citations, entityType, entityId);
-      if (citation) {
-        highlightCitation(citation, document.file_path, citData.pageDimensions);
+      if (citation && docId) {
+        highlightCitation(
+          citation,
+          document.file_path,
+          docId,
+          citData.pageDimensions,
+        );
       }
     },
     [
@@ -277,16 +282,6 @@ export function ComparisonOutputSidebar({
               value={searchQuery}
               onChange={(e) => setSearchQuery(e.target.value)}
             />
-          </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 rounded px-3 text-xs gap-2"
-            >
-              <Download className="size-3.5" />
-              Export
-            </Button>
           </div>
         </div>
 

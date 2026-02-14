@@ -1,9 +1,11 @@
 """Entity resolution activities for Phase 3."""
 
 from temporalio import activity
-from typing import Dict, List
+from typing import Dict, List, Optional
 from uuid import UUID
 
+from sqlalchemy import select
+from app.database.models import StepSectionOutput
 from app.core.database import async_session_maker
 from app.pipeline.entity_resolution import EntityResolutionPipeline
 from app.repositories.entity_repository import EntityRepository
@@ -15,12 +17,48 @@ LOGGER = get_logger(__name__)
 
 @ActivityRegistry.register("shared", "aggregate_document_entities")
 @activity.defn
-async def aggregate_document_entities(workflow_id: str, document_id: str) -> Dict:
+async def aggregate_document_entities(workflow_id: str, document_id: str, rich_context: Optional[Dict] = None) -> Dict:
     """Aggregate entities from all chunks for the document."""
     try:
         async with async_session_maker() as session:
+            # Load StepSectionOutputs for this document/workflow
+            stmt = select(StepSectionOutput).where(
+                StepSectionOutput.document_id == UUID(document_id),
+                StepSectionOutput.workflow_id == UUID(workflow_id)
+            )
+            result = await session.execute(stmt)
+            section_outputs = result.scalars().all()
+            
+            # Prepare rich context
+            if rich_context is None:
+                rich_context = {}
+            
+            rich_context["step_section_outputs"] = [
+                {
+                    "section_type": so.section_type,
+                    "display_payload": so.display_payload
+                } for so in section_outputs
+            ]
+
             pipeline = EntityResolutionPipeline(session)
-            result = await pipeline.aggregate_entities(document_id=UUID(document_id), workflow_id=UUID(workflow_id))
+            result = await pipeline.aggregate_entities(
+                document_id=UUID(document_id),
+                workflow_id=UUID(workflow_id),
+                rich_context=rich_context
+            )
+
+            # FIX VERIFICATION: Log aggregation results for monitoring
+            LOGGER.info(
+                f"[FIX VERIFICATION] Entity aggregation completed - Monitor logs for [FIX 2] enrichment tags",
+                extra={
+                    "document_id": document_id,
+                    "workflow_id": workflow_id,
+                    "total_entities": result.get("total_entities"),
+                    "unique_entities": result.get("unique_entities"),
+                    "note": "Check for [FIX 2] logs showing secondary lookup success and rich context merging"
+                }
+            )
+
             return result
     except Exception as e:
         activity.logger.error(f"Entity aggregation failed for {document_id}: {e}")
@@ -41,6 +79,18 @@ async def resolve_canonical_entities(workflow_id: str, document_id: str, aggrega
                 entities=entities,
             )
             await session.commit()
+
+            # FIX VERIFICATION: Log resolution completion
+            LOGGER.info(
+                f"[FIX VERIFICATION] Canonical entities resolved - Monitor logs for [FIX 3] and [FIX 4] tags",
+                extra={
+                    "document_id": document_id,
+                    "workflow_id": workflow_id,
+                    "canonical_entities_count": len(canonical_ids),
+                    "note": "Check for [FIX 3] logs showing enrichment fields merged, [FIX 4] logs showing readable mention_text"
+                }
+            )
+
             return [str(id) for id in canonical_ids]
     except Exception as e:
         activity.logger.error(f"Canonical entity resolution failed: {e}")
