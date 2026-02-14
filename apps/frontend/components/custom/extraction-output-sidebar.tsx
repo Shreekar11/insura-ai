@@ -314,16 +314,6 @@ export function ExtractionOutputSidebar({
               onChange={(e) => setSearchQuery(e.target.value)}
             />
           </div>
-          <div className="flex items-center gap-2">
-            <Button
-              variant="outline"
-              size="sm"
-              className="h-9 rounded px-3 text-xs gap-2"
-            >
-              <Download className="size-3.5" />
-              Export
-            </Button>
-          </div>
         </div>
 
         <div className="flex-1 overflow-auto">

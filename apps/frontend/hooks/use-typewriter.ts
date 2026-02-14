@@ -4,6 +4,7 @@ export const useTypewriter = (
   text: string | null,
   enabled: boolean = true,
   speed: number = 30,
+  onComplete?: () => void,
 ) => {
   const [displayedText, setDisplayedText] = useState("");
   const [isTyping, setIsTyping] = useState(false);
@@ -33,6 +34,7 @@ export const useTypewriter = (
       if (currentIndex >= words.length) {
         clearInterval(intervalId);
         setIsTyping(false);
+        onComplete?.();
         return;
       }
 
@@ -42,7 +44,7 @@ export const useTypewriter = (
     }, speed);
 
     return () => clearInterval(intervalId);
-  }, [text, enabled, speed]);
+  }, [text, enabled, speed, onComplete]);
 
   return { displayedText, isTyping };
 };

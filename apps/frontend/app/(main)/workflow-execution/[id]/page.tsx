@@ -6,7 +6,11 @@ import remarkGfm from "remark-gfm";
 import dynamic from "next/dynamic";
 import { useParams } from "next/navigation";
 import { useWorkflowById, useExecuteWorkflow } from "@/hooks/use-workflows";
-import { useUploadDocument, useDocuments } from "@/hooks/use-documents";
+import {
+  useUploadDocument,
+  useDocuments,
+  type DocumentResponse,
+} from "@/hooks/use-documents";
 import {
   FileDropzone,
   type UploadedFile,
@@ -128,6 +132,8 @@ function CopyButton({ text }: { text: string }) {
 function MessageBubble({
   msg,
   onScrollToBottom,
+  documents,
+  onComplete,
 }: {
   msg: {
     query: string;
@@ -136,8 +142,15 @@ function MessageBubble({
     isNew: boolean;
   };
   onScrollToBottom: () => void;
+  documents: DocumentResponse[];
+  onComplete: () => void;
 }) {
-  const { displayedText, isTyping } = useTypewriter(msg.answer, msg.isNew);
+  const { displayedText, isTyping } = useTypewriter(
+    msg.answer,
+    msg.isNew,
+    30,
+    onComplete,
+  );
 
   // Auto-scroll while typing
   useEffect(() => {
@@ -145,6 +158,47 @@ function MessageBubble({
       onScrollToBottom();
     }
   }, [displayedText, isTyping, onScrollToBottom]);
+  // Function to render user query with highlighted mentions
+  const renderMessageText = (text: string) => {
+    if (!text) return null;
+
+    const sortedDocs = [...documents].sort(
+      (a, b) => (b.document_name?.length || 0) - (a.document_name?.length || 0),
+    );
+
+    let parts: (string | React.ReactNode)[] = [text];
+
+    sortedDocs.forEach((doc) => {
+      if (!doc.document_name) return;
+      const mentionText = `@${doc.document_name}`;
+      const newParts: (string | React.ReactNode)[] = [];
+
+      parts.forEach((part) => {
+        if (typeof part !== "string") {
+          newParts.push(part);
+          return;
+        }
+
+        const subParts = part.split(mentionText);
+        subParts.forEach((subPart, i) => {
+          if (subPart) newParts.push(subPart);
+          if (i < subParts.length - 1) {
+            newParts.push(
+              <span
+                key={`${doc.id}-${i}`}
+                className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 px-1 rounded border border-blue-200 dark:border-blue-800 font-medium whitespace-nowrap"
+              >
+                {mentionText}
+              </span>,
+            );
+          }
+        });
+      });
+      parts = newParts;
+    });
+
+    return parts;
+  };
 
   return (
     <div className="animate-in fade-in slide-in-from-bottom-4 duration-500">
@@ -152,9 +206,9 @@ function MessageBubble({
       <div className="flex justify-end group">
         <div className="flex flex-col items-end gap-1 max-w-[80%]">
           <div className="bg-white dark:bg-zinc-900 border border-zinc-200 dark:border-zinc-800 rounded px-4 py-2">
-            <p className="text-sm text-zinc-800 dark:text-zinc-200">
-              {msg.query}
-            </p>
+            <div className="text-sm text-zinc-800 dark:text-zinc-200 flex flex-wrap gap-1 leading-relaxed">
+              {renderMessageText(msg.query)}
+            </div>
           </div>
           <div className="flex items-center gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
             <span className="text-xs text-zinc-500 dark:text-zinc-400">
@@ -375,6 +429,12 @@ function WorkflowExecutionContent() {
     }
   }, [chatHistory]);
 
+  const handleTypingComplete = useCallback((index: number) => {
+    setMessages((prev) =>
+      prev.map((m, i) => (i === index ? { ...m, isNew: false } : m)),
+    );
+  }, []);
+
   const handleFilesSelect = useCallback(
     async (files: File[]) => {
       const newFiles = files.map((file) => ({
@@ -511,7 +571,6 @@ function WorkflowExecutionContent() {
     <ResizablePanelGroup
       direction="horizontal"
       className="h-svh max-h-svh overflow-hidden"
-      key={layoutState}
     >
       <ResizablePanel
         defaultSize={
@@ -601,6 +660,8 @@ function WorkflowExecutionContent() {
                           key={idx}
                           msg={msg}
                           onScrollToBottom={scrollToBottom}
+                          documents={existingDocuments?.documents ?? []}
+                          onComplete={() => handleTypingComplete(idx)}
                         />
                       ))}
                     </div>

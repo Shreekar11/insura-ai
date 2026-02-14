@@ -39,10 +39,16 @@ export function ChatInterface({
 
   const handleAsk = () => {
     if (query.trim()) {
-      const finalMentions = mentionedDocs.filter((doc) =>
-        query.includes(`@${doc.name}`),
-      );
-      onAsk(query, finalMentions);
+      const detectedMentions = documents
+        .filter(
+          (doc) => doc.document_name && query.includes(`@${doc.document_name}`),
+        )
+        .map((doc) => ({
+          id: doc.id,
+          name: doc.document_name || "Untitled Document",
+        }));
+
+      onAsk(query, detectedMentions);
       setQuery("");
       setMentionedDocs([]);
     }
@@ -110,14 +116,15 @@ export function ChatInterface({
   const renderMirroredText = () => {
     if (!query) return null;
 
-    const sortedMentions = [...mentionedDocs].sort(
-      (a, b) => b.name.length - a.name.length,
+    const sortedDocs = [...documents].sort(
+      (a, b) => (b.document_name?.length || 0) - (a.document_name?.length || 0),
     );
 
     let parts: (string | React.ReactNode)[] = [query];
 
-    sortedMentions.forEach((doc) => {
-      const mentionText = `@${doc.name}`;
+    sortedDocs.forEach((doc) => {
+      if (!doc.document_name) return;
+      const mentionText = `@${doc.document_name}`;
       const newParts: (string | React.ReactNode)[] = [];
 
       parts.forEach((part) => {
@@ -128,12 +135,12 @@ export function ChatInterface({
 
         const subParts = part.split(mentionText);
         subParts.forEach((subPart, i) => {
-          newParts.push(subPart);
+          if (subPart) newParts.push(subPart);
           if (i < subParts.length - 1) {
             newParts.push(
               <span
                 key={`${doc.id}-${i}`}
-                className="bg-blue-100 dark:bg-blue-900/30 p-0.5 text-blue-700 dark:text-blue-300 px-1 rounded border border-blue-200 dark:border-blue-800 font-medium"
+                className="bg-blue-100 dark:bg-blue-900/30 text-blue-700 dark:text-blue-300 p-0.5 px-1 rounded border border-blue-200 dark:border-blue-800 font-medium"
               >
                 {mentionText}
               </span>,
@@ -160,7 +167,6 @@ export function ChatInterface({
         )}
 
         <div className="relative border dark:bg-zinc-800 rounded overflow-hidden flex flex-col items-end min-h-[100px]">
-          {/* Overlay for Mentions */}
           <div
             ref={mirrorRef}
             aria-hidden="true"
@@ -180,7 +186,7 @@ export function ChatInterface({
             onKeyDown={handleKeyDown}
             onScroll={handleScroll}
             placeholder="Ask anything about your documents. Type @ to mention a specific file."
-            className="min-h-[100px] w-full bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 resize-none p-3 text-sm leading-relaxed"
+            className="min-h-[100px] w-full bg-transparent border-none focus-visible:ring-0 focus-visible:ring-offset-0 text-zinc-900 dark:text-zinc-100 placeholder:text-zinc-500 resize-none p-3 pr-[60px] text-sm leading-relaxed"
           />
 
           <div className="absolute bottom-2 right-2 flex items-center justify-end z-10">
