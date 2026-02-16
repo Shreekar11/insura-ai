@@ -8,7 +8,7 @@ import { Menu, X, ArrowRight, Sparkle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { LineShadowText } from "@/components/ui/line-shadow-text";
 
-import productPlaceholder from "../app/assets/product-landing.png";
+import productPlaceholder from "../public/assets/product-landing.png";
 
 const GradientBackground = () => (
   <div

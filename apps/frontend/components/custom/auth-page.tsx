@@ -7,7 +7,7 @@ import Link from "next/link";
 import Image from "next/image";
 import { Diamond, Sparkle } from "lucide-react";
 import { createClient } from "@/utils/supabase/client";
-import authLanding from "@/app/assets/auth-landing.png";
+import authLanding from "../../public/assets/auth-landing.png";
 
 interface AuthPageProps {
   mode: "sign-in" | "sign-up";

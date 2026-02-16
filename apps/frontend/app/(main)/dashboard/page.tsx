@@ -24,9 +24,9 @@ import {
 } from "@/components/ui/card";
 import Image from "next/image";
 
-import policyComparisonImg from "@/app/assets/policy-comparison.avif";
-import proposalGenerationImg from "@/app/assets/proposal-generation.avif";
-import quoteComparisonImg from "@/app/assets/quote-comparison.jpeg";
+import policyComparisonImg from "../../../public/assets/policy-comparison.png";
+import proposalGenerationImg from "../../../public/assets/proposal-generation.png";
+import quoteComparisonImg from "../../../public/assets/quote-comparison.jpeg";
 
 export default function Page() {
   const router = useRouter();
