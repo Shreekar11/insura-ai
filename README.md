@@ -40,7 +40,7 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 
 ### Frontend
 
-| Technology           | Purpose                 |
+| Technology           | Purpose                 |                                           |
 | -------------------- | ----------------------- | ----------------------------------------- |
 | **Framework**        | Next.js 16 (App Router) | Modern React framework                    |
 | **State Management** | React Query             | Data fetching and caching                 |
