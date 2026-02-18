@@ -166,6 +166,7 @@ class UserService:
             full_name=full_name,
         )
 
+        await self.repository.db_session.commit()
         return user
 
     async def ensure_user_exists(self, current_user: CurrentUser) -> User:
@@ -209,6 +210,7 @@ class UserService:
             UserProfile data
         """
         user = await self.ensure_user_exists(current_user)
+        await self.repository.db_session.commit()
         return UserProfile(
             id=user.supabase_user_id,
             email=user.email,

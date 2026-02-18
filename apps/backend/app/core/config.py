@@ -2,6 +2,7 @@
 
 from pathlib import Path
 from typing import Optional
+from urllib.parse import parse_qs, urlencode
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -38,10 +39,57 @@ ENV_FILE = find_env_file()
 class DatabaseSettings(BaseSettings):
     """Database connection and pool settings."""
     url: str = Field(default="postgresql+asyncpg://insura:insura@localhost:5432/insura_temp", validation_alias="DATABASE_URL")
+    postgres_url: Optional[str] = Field(default=None, validation_alias="POSTGRES_URL")
+    postgres_url_non_pooling: Optional[str] = Field(default=None, validation_alias="POSTGRES_URL_NON_POOLING")
+    
     pool_size: int = Field(default=10, validation_alias="DATABASE_POOL_SIZE")
     max_overflow: int = Field(default=20, validation_alias="DATABASE_MAX_OVERFLOW")
     echo: bool = Field(default=False, validation_alias="DATABASE_ECHO")
     
+    use_local_db: bool = Field(default=True, validation_alias="USE_LOCAL_DB")
+    
+    @property
+    def connection_url(self) -> str:
+        """Get the connection URL with the correct asyncpg prefix."""
+        # Determine which URL to use based on the toggle
+        if self.use_local_db:
+             raw_url = self.url
+        else:
+            # Prioritize production URLs if not using local DB
+            raw_url = self.postgres_url or self.postgres_url_non_pooling or self.url
+        
+        if not raw_url:
+            return ""
+            
+        # Ensure the URL has the correct asyncpg prefix
+        if raw_url.startswith("postgres://") or raw_url.startswith("postgresql://"):
+            # Replace prefix with postgresql+asyncpg://
+            if "://" in raw_url:
+                _, rest = raw_url.split("://", 1)
+                
+                # Parse query parameters to remove unsupported ones
+                if "?" in rest:
+                    path, query = rest.split("?", 1)
+                    params = parse_qs(query)
+                    
+                    # Handle sslmode conversion
+                    if "sslmode" in params:
+                        params["ssl"] = params.pop("sslmode")
+                    
+                    # Remove unsupported 'supa' parameter
+                    if "supa" in params:
+                        params.pop("supa")
+                        
+                    # Reconstruct query string
+                    # Note: parse_qs returns lists, urlencode handles lists
+                    new_query = urlencode(params, doseq=True)
+                    rest = f"{path}?{new_query}"
+                    
+                final_url = f"postgresql+asyncpg://{rest}"
+                return final_url
+        
+        return raw_url
+
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE) if ENV_FILE else None,
         env_file_encoding="utf-8",
@@ -61,7 +109,7 @@ class LLMSettings(BaseSettings):
     
     openrouter_api_key: str = Field(default="", validation_alias="OPENROUTER_API_KEY")
     openrouter_api_url: str = Field(default="https://openrouter.ai/api/v1/chat/completions", validation_alias="OPENROUTER_API_URL")
-    openrouter_model: str = Field(default="openai/gpt-4o-mini", validation_alias="OPENROUTER_MODEL")
+    openrouter_model: str = Field(default="google/gemini-2.0-flash-001", validation_alias="OPENROUTER_MODEL")
     
     enable_fallback: bool = Field(default=False, validation_alias="ENABLE_LLM_FALLBACK")
 
@@ -134,11 +182,13 @@ class Neo4jSettings(BaseSettings):
 
 
 class SupabaseSettings(BaseSettings):
-    """Supabase authentication settings."""
+    """Supabase authentication and storage settings."""
     url: str = Field(default="", validation_alias="SUPABASE_URL")
     anon_key: str = Field(default="", validation_alias="SUPABASE_ANON_KEY")
-    service_role_key: str = Field(default="", validation_alias="SUPABASE_SERVICE_ROLE_KEY")
+    publishable_key: str = Field(default="", validation_alias="SUPABASE_PUBLISHABLE_KEY")
+    secret_key: str = Field(default="", validation_alias="SUPABASE_SECRET_KEY")
     jwt_secret: str = Field(default="", validation_alias="SUPABASE_JWT_SECRET")
+    service_role_key: str = Field(default="", validation_alias="SUPABASE_SERVICE_ROLE_KEY")
     jwks_cache_ttl: int = Field(default=3600, validation_alias="SUPABASE_JWKS_CACHE_TTL")  # 1 hour
 
     model_config = SettingsConfigDict(
@@ -190,7 +240,7 @@ class Settings(BaseSettings):
     # Backward compatibility properties
     @property
     def database_url(self) -> str: 
-        return self.db.url
+        return self.db.connection_url
     
     @property
     def database_pool_size(self) -> int: 

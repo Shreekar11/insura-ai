@@ -83,7 +83,8 @@ class UserRepository:
         )
 
         self.db_session.add(user)
-        await self.db_session.flush()  # Get the ID without committing
+        await self.db_session.flush()
+        await self.db_session.commit()
 
         LOGGER.info(f"Created user: {user.id} ({user.email})")
         return user
@@ -108,6 +109,7 @@ class UserRepository:
             setattr(user, field, value)
 
         await self.db_session.flush()
+        await self.db_session.commit()
 
         LOGGER.info(f"Updated user: {user.id}")
         return user
@@ -127,6 +129,7 @@ class UserRepository:
 
         await self.db_session.delete(user)
         await self.db_session.flush()
+        await self.db_session.commit()
 
         LOGGER.info(f"Deleted user: {user_id}")
         return True

@@ -99,6 +99,7 @@ class BaseRepository(Generic[ModelType]):
             instance = self.model(**kwargs)
             self.session.add(instance)
             await self.session.flush()
+            await self.session.commit()
             return instance
         except SQLAlchemyError as e:
             self.logger.error(
@@ -133,6 +134,7 @@ class BaseRepository(Generic[ModelType]):
                 setattr(instance, "updated_at", datetime.now(timezone.utc))
                 
             await self.session.flush()
+            await self.session.commit()
             return instance
         except SQLAlchemyError as e:
             self.logger.error(
@@ -157,6 +159,7 @@ class BaseRepository(Generic[ModelType]):
                 
             await self.session.delete(instance)
             await self.session.flush()
+            await self.session.commit()
             return True
         except SQLAlchemyError as e:
             self.logger.error(

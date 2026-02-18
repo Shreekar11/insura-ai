@@ -928,6 +928,9 @@ class WorkflowService(BaseService):
             List of definitions
         """
         definitions = await self.def_repo.get_all()
+        # Sort by created_at to maintain the seeded order
+        definitions = sorted(definitions, key=lambda d: d.created_at if d.created_at else datetime.min)
+        
         return [
             {
                 "id": d.id,
