@@ -261,6 +261,8 @@ class CoverageSynthesizer:
                     "deductible_modification": mod.get("deductible_modification"),
                     "condition_modification": mod.get("condition_modification"),
                     "verbatim_language": mod.get("verbatim_language"),
+                    "page_numbers": mod.get("page_numbers"), # NEW
+                    "source_text": mod.get("source_text"),   # NEW
                     "source": endorsement_ref,
                 })
                 source_endorsements[coverage_key].add(endorsement_ref)
@@ -284,6 +286,8 @@ class CoverageSynthesizer:
                     "scope_modification": mod.get("scope_modification"),
                     "limit_modification": mod.get("limit_modification"),
                     "condition_modification": mod.get("condition_modification"),
+                    "page_numbers": mod.get("page_numbers"), # NEW
+                    "source_text": mod.get("source_text"),   # NEW
                     "source": source,
                 })
                 source_endorsements[coverage_key].add(source)
@@ -322,6 +326,8 @@ class CoverageSynthesizer:
                     "effect_category": self._infer_effect_category(endorsement_type),
                     "endorsement_name": endorsement.get("endorsement_name"),
                     "materiality": endorsement.get("materiality"),
+                    "page_numbers": endorsement.get("page_numbers"), # NEW
+                    "source_text": endorsement.get("source_text"),   # NEW
                     "source": endorsement_ref,
                 })
                 source_endorsements[coverage_key].add(endorsement_ref)
@@ -683,6 +689,7 @@ class CoverageSynthesizer:
 
         for mod in modifications:
             text = (
+                mod.get("source_text") or
                 mod.get("verbatim_language") or
                 mod.get("verbatim_text") or
                 mod.get("scope_modification")

@@ -7,16 +7,15 @@ from decimal import Decimal
 
 from app.core.database import async_session_maker
 from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
-from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
-from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
-from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
-from app.schemas.product.policy_comparison import SectionAlignment, ComparisonChange, SectionProvenance
 from app.repositories.document_repository import DocumentRepository
 from app.repositories.section_extraction_repository import SectionExtractionRepository
 from app.repositories.workflow_repository import WorkflowDocumentRepository, WorkflowDocumentStageRunRepository 
 from app.utils.logging import get_logger
 from app.temporal.core.activity_registry import ActivityRegistry
 from app.temporal.product.policy_comparison.configs.policy_comparison import REQUIRED_SECTIONS
+from app.services.product.policy_comparison.section_alignment_service import SectionAlignmentService
+from app.services.product.policy_comparison.detailed_comparison_service import DetailedComparisonService
+from app.services.product.policy_comparison.reasoning_service import PolicyComparisonReasoningService
 
 LOGGER = get_logger(__name__)
 
@@ -113,220 +112,6 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) 
         LOGGER.error(f"Phase B pre-flight failed for workflow {workflow_id}: {e}", exc_info=True)
         raise
 
-
-@ActivityRegistry.register("policy_comparison", "section_alignment_activity")
-@activity.defn
-async def section_alignment_activity(workflow_id: str, document_ids: list[str]) -> dict:
-    """Temporal activity for section alignment."""
-    try:
-        async with async_session_maker() as session:
-            alignment_service = SectionAlignmentService(session)
-            alignments = await alignment_service.align_sections(
-                doc1_id=UUID(document_ids[0]),
-                doc2_id=UUID(document_ids[1]),
-                workflow_id=UUID(workflow_id),
-                section_types=REQUIRED_SECTIONS,
-            )
-
-            return {
-                "alignments": [
-                    {
-                        "section_type": a.section_type,
-                        "doc1_section_id": str(a.doc1_section_id),
-                        "doc2_section_id": str(a.doc2_section_id),
-                        "alignment_confidence": float(a.alignment_confidence),
-                        "alignment_method": a.alignment_method,
-                    }
-                    for a in alignments
-                ],
-                "alignment_count": len(alignments),
-            }
-    except Exception as e:
-        LOGGER.error(f"Section alignment failed for workflow {workflow_id}: {e}", exc_info=True)
-        raise
-
-
-@ActivityRegistry.register("policy_comparison", "detailed_comparison_activity")
-@activity.defn
-async def detailed_comparison_activity(workflow_id: str, alignment_result: dict) -> dict:
-    """Temporal activity for detailed comparison."""
-    try:
-        async with async_session_maker() as session:
-            diff_service = DetailedComparisonService(session)
-            alignments = [
-                SectionAlignment(
-                    section_type=a["section_type"],
-                    doc1_section_id=UUID(a["doc1_section_id"]),
-                    doc2_section_id=UUID(a["doc2_section_id"]),
-                    alignment_confidence=Decimal(str(a["alignment_confidence"])),
-                    alignment_method=a.get("alignment_method"),
-                )
-                for a in alignment_result["alignments"]
-            ]
-
-            changes = await diff_service.compute_comparison(aligned_sections=alignments)
-
-            def sanitize(val):
-                if isinstance(val, Decimal):
-                    return float(val)
-                return val
-
-            return {
-                "changes": [
-                    {
-                        "field_name": c.field_name,
-                        "section_type": c.section_type,
-                        "coverage_name": c.coverage_name,
-                        "old_value": sanitize(c.old_value),
-                        "new_value": sanitize(c.new_value),
-                        "change_type": c.change_type,
-                        "percent_change": float(c.percent_change) if c.percent_change is not None else None,
-                        "absolute_change": float(c.absolute_change) if c.absolute_change is not None else None,
-                        "severity": c.severity,
-                        "provenance": {
-                            "doc1_section_id": str(c.provenance.doc1_section_id),
-                            "doc2_section_id": str(c.provenance.doc2_section_id),
-                            "doc1_page_range": c.provenance.doc1_page_range,
-                            "doc2_page_range": c.provenance.doc2_page_range,
-                        },
-                    }
-                    for c in changes
-                ],
-                "change_count": len(changes),
-            }
-    except Exception as e:
-        LOGGER.error(f"Detailed comparison failed for workflow {workflow_id}: {e}", exc_info=True)
-        raise
-
-
-@ActivityRegistry.register("policy_comparison", "generate_comparison_reasoning_activity")
-@activity.defn
-async def generate_comparison_reasoning_activity(workflow_id: str, diff_result: dict) -> dict:
-    """Temporal activity for generating natural language reasoning."""
-    try:
-        reasoning_service = PolicyComparisonReasoningService()
-        changes = []
-        for c in diff_result["changes"]:
-            changes.append(
-                ComparisonChange(
-                    field_name=c["field_name"],
-                    section_type=c["section_type"],
-                    coverage_name=c.get("coverage_name"),
-                    old_value=c["old_value"],
-                    new_value=c["new_value"],
-                    change_type=c["change_type"],
-                    percent_change=c.get("percent_change"),
-                    absolute_change=c.get("absolute_change"),
-                    severity=c["severity"],
-                    provenance=SectionProvenance(
-                        doc1_section_id=UUID(c["provenance"]["doc1_section_id"]),
-                        doc2_section_id=UUID(c["provenance"]["doc2_section_id"]),
-                        doc1_page_range=c["provenance"]["doc1_page_range"],
-                        doc2_page_range=c["provenance"]["doc2_page_range"],
-                    ),
-                )
-            )
-
-        enriched_changes = await reasoning_service.enrich_changes_with_reasoning(changes)
-        overall_explanation = await reasoning_service.generate_overall_explanation(enriched_changes)
-
-        def sanitize(val):
-            if isinstance(val, Decimal):
-                return float(val)
-            return val
-
-        return {
-            "changes": [
-                {
-                    "field_name": c.field_name,
-                    "section_type": c.section_type,
-                    "coverage_name": c.coverage_name,
-                    "old_value": sanitize(c.old_value),
-                    "new_value": sanitize(c.new_value),
-                    "change_type": c.change_type,
-                    "percent_change": float(c.percent_change) if c.percent_change is not None else None,
-                    "absolute_change": float(c.absolute_change) if c.absolute_change is not None else None,
-                    "severity": c.severity,
-                    "provenance": {
-                        "doc1_section_id": str(c.provenance.doc1_section_id),
-                        "doc2_section_id": str(c.provenance.doc2_section_id),
-                        "doc1_page_range": c.provenance.doc1_page_range,
-                        "doc2_page_range": c.provenance.doc2_page_range,
-                    },
-                    "reasoning": c.reasoning
-                }
-                for c in enriched_changes
-            ],
-            "overall_explanation": overall_explanation
-        }
-    except Exception as e:
-        LOGGER.error(f"Reasoning activity failed for workflow {workflow_id}: {e}", exc_info=True)
-        raise
-
-
-@ActivityRegistry.register("policy_comparison", "persist_comparison_result_activity")
-@activity.defn
-async def persist_comparison_result_activity(
-    workflow_id: str,
-    workflow_definition_id: str,
-    document_ids: list[str],
-    alignment_result: dict,
-    reasoning_result: dict,
-    phase_b_result: Optional[dict] = None,
-) -> dict:
-    """Temporal activity for persisting comparison results."""
-    try:
-        async with async_session_maker() as session:
-            comparison_service = PolicyComparisonService(session)
-            alignments = [
-                SectionAlignment(
-                    section_type=a["section_type"],
-                    doc1_section_id=UUID(a["doc1_section_id"]),
-                    doc2_section_id=UUID(a["doc2_section_id"]),
-                    alignment_confidence=Decimal(str(a["alignment_confidence"])),
-                    alignment_method=a.get("alignment_method"),
-                )
-                for a in alignment_result["alignments"]
-            ]
-
-            changes = [
-                ComparisonChange(
-                    field_name=c["field_name"],
-                    section_type=c["section_type"],
-                    coverage_name=c.get("coverage_name"),
-                    old_value=c["old_value"],
-                    new_value=c["new_value"],
-                    change_type=c["change_type"],
-                    percent_change=Decimal(str(c["percent_change"])) if c.get("percent_change") is not None else None,
-                    absolute_change=Decimal(str(c["absolute_change"])) if c.get("absolute_change") is not None else None,
-                    severity=c["severity"],
-                    provenance=SectionProvenance(
-                        doc1_section_id=UUID(c["provenance"]["doc1_section_id"]),
-                        doc2_section_id=UUID(c["provenance"]["doc2_section_id"]),
-                        doc1_page_range=c["provenance"]["doc1_page_range"],
-                        doc2_page_range=c["provenance"]["doc2_page_range"],
-                    ),
-                    reasoning=c.get("reasoning")
-                )
-                for c in reasoning_result["changes"]
-            ]
-
-            result = await comparison_service.finalize_comparison_result(
-                workflow_id=UUID(workflow_id),
-                workflow_definition_id=UUID(workflow_definition_id),
-                document_ids=[UUID(d) for d in document_ids],
-                aligned_sections=alignments,
-                changes=changes,
-                overall_explanation=reasoning_result.get("overall_explanation"),
-                validation_result=phase_b_result
-            )
-
-            return result
-    except Exception as e:
-        LOGGER.error(f"Persist result failed for workflow {workflow_id}: {e}", exc_info=True)
-        raise
-
-
 @ActivityRegistry.register("policy_comparison", "entity_comparison_activity")
 @activity.defn
 async def entity_comparison_activity(
@@ -402,6 +187,110 @@ async def entity_comparison_activity(
         raise
 
 
+@ActivityRegistry.register("policy_comparison", "section_alignment_activity")
+@activity.defn
+async def section_alignment_activity(workflow_id: str, document_ids: list[str]) -> list:
+    """Align sections across two documents."""
+    try:
+        async with async_session_maker() as session:
+            alignment_service = SectionAlignmentService(session)
+            alignments = await alignment_service.align_sections(
+                doc1_id=UUID(document_ids[0]),
+                doc2_id=UUID(document_ids[1]),
+                workflow_id=UUID(workflow_id),
+                section_types=REQUIRED_SECTIONS,
+            )
+            return [a.model_dump(mode="json") for a in alignments]
+    except Exception as e:
+        LOGGER.error(f"Section alignment failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
+@ActivityRegistry.register("policy_comparison", "detailed_comparison_activity")
+@activity.defn
+async def detailed_comparison_activity(workflow_id: str, aligned_sections: list) -> list:
+    """Compute detailed differences for aligned sections."""
+    try:
+        from app.schemas.product.policy_comparison import SectionAlignment
+        
+        async with async_session_maker() as session:
+            comparison_service = DetailedComparisonService(session)
+            
+            alignments = [SectionAlignment(**a) for a in aligned_sections]
+            
+            changes = await comparison_service.compute_comparison(
+                aligned_sections=alignments
+            )
+            
+            return [c.model_dump(mode="json") for c in changes]
+    except Exception as e:
+        LOGGER.error(f"Detailed comparison failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
+@ActivityRegistry.register("policy_comparison", "generate_comparison_reasoning_activity")
+@activity.defn
+async def generate_comparison_reasoning_activity(workflow_id: str, changes_data: list) -> dict:
+    """Enrich changes with reasoning and generate overall explanation."""
+    try:
+        from app.schemas.product.policy_comparison import ComparisonChange
+        
+        async with async_session_maker() as session:
+            reasoning_service = PolicyComparisonReasoningService()
+            
+            # Reconstruct ComparisonChange objects
+            changes = [ComparisonChange(**c) for c in changes_data]
+            
+            enriched_changes = await reasoning_service.enrich_changes_with_reasoning(changes)
+            overall_explanation = await reasoning_service.generate_overall_explanation(enriched_changes)
+            
+            return {
+                "enriched_changes": [c.model_dump(mode="json") for c in enriched_changes],
+                "overall_explanation": overall_explanation,
+            }
+    except Exception as e:
+        LOGGER.error(f"Reasoning generation failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
+@ActivityRegistry.register("policy_comparison", "persist_comparison_result_activity")
+@activity.defn
+async def persist_comparison_result_activity(
+    workflow_id: str,
+    workflow_definition_id: str,
+    document_ids: list[str],
+    alignment_data: list,
+    reasoning_data: dict,
+    phase_b_result: dict,
+) -> dict:
+    """Finalize and persist comparison results."""
+    try:
+        from app.schemas.product.policy_comparison import SectionAlignment, ComparisonChange
+        
+        async with async_session_maker() as session:
+            comparison_service = PolicyComparisonService(session)
+            
+            # Reconstruct objects
+            alignments = [SectionAlignment(**a) for a in alignment_data]
+            changes = [ComparisonChange(**c) for c in reasoning_data.get("enriched_changes", [])]
+            overall_explanation = reasoning_data.get("overall_explanation")
+            
+            result = await comparison_service.finalize_comparison_result(
+                workflow_id=UUID(workflow_id),
+                workflow_definition_id=UUID(workflow_definition_id),
+                document_ids=[UUID(d) for d in document_ids],
+                aligned_sections=alignments,
+                changes=changes,
+                overall_explanation=overall_explanation,
+                validation_result=phase_b_result
+            )
+            
+            return result
+    except Exception as e:
+        LOGGER.error(f"Persisting comparison result failed for workflow {workflow_id}: {e}", exc_info=True)
+        raise
+
+
 async def _get_extracted_data_for_comparison(
     step_entity_repo,
     step_section_repo,
@@ -447,6 +336,49 @@ async def _get_extracted_data_for_comparison(
             
         payload = section.display_payload
         
+        # Unpack modifications and provisions if they exist
+        if isinstance(payload, dict):
+            if "modifications" in payload and isinstance(payload["modifications"], list):
+                for mod in payload["modifications"]:
+                    # Tag with extraction source info
+                    mod["_extraction_id"] = str(section.id)
+                    mod["_section_type"] = section.section_type
+                    
+                    # Flatten attributes for better matching
+                    if "attributes" in mod and isinstance(mod["attributes"], dict):
+                        for k, v in mod["attributes"].items():
+                            if k not in mod:
+                                mod[k] = v
+                                
+                    if "impacted_coverage" in mod:
+                        coverages.append(mod)
+                    elif "impacted_exclusion" in mod:
+                        exclusions.append(mod)
+                    else:
+                        coverages.append(mod)
+
+            if "provisions" in payload and isinstance(payload["provisions"], list):
+                for prov in payload["provisions"]:
+                    prov["_extraction_id"] = str(section.id)
+                    prov["_section_type"] = section.section_type
+                    
+                    # Flatten attributes 
+                    if "attributes" in prov and isinstance(prov["attributes"], dict):
+                        for k, v in prov["attributes"].items():
+                            if k not in prov:
+                                prov[k] = v
+                                
+                    # Map provision_name to coverage_name for the matcher
+                    if "provision_name" in prov and "coverage_name" not in prov:
+                        prov["coverage_name"] = prov["provision_name"]
+                    
+                    if "impacted_coverage" in prov:
+                        coverages.append(prov)
+                    elif "impacted_exclusion" in prov:
+                        exclusions.append(prov)
+                    else:
+                        coverages.append(prov)
+
         if section.section_type == "effective_coverages":
             if isinstance(payload, list):
                 coverages.extend(payload)
@@ -460,7 +392,16 @@ async def _get_extracted_data_for_comparison(
     
     return {
         "entities": [e.display_payload for e in entities if e.display_payload],
-        "sections": [s.display_payload for s in sections if s.display_payload],
+        "section_results": [
+            {
+                "section_type": s.section_type,
+                "extracted_data": s.display_payload,
+                "extraction_id": str(s.id),
+                "confidence": float(s.confidence.get("overall", 0.0)) if isinstance(s.confidence, dict) else (float(s.confidence) if s.confidence else None),
+                "page_numbers": s.page_numbers if hasattr(s, "page_numbers") else None,
+            }
+            for s in sections if s.display_payload
+        ],
         "effective_coverages": coverages,
         "effective_exclusions": exclusions,
     }

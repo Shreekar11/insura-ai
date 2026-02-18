@@ -133,6 +133,9 @@ class EntityComparisonService:
             comparisons
         )
 
+        # Enrich with summaries (Batched)
+        await self._enrich_with_summaries(comparisons)
+
         # Generate overall explanation
         overall_explanation = await self._generate_overall_explanation(comparisons)
 
@@ -521,103 +524,72 @@ Provide a concise summary (2-3 sentences) highlighting the key differences a bro
             return f"Summary of changes: {len([c for c in effective_comps if c.match_type != MatchType.MATCH])} differences identified."
 
     async def _enrich_with_summaries(self, comparisons: List[EntityComparison]) -> None:
-        """Enrich entity comparisons with LLM-generated summaries in parallel."""
-        # Enrich matches that are NOT an exact 'match'
-        to_enrich = [c for c in comparisons if c.match_type != MatchType.MATCH]
+        """Enrich entity comparisons with LLM-generated summaries in batches."""
+        # Enrich items that are NOT an exact 'match' and have material content
+        to_enrich = [
+            c for c in comparisons 
+            if c.match_type != MatchType.MATCH and (c.doc1_content or c.doc2_content)
+        ]
+        
         if not to_enrich:
             return
 
+        # Split into batches of 10
+        batch_size = 10
+        batches = [to_enrich[i:i + batch_size] for i in range(0, len(to_enrich), batch_size)]
+        
         import asyncio
-        tasks = [self._generate_entity_summaries(c) for c in to_enrich]
+        tasks = [self._generate_batched_summaries(batch) for batch in batches]
+        
         if tasks:
-            LOGGER.info(f"Generating summaries for {len(tasks)} entity comparisons")
+            LOGGER.info(f"Generating summaries for {len(to_enrich)} entities in {len(batches)} batches")
             await asyncio.gather(*tasks)
 
-    async def _generate_entity_summaries(self, comparison: EntityComparison) -> None:
-        """Generate summaries for a single entity comparison using LLM."""
-        doc1_data = comparison.doc1_content
-        doc2_data = comparison.doc2_content
-        entity_type = comparison.entity_type.value
-        
+    async def _generate_batched_summaries(self, batch: List[EntityComparison]) -> None:
+        """Generate summaries for a batch of entity comparisons using a single LLM call."""
         import json
+        
+        # Prepare batch data for prompt
+        batch_data = []
+        for i, comp in enumerate(batch):
+            # Assign a temporary batch ID for mapping back
+            temp_id = f"item_{i}"
+            batch_data.append({
+                "batch_id": temp_id,
+                "entity_type": comp.entity_type.value,
+                "match_type": comp.match_type.value,
+                "entity_name": comp.entity_name,
+                "doc1_content": comp.doc1_content,
+                "doc2_content": comp.doc2_content,
+                "field_differences": comp.field_differences
+            })
 
-        # Prepare context for LLM
         prompt = f"""
-        You are a senior insurance policy expert assisting with policy comparison analysis.
-        Your task is to interpret and summarize insurance {entity_type} data in a way that is
-        clear, accurate, and useful for an insurance broker or policyholder.
+        You are a senior insurance policy expert. Compare and summarize the following {len(batch)} pairs of insurance provisions.
+        For each item, provide:
+        1. doc1_summary: A concise (1 sentence) summary of the provision in Document 1.
+        2. doc2_summary: A concise (1 sentence) summary of the provision in Document 2.
+        3. comparison_summary: A 1-2 sentence comparison highlighting the practical impact (broadened vs restricted coverage).
 
-        Use the structured data provided below to produce concise, plain-English summaries.
-        Do NOT restate raw JSON. Focus on meaning, coverage intent, and practical impact.
+        Follow the Match Type semantics:
+        - ADDED: Exists only in Doc 2.
+        - REMOVED: Exists only in Doc 1.
+        - PARTIAL_MATCH: Exists in both but differs in scope/limits.
+        - TYPE_RECLASSIFIED: Same concept, different classification.
 
-        """
+        ### Input Data:
+        {json.dumps(batch_data, indent=2)}
 
-        if doc1_data:
-            prompt += f"""
-        Document 1 - {entity_type} details:
-        {json.dumps(doc1_data, indent=2)}
-        """
-
-        if doc2_data:
-            prompt += f"""
-        Document 2 - {entity_type} details:
-        {json.dumps(doc2_data, indent=2)}
-        """
-
-        prompt += f"""
-        ### Instructions
-
-        1. **doc1_summary**
-        - Write a single, concise sentence summarizing the {entity_type} from Document 1.
-        - If Document 1 data is missing, return an empty string.
-
-        2. **doc2_summary**
-        - Write a single, concise sentence summarizing the {entity_type} from Document 2.
-        - If Document 2 data is missing, return an empty string.
-
-        3. **comparison_summary**
-        - Write up to two sentences comparing the two documents.
-        - The comparison **must align with the provided match type** and clearly explain why.
-        - Emphasize the **practical impact** for a broker or policyholder.
-
-        ---
-
-        ### Match Type Semantics (MANDATORY)
-
-        Use the following definitions when generating the comparison:
-
-        - **MATCH**
-        - The {entity_type} is semantically equivalent in both documents.
-        - No material difference in coverage intent, scope, or applicability.
-
-        - **PARTIAL_MATCH**
-        - The {entity_type} exists in both documents but differs in scope, limits, conditions, or modifiers.
-        - Explain what changed and whether coverage is broadened or restricted.
-
-        - **ADDED**
-        - The {entity_type} exists only in Document 2.
-        - Explain the newly introduced coverage, exclusion, or condition and its impact.
-
-        - **REMOVED**
-        - The {entity_type} exists only in Document 1.
-        - Explain what coverage, exclusion, or condition is no longer present and its impact.
-
-        - **NO_MATCH**
-        - The {entity_type} in the two documents refers to different concepts or cannot be meaningfully compared.
-        - Clearly state that no direct comparison is possible and why.
-
-        ---
-
-        ### Comparison Context
-        - Match Type: {comparison.match_type.value}
-
-        ### Output Format (STRICT)
-        Return **only** a valid JSON object with exactly the following keys:
-        - "doc1_summary"
-        - "doc2_summary"
-        - "comparison_summary"
-
-        Do not include explanations, markdown, or additional text outside the JSON object.
+        ### Output Format:
+        Return ONLY a JSON object where keys are the batch_id and values are objects with doc1_summary, doc2_summary, and comparison_summary.
+        Example:
+        {{
+          "item_0": {{
+            "doc1_summary": "...",
+            "doc2_summary": "...",
+            "comparison_summary": "..."
+          }}
+        }}
         """
 
         try:
@@ -625,25 +597,19 @@ Provide a concise summary (2-3 sentences) highlighting the key differences a bro
                 contents=prompt,
                 generation_config={"response_mime_type": "application/json"}
             )
-            data = parse_json_safely(response_text)
             
-            if data:
-                # Store summaries in explanation field for now, or we might need to extend schema again
-                # Actually, I should probably put them in a structured way in the differences or a new field
-                # For now, let's just create a combined explanation if the schema doesn't have these fields
-                # Wait, I didn't add doc1_summary/doc2_summary/comparison_summary to the schema!
-                # I should just use the explanation field.
-                
-                if data.get("doc1_summary"):
-                    comparison.doc1_summary = data.get("doc1_summary")
-                if data.get("doc2_summary"):
-                    comparison.doc2_summary = data.get("doc2_summary")
-                if data.get("comparison_summary"):
-                    comparison.comparison_summary = data.get("comparison_summary")
-                
-                # Also keep a combined version in reasoning if needed, or just set it to doc2_summary/comparison_summary
-                comparison.reasoning = data.get("comparison_summary") or data.get("doc2_summary") or "No detailed reasoning available."
+            results = parse_json_safely(response_text)
+            if not results:
+                return
+
+            for i, comp in enumerate(batch):
+                item_result = results.get(f"item_{i}")
+                if item_result:
+                    comp.doc1_summary = item_result.get("doc1_summary")
+                    comp.doc2_summary = item_result.get("doc2_summary")
+                    comp.comparison_summary = item_result.get("comparison_summary")
+                    # Update reasoning field as well for backward compatibility/consistency
+                    comp.reasoning = item_result.get("comparison_summary") or item_result.get("doc2_summary")
+                    
         except Exception as e:
-            LOGGER.warning(f"Failed to generate summaries for entity: {e}")
-            # Fallback to simple explanation
-            comparison.reasoning = f"Match result: {comparison.match_type.value}"
+            LOGGER.error(f"Failed to generate batched summaries: {e}", exc_info=True)

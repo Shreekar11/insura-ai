@@ -317,8 +317,6 @@ class SectionTypeMapper:
             
         # 2. Endorsement Semantic Projection
         if page_type == PageType.ENDORSEMENT and semantic_role:
-            # HARD GUARD: Certificate of insurance should NEVER be projected
-            # This handles cases where a certificate page is misclassified or mis-analyzed
             if page_type == PageType.CERTIFICATE_OF_INSURANCE:
                 return PageType.CERTIFICATE_OF_INSURANCE
 
@@ -331,6 +329,8 @@ class SectionTypeMapper:
                 return PageType.COVERAGES
             elif role_val == SemanticRole.EXCLUSION_MODIFIER:
                 return PageType.EXCLUSIONS
+            elif role_val == SemanticRole.BOTH:
+                return PageType.COVERAGES
                 
         # 3. Default: Use original page type
         return page_type

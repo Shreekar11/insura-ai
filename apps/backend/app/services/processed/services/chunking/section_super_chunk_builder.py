@@ -118,18 +118,36 @@ class SectionSuperChunkBuilder:
             }
         )
         
-        # Group chunks by section type
-        section_groups = self._group_by_section(chunks)
+        # Separate endorsement chunks from base policy chunks
+        endorsement_chunks = []
+        base_policy_chunks = []
         
-        # Create super-chunks for each section
+        for chunk in chunks:
+            if self._is_endorsement_chunk(chunk):
+                endorsement_chunks.append(chunk)
+            else:
+                base_policy_chunks.append(chunk)
+        
         super_chunks = []
-        for section_type, section_chunks in section_groups.items():
-            section_super_chunks = self._create_section_super_chunks(
-                section_type=section_type,
-                chunks=section_chunks,
+        
+        # Base policy path — unchanged (group by section type)
+        if base_policy_chunks:
+            base_groups = self._group_by_section(base_policy_chunks)
+            for section_type, section_chunks in base_groups.items():
+                section_super_chunks = self._create_section_super_chunks(
+                    section_type=section_type,
+                    chunks=section_chunks,
+                    document_id=document_id,
+                )
+                super_chunks.extend(section_super_chunks)
+        
+        # Endorsement path — group by identity/contiguity
+        if endorsement_chunks:
+            endorsement_scs = self._group_endorsement_chunks(
+                chunks=endorsement_chunks,
                 document_id=document_id,
             )
-            super_chunks.extend(section_super_chunks)
+            super_chunks.extend(endorsement_scs)
         
         # Sort by processing priority
         super_chunks.sort(key=lambda sc: sc.processing_priority)
@@ -588,3 +606,57 @@ class SectionSuperChunkBuilder:
             "sections_table_only": [sc.section_type.value for sc in table_only],
         }
 
+    def _is_endorsement_chunk(self, chunk: HybridChunk) -> bool:
+        """Check if a chunk belongs to an endorsement section."""
+        return (
+            chunk.metadata.original_section_type == SectionType.ENDORSEMENTS or
+            chunk.metadata.section_type == SectionType.ENDORSEMENTS or
+            chunk.metadata.semantic_role is not None
+        )
+
+    def _group_endorsement_chunks(
+        self,
+        chunks: List[HybridChunk],
+        document_id: Optional[UUID],
+    ) -> List[SectionSuperChunk]:
+        """Group endorsement chunks by contiguous page ranges (identity)."""
+        if not chunks:
+            return []
+            
+        # Sort by page number
+        sorted_chunks = sorted(chunks, key=lambda c: c.metadata.page_number)
+        
+        groups: List[List[HybridChunk]] = []
+        current_group: List[HybridChunk] = []
+        
+        for chunk in sorted_chunks:
+            if not current_group:
+                current_group.append(chunk)
+                continue
+                
+            last_chunk = current_group[-1]
+            # Allow 1-page gap for continuation detection failures
+            if chunk.metadata.page_number <= last_chunk.metadata.page_number + 1:
+                current_group.append(chunk)
+            else:
+                groups.append(current_group)
+                current_group = [chunk]
+        
+        if current_group:
+            groups.append(current_group)
+            
+        super_chunks = []
+        for i, group_chunks in enumerate(groups):
+            # Use the resolved effective type for the whole group
+            # defaulting to ENDORSEMENTS if not set
+            effective_type = group_chunks[0].metadata.effective_section_type or SectionType.ENDORSEMENTS
+            
+            super_chunk = self._create_super_chunk(
+                section_type=effective_type,
+                chunks=group_chunks,
+                document_id=document_id,
+                part_index=i,
+            )
+            super_chunks.append(super_chunk)
+            
+        return super_chunks

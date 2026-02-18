@@ -2,7 +2,7 @@
 
 import json
 from typing import List, Dict, Any, Optional, Tuple
-from decimal import Decimal
+from decimal import Decimal, InvalidOperation
 
 from app.core.unified_llm import UnifiedLLMClient
 from app.core.config import settings
@@ -62,7 +62,14 @@ class EntityMatcherService:
             doc1_entities, doc2_entities, entity_type
         )
 
-        # 2. Match remaining using LLM
+        # 2. Match by exact name (deterministic fallback)
+        if unmatched_doc1 and unmatched_doc2:
+            name_matches, unmatched_doc1, unmatched_doc2 = self._match_by_name(
+                unmatched_doc1, unmatched_doc2, entity_type
+            )
+            matches.extend(name_matches)
+
+        # 3. Match remaining using LLM
         if unmatched_doc1 and unmatched_doc2:
             llm_matches = await self._match_by_llm(
                 unmatched_doc1, unmatched_doc2, entity_type
@@ -119,55 +126,134 @@ class EntityMatcherService:
     ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any]]], List[Tuple[int, Dict[str, Any]]]]:
         """Match entities using canonical_id field or section-level stable IDs."""
         matches = []
-        doc1_map = {}
         
-        # Determine ID fields based on type
-        id_fields = ["canonical_id"]
-        if entity_type in [EntityType.SECTION_COVERAGE, EntityType.SECTION_EXCLUSION]:
-            id_fields.append("id")  # Fallback to internal ID for section data
-
+        # Determine ID fields based on type. 'id' is generally safe to use as a fallback.
+        id_fields = ["canonical_id", "id"]
+        
+        # Map for quick lookup
+        doc1_id_map = {}
         for i, entity in enumerate(doc1_entities):
             for id_field in id_fields:
                 val = entity.get(id_field)
                 if val:
-                    doc1_map[val] = (i, entity)
-                    break
+                    # Key by (id_field, val) to avoid collisions between different ID types
+                    doc1_id_map[(id_field, val)] = (i, entity)
 
+        matched_doc1_indices = set()
         matched_doc2_indices = set()
+        
         for j, doc2_entity in enumerate(doc2_entities):
-            match_val = None
+            match_info = None
             for id_field in id_fields:
                 val = doc2_entity.get(id_field)
-                if val and val in doc1_map:
-                    match_val = val
+                if val and (id_field, val) in doc1_id_map:
+                    match_info = doc1_id_map[(id_field, val)]
                     break
             
-            if match_val:
-                i, doc1_entity = doc1_map[match_val]
-                match_type, differences = self._compare_entity_fields(
-                    doc1_entity, doc2_entity, entity_type
-                )
-                matches.append({
-                    "doc1_index": i,
-                    "doc2_index": j,
-                    "match_type": match_type,
-                    "doc1_entity": doc1_entity,
-                    "doc2_entity": doc2_entity,
-                    "field_differences": differences,
-                    "confidence": Decimal("1.0"),
-                    "match_method": "canonical_id",
-                })
-                matched_doc2_indices.add(j)
-                # Remove from map to prevent double matching
-                doc1_map.pop(match_val)
+            if match_info:
+                i, doc1_entity = match_info
+                if i not in matched_doc1_indices: # Ensure doc1 entity is not already matched
+                    match_type, differences = self._compare_entity_fields(
+                        doc1_entity, doc2_entity, entity_type
+                    )
+                    matches.append({
+                        "doc1_index": i, "doc2_index": j,
+                        "match_type": match_type,
+                        "doc1_entity": doc1_entity, "doc2_entity": doc2_entity,
+                        "field_differences": differences,
+                        "confidence": Decimal("1.0"),
+                        "match_method": "canonical_id",
+                    })
+                    matched_doc1_indices.add(i)
+                    matched_doc2_indices.add(j)
 
-        unmatched_doc1 = [val for val in doc1_map.values()]
+        unmatched_doc1 = [
+            (i, entity) for i, entity in enumerate(doc1_entities)
+            if i not in matched_doc1_indices
+        ]
         unmatched_doc2 = [
             (j, entity) for j, entity in enumerate(doc2_entities) 
             if j not in matched_doc2_indices
         ]
 
         return matches, unmatched_doc1, unmatched_doc2
+
+    def _match_by_name(
+        self,
+        unmatched_doc1: List[Tuple[int, Dict[str, Any]]],
+        unmatched_doc2: List[Tuple[int, Dict[str, Any]]],
+        entity_type: EntityType,
+    ) -> Tuple[List[Dict[str, Any]], List[Tuple[int, Dict[str, Any]]], List[Tuple[int, Dict[str, Any]]]]:
+        """Match entities by name with normalization (handling prefixes/suffixes)."""
+        matches = []
+        doc1_name_map = {}
+        
+        def normalize_name(name: str) -> str:
+            if not name: return ""
+            n = name.lower().strip()
+            # Remove common endorsement suffixes/prefixes
+            suffixes = [" - increased limit", " - reduced limit", " coverage", " - modified", " modification"]
+            prefixes = ["physical damage -", "hired auto physical damage -", "additional insured -"]
+            for p in prefixes:
+                if n.startswith(p): 
+                    n = n[len(p):].strip()
+            for s in suffixes:
+                if n.endswith(s): 
+                    n = n[:-len(s)].strip()
+            return n
+
+        for i, entity in unmatched_doc1:
+            name = self._get_entity_name(entity, entity_type)
+            norm_name = normalize_name(name)
+            if norm_name:
+                if norm_name not in doc1_name_map:
+                    doc1_name_map[norm_name] = (i, entity)
+
+        remaining_doc2 = []
+        for j, entity in unmatched_doc2:
+            name = self._get_entity_name(entity, entity_type)
+            norm_name = normalize_name(name)
+            
+            if norm_name and norm_name in doc1_name_map:
+                i, doc1_entity = doc1_name_map.pop(norm_name)
+                match_type, differences = self._compare_entity_fields(
+                    doc1_entity, entity, entity_type
+                )
+                matches.append({
+                    "doc1_index": i,
+                    "doc2_index": j,
+                    "match_type": match_type,
+                    "doc1_entity": doc1_entity,
+                    "doc2_entity": entity,
+                    "field_differences": differences,
+                    "confidence": Decimal("0.90"),
+                    "match_method": "normalized_name",
+                })
+            else:
+                # Try substring match as a last resort deterministic step
+                substring_match_found = False
+                if norm_name and len(norm_name) > 8:
+                    for n1 in list(doc1_name_map.keys()):
+                        if norm_name in n1 or n1 in norm_name:
+                            i, doc1_entity = doc1_name_map.pop(n1)
+                            match_type, differences = self._compare_entity_fields(
+                                doc1_entity, entity, entity_type
+                            )
+                            matches.append({
+                                "doc1_index": i, "doc2_index": j,
+                                "match_type": match_type, "doc1_entity": doc1_entity, "doc2_entity": entity,
+                                "field_differences": differences,
+                                "confidence": Decimal("0.85"),
+                                "match_method": "substring_name_match",
+                            })
+                            substring_match_found = True
+                            break
+                
+                if not substring_match_found:
+                    remaining_doc2.append((j, entity))
+
+        remaining_doc1 = list(doc1_name_map.values())
+        return matches, remaining_doc1, remaining_doc2
 
     async def _match_by_llm(
         self,
@@ -268,10 +354,13 @@ class EntityMatcherService:
 
     def _get_entity_name(self, entity: Dict[str, Any], entity_type: EntityType) -> str:
         """Extract the primary name from an entity."""
+        # Check top level first, then attributes
+        attrs = entity.get("attributes", {}) if isinstance(entity.get("attributes"), dict) else {}
+        
         if entity_type == EntityType.COVERAGE:
-            return entity.get("coverage_name") or entity.get("name") or "Unknown Coverage"
+            return entity.get("coverage_name") or attrs.get("coverage_name") or entity.get("name") or attrs.get("name") or "Unknown Coverage"
         else:
-            return entity.get("exclusion_name") or entity.get("title") or "Unknown Exclusion"
+            return entity.get("exclusion_name") or attrs.get("exclusion_name") or entity.get("title") or attrs.get("title") or "Unknown Exclusion"
 
     def _compare_entity_fields(
         self,
@@ -284,51 +373,162 @@ class EntityMatcherService:
         Returns:
             Tuple of (match_type, list of field differences)
         """
-        # Define key fields to compare based on entity type
+        # Define key fields and their comparison types
+        # comparison_type: 'direct' (equality), 'numeric' (delta), 'text' (semantic/fuzzy), 'list' (set comparison)
+        field_configs = {}
+        
         if entity_type == EntityType.COVERAGE:
-            key_fields = [
-                "coverage_name", "coverage_type", "limit_amount", "deductible_amount",
-                "premium_amount", "effective_terms", "limits", "deductibles"
-            ]
+            field_configs = {
+                "coverage_name": "direct",
+                "coverage_type": "direct",
+                "limit_amount": "numeric",
+                "deductible_amount": "numeric",
+                "premium_amount": "numeric",
+                "limits": "nested_numeric",
+                "deductibles": "nested_numeric",
+                # Endorsement specific fields often map to existing ones
+                "limit_modification": "numeric_text",
+                "deductible_modification": "numeric_text",
+                "scope_modification": "text",
+            }
         elif entity_type == EntityType.EXCLUSION:
-            key_fields = [
-                "exclusion_name", "effective_state", "scope", "carve_backs",
-                "conditions", "impacted_coverages"
-            ]
+            field_configs = {
+                "exclusion_name": "direct",
+                "effective_state": "direct",
+                "scope": "text",
+                "carve_backs": "list",
+                "conditions": "text",
+                "impacted_coverages": "list",
+                "scope_modification": "text",
+                "impacted_exclusion": "direct",
+            }
         elif entity_type == EntityType.SECTION_COVERAGE:
-            key_fields = [
-                "name", "coverage_basis", "coverage_category", "limit_aggregate",
-                "limit_per_occurrence", "deductible_per_occurrence", "description"
-            ]
+            field_configs = {
+                "name": "direct",
+                "coverage_basis": "direct",
+                "coverage_category": "direct",
+                "limit_aggregate": "numeric",
+                "limit_per_occurrence": "numeric",
+                "deductible_per_occurrence": "numeric",
+                "description": "text"
+            }
         elif entity_type == EntityType.SECTION_EXCLUSION:
-            key_fields = [
-                "title", "description", "exception_carveback", "applicability",
-                "impacted_sections"
-            ]
-        else:
-            key_fields = []
+            field_configs = {
+                "title": "direct",
+                "description": "text",
+                "exception_carveback": "text",
+                "applicability": "text",
+                "impacted_sections": "list"
+            }
 
         differences = []
-        for field in key_fields:
-            val1 = doc1_entity.get(field)
-            val2 = doc2_entity.get(field)
+        doc1_attrs = doc1_entity.get("attributes", {}) if isinstance(doc1_entity.get("attributes"), dict) else {}
+        doc2_attrs = doc2_entity.get("attributes", {}) if isinstance(doc2_entity.get("attributes"), dict) else {}
+
+        for field, comp_type in field_configs.items():
+            # Check top level then attributes for both
+            val1 = doc1_entity.get(field) if field in doc1_entity else doc1_attrs.get(field)
+            val2 = doc2_entity.get(field) if field in doc2_entity else doc2_attrs.get(field)
 
             # Skip comparison if both are None
             if val1 is None and val2 is None:
                 continue
 
-            # Handle different types of inequality (using string representation for complex types)
-            if str(val1) != str(val2):
+            # Special case: Endorsement might carry info in a modification field 
+            # that we want to compare against a base field.
+            if field.endswith("_modification") and val2 and not val1:
+                # If we have a modification in doc2 but nothing in doc1 context, 
+                # it's a change by definition.
                 differences.append({
                     "field": field,
-                    "doc1_value": val1,
+                    "doc1_value": None,
                     "doc2_value": val2,
+                    "change_type": "modified"
                 })
+                continue
+
+            field_diff = self._get_field_delta(field, val1, val2, comp_type)
+            if field_diff:
+                differences.append(field_diff)
 
         if not differences:
             return MatchType.MATCH, []
         else:
             return MatchType.PARTIAL_MATCH, differences
+
+    def _get_field_delta(self, field: str, val1: Any, val2: Any, comp_type: str) -> Optional[Dict[str, Any]]:
+        """Calculate the delta between two field values based on comparison type."""
+        if val1 == val2:
+            return None
+
+        if comp_type == "numeric":
+            d1 = self._to_decimal(val1)
+            d2 = self._to_decimal(val2)
+            if d1 == d2:
+                return None
+            
+            return {
+                "field": field,
+                "doc1_value": val1,
+                "doc2_value": val2,
+                "absolute_change": float(d2 - d1) if d1 is not None and d2 is not None else None,
+                "percent_change": float((d2 - d1) / d1 * 100) if d1 and d2 and d1 != 0 else None,
+                "change_type": "increase" if (d1 is not None and d2 is not None and d2 > d1) else "decrease" if (d1 is not None and d2 is not None and d2 < d1) else "modified"
+            }
+
+        if comp_type == "nested_numeric" and (isinstance(val1, dict) or isinstance(val2, dict)):
+            # Flatten dicts or compare specific keys (amount, limit, etc.)
+            v1 = val1.get("amount") if isinstance(val1, dict) else val1
+            v2 = val2.get("amount") if isinstance(val2, dict) else val2
+            return self._get_field_delta(field, v1, v2, "numeric")
+
+        if comp_type == "numeric_text":
+            # Attempt to extract number from string (e.g., "$50 per day")
+            d1 = self._extract_number(val1)
+            d2 = self._extract_number(val2)
+            if d1 is not None and d2 is not None:
+                return self._get_field_delta(field, d1, d2, "numeric")
+            # Fallback to direct string comparison
+            if str(val1) != str(val2):
+                return {"field": field, "doc1_value": val1, "doc2_value": val2, "change_type": "modified"}
+
+        # Default string comparison
+        if str(val1) != str(val2):
+            return {
+                "field": field,
+                "doc1_value": val1,
+                "doc2_value": val2,
+                "change_type": "modified"
+            }
+        
+        return None
+
+    def _to_decimal(self, value: Any) -> Optional[Decimal]:
+        """Convert a value to Decimal for calculation."""
+        if value is None:
+            return None
+        if isinstance(value, (int, float, Decimal)):
+            return Decimal(str(value))
+        if isinstance(value, str):
+            # Clean up string ($ , %)
+            clean_val = value.replace('$', '').replace(',', '').strip()
+            try:
+                return Decimal(clean_val)
+            except (InvalidOperation, ValueError):
+                return None
+        return None
+
+    def _extract_number(self, value: Any) -> Optional[Decimal]:
+        """Extract the first number found in a string."""
+        if value is None: return None
+        if isinstance(value, (int, float, Decimal)): return Decimal(str(value))
+        if not isinstance(value, str): return None
+        
+        import re
+        match = re.search(r"(\d+(\.\d+)?)", value.replace(',', ''))
+        if match:
+            return Decimal(match.group(1))
+        return None
 
     def _get_matching_prompt(
         self,

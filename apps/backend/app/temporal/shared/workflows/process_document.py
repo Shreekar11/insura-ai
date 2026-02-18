@@ -45,13 +45,6 @@ class ProcessDocumentWorkflow(DocumentProcessingMixin):
         doc_name = documents[0].get("document_name", "Unknown")
         self._status = "processing"
 
-        # Initial event: Reading document
-        await workflow.execute_activity(
-            "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": f"Reading document {doc_name}..."}],
-            start_to_close_timeout=timedelta(seconds=10),
-        )
-
         config = DocumentProcessingConfig(
             workflow_id=workflow_id,
             workflow_name=payload.get("workflow_name"),

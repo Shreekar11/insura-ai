@@ -39,6 +39,9 @@ from app.services.extracted.services.extraction.section.extractors import (
     EndorsementCoverageProjectionExtractor,
     EndorsementExclusionProjectionExtractor,
 )
+from app.services.extracted.services.extraction.section.endorsement_provision_extractor import (
+    EndorsementProvisionExtractor,
+)
 from app.models.page_analysis_models import SemanticRole
 from app.utils.logging import get_logger
 from app.utils.json_parser import parse_json_safely
@@ -252,6 +255,10 @@ class SectionExtractionOrchestrator:
         self.factory.register_extractor(
             section_types=["endorsement_exclusion_projection"],
             extractor_class=EndorsementExclusionProjectionExtractor
+        )
+        self.factory.register_extractor(
+            section_types=["endorsement_provision"],
+            extractor_class=EndorsementProvisionExtractor
         )
         
         LOGGER.debug(
@@ -602,26 +609,21 @@ class SectionExtractionOrchestrator:
 
             if is_endorsement_source:
                 if is_both_modifier:
-                    # For "both" role, choose based on effective_section_type or default to coverage
-                    if metadata.effective_section_type == SectionType.EXCLUSIONS:
-                        extractor_key = "endorsement_exclusion_projection"
-                        LOGGER.info(
-                            f"Routing to EndorsementExclusionProjectionExtractor for BOTH modifier "
-                            f"(effective_type=exclusions) on pages {super_chunk.page_range}"
-                        )
-                    else:
-                        extractor_key = "endorsement_coverage_projection"
-                        LOGGER.info(
-                            f"Routing to EndorsementCoverageProjectionExtractor for BOTH modifier "
-                            f"on pages {super_chunk.page_range}"
-                        )
-                elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
+                    # For "both" role, use provision extractor for comprehensive extraction
+                    extractor_key = "endorsement_provision"
+                    LOGGER.info(
+                        f"Routing to EndorsementProvisionExtractor for BOTH modifier "
+                        f"on pages {super_chunk.page_range}"
+                    )
+                elif is_coverage_modifier:
+                    # Use projection extractor based on role regardless of effective_type
                     extractor_key = "endorsement_coverage_projection"
                     LOGGER.info(
                         f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}, "
                         f"semantic_role={semantic_role_str}, coverage_effects={metadata.coverage_effects}"
                     )
-                elif is_exclusion_modifier and metadata.effective_section_type == SectionType.EXCLUSIONS:
+                elif is_exclusion_modifier:
+                    # Use projection extractor based on role regardless of effective_type
                     extractor_key = "endorsement_exclusion_projection"
                     LOGGER.info(
                         f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}, "
@@ -843,6 +845,17 @@ class SectionExtractionOrchestrator:
                         if "page_numbers" not in item or not item.get("page_numbers"):
                             item["page_numbers"] = list(page_range)
                             injected_count += 1
+                        
+                        # Endorsements have nested modifications lists that also need page numbers
+                        if field == "endorsements" and "modifications" in item:
+                            nested_mods = item["modifications"]
+                            if isinstance(nested_mods, list):
+                                for mod in nested_mods:
+                                    if isinstance(mod, dict) and ("page_numbers" not in mod or not mod.get("page_numbers")):
+                                        mod["page_numbers"] = list(page_range)
+                                        if "source_text" not in mod and "verbatim_language" in mod:
+                                            mod["source_text"] = mod["verbatim_language"]
+
                         # Also inject source_text if description is available
                         if "source_text" not in item and "description" in item:
                             item["source_text"] = item["description"]

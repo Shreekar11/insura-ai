@@ -265,6 +265,8 @@ class ExclusionSynthesizer:
                     "exception_conditions": mod.get("exception_conditions"),
                     "verbatim_language": mod.get("verbatim_language"),
                     "severity": mod.get("severity"),
+                    "page_numbers": mod.get("page_numbers"), # NEW
+                    "source_text": mod.get("source_text"),   # NEW
                     "source": endorsement_ref,
                 })
                 source_endorsements[exclusion_key].add(endorsement_ref)
@@ -381,6 +383,8 @@ class ExclusionSynthesizer:
                 "endorsement_name": endorsement_name,
                 "materiality": materiality,
                 "severity": severity,
+                "page_numbers": endorsement.get("page_numbers"), # NEW
+                "source_text": endorsement.get("source_text"),   # NEW
                 "source": endorsement_ref,
                 "exception_conditions": condition_hints,
             })
@@ -987,6 +991,7 @@ class ExclusionSynthesizer:
 
         for mod in modifications:
             text = (
+                mod.get("source_text") or
                 mod.get("verbatim_language") or
                 mod.get("verbatim_text") or
                 mod.get("exclusion_scope")

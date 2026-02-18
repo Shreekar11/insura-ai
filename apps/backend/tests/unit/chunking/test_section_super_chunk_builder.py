@@ -431,3 +431,81 @@ class TestLLMCallEstimation:
         assert estimate["table_only_sections"] == 1
         assert estimate["total_llm_tokens"] == 5000  # Only LLM-required
 
+
+class TestEndorsementGrouping:
+    """Test suite for endorsement-aware super-chunk grouping."""
+    
+    @pytest.fixture
+    def builder(self):
+        return SectionSuperChunkBuilder()
+        
+    def test_group_contiguous_endorsement_pages(self, builder):
+        """Test that contiguous endorsement pages are grouped together."""
+        doc_id = uuid4()
+        chunks = [
+            HybridChunk(
+                text="Endorsement part 1",
+                metadata=HybridChunkMetadata(
+                    document_id=doc_id,
+                    page_number=5,
+                    section_type=SectionType.ENDORSEMENTS,
+                    effective_section_type=SectionType.COVERAGES,
+                    semantic_role="both",
+                    token_count=1000,
+                )
+            ),
+            HybridChunk(
+                text="Endorsement part 2",
+                metadata=HybridChunkMetadata(
+                    document_id=doc_id,
+                    page_number=6,
+                    section_type=SectionType.ENDORSEMENTS,
+                    effective_section_type=SectionType.EXCLUSIONS,
+                    semantic_role="both",
+                    token_count=1000,
+                )
+            )
+        ]
+        
+        super_chunks = builder.build_super_chunks(chunks)
+        
+        # Should be ONE super-chunk despite different effective types
+        assert len(super_chunks) == 1
+        assert super_chunks[0].section_type == SectionType.COVERAGES # Uses first chunk's effective type
+        assert len(super_chunks[0].chunks) == 2
+        
+    def test_split_non_contiguous_endorsements(self, builder):
+        """Test that gap in pages splits endorsements."""
+        chunks = [
+            HybridChunk(
+                text="Endorsement 1",
+                metadata=HybridChunkMetadata(page_number=2, semantic_role="coverage_modifier")
+            ),
+            HybridChunk(
+                text="Endorsement 2",
+                metadata=HybridChunkMetadata(page_number=10, semantic_role="coverage_modifier")
+            )
+        ]
+        
+        super_chunks = builder.build_super_chunks(chunks)
+        
+        # Should be TWO super-chunks due to page gap
+        assert len(super_chunks) == 2
+        
+    def test_base_policy_isolation(self, builder):
+        """Test that base policy sections still group by type."""
+        chunks = [
+            HybridChunk(
+                text="Coverage",
+                metadata=HybridChunkMetadata(page_number=3, section_type=SectionType.COVERAGES)
+            ),
+            HybridChunk(
+                text="Exclusion",
+                metadata=HybridChunkMetadata(page_number=4, section_type=SectionType.EXCLUSIONS)
+            )
+        ]
+        
+        super_chunks = builder.build_super_chunks(chunks)
+        
+        # Should be TWO super-chunks (standard behavior)
+        assert len(super_chunks) == 2
