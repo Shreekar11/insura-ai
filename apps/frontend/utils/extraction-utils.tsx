@@ -204,9 +204,13 @@ export function mapEntityToEndorsement(entity: any): EndorsementData {
  */
 export function mapSectionToCoverage(item: any): CoverageData {
   return {
-    name: item.coverage_name || item.name || "Unknown Coverage",
+    name:
+      item.coverage_name ||
+      item.provision_name ||
+      item.name ||
+      "Unknown Coverage",
     type: item.coverage_type || item.type,
-    description: item.description || item.what_it_covers,
+    description: item.description || item.verbatim_text || item.what_it_covers,
     limit: formatValue(item.limit_amount || item.limit || item.limits),
     deductible: formatValue(item.deductible || item.deductibles),
     appliesTo: item.applies_to,
@@ -220,12 +224,16 @@ export function mapSectionToCoverage(item: any): CoverageData {
 
 export function mapSectionToExclusion(item: any): ExclusionData {
   return {
-    title: item.exclusion_name || item.title || "Unknown Exclusion",
+    title:
+      item.exclusion_name ||
+      item.provision_name ||
+      item.title ||
+      "Unknown Exclusion",
     affects:
       item.impacted_coverage || item.impacted_coverages?.[0] || item.affects,
     scope: item.exclusion_scope || item.scope,
     severity: item.severity,
-    explanation: item.description || item.explanation,
+    explanation: item.description || item.verbatim_text || item.explanation,
     source:
       item.source ||
       item.reference ||
@@ -236,11 +244,15 @@ export function mapSectionToExclusion(item: any): ExclusionData {
 
 export function mapSectionToCondition(item: any): ConditionData {
   return {
-    title: item.condition_name || item.title || "Unknown Condition",
+    title:
+      item.condition_name ||
+      item.provision_name ||
+      item.title ||
+      "Unknown Condition",
     whenApplies: item.applies_to || item.when_it_applies,
     requirement: Array.isArray(item.requirements)
       ? item.requirements.join("; ")
-      : item.requirement,
+      : item.requirement || item.verbatim_text,
     consequence: Array.isArray(item.consequences)
       ? item.consequences.join("; ")
       : item.consequence,
@@ -399,6 +411,9 @@ export function getSectionItems(fields: Record<string, unknown>): {
   }
   if (Array.isArray(fields.conditions)) {
     return { items: fields.conditions, type: "conditions" };
+  }
+  if (Array.isArray(fields.provisions)) {
+    return { items: fields.provisions, type: "provisions" };
   }
   if (Array.isArray(fields.endorsements)) {
     return { items: fields.endorsements, type: "endorsements" };

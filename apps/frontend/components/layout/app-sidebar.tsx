@@ -34,6 +34,10 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
 
   const { activeWorkflowDefinitionId } = useActiveWorkflow();
 
+  const isWorkflowPath =
+    pathname.startsWith("/workflows") ||
+    pathname.startsWith("/workflow-execution");
+
   return (
     <Sidebar collapsible="icon" {...props}>
       <SidebarHeader className="bg-[#EDEDEE]">
@@ -96,7 +100,13 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
                   return (
                     <SidebarMenuItem key={index}>
                       <SidebarMenuButton
-                        className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${item.id === workflowDefId || item.id === activeWorkflowDefinitionId ? "bg-[#DBDCDE] text-[#2B2C36] rounded" : ""}`}
+                        className={`text-[13px] text-[#2B2C36] hover:rounded hover:bg-[#DBDCDE] hover:text-[#2B2C36] ${
+                          isWorkflowPath &&
+                          (item.id === workflowDefId ||
+                            item.id === activeWorkflowDefinitionId)
+                            ? "bg-[#DBDCDE] text-[#2B2C36] rounded"
+                            : ""
+                        }`}
                         asChild
                         tooltip={item.name}
                       >

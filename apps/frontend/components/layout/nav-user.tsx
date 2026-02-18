@@ -44,7 +44,14 @@ export function NavUser() {
             >
               <Avatar className="h-8 w-8 rounded">
                 <AvatarImage src={avatar_url} alt={name} />
-                <AvatarFallback className="rounded">CN</AvatarFallback>
+                <AvatarFallback className="rounded">
+                  {name
+                    ?.split(" ")
+                    .map((n: string) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2) || "CN"}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="truncate font-medium">{name}</span>
@@ -62,7 +69,14 @@ export function NavUser() {
             <DropdownMenuItem>
               <Avatar className="h-8 w-8 rounded">
                 <AvatarImage src={avatar_url} alt={name} />
-                <AvatarFallback className="rounded">CN</AvatarFallback>
+                <AvatarFallback className="rounded">
+                  {name
+                    ?.split(" ")
+                    .map((n: string) => n[0])
+                    .join("")
+                    .toUpperCase()
+                    .slice(0, 2) || "CN"}
+                </AvatarFallback>
               </Avatar>
               <div className="grid flex-1 text-left text-sm leading-tight">
                 <span className="font-medium">{name}</span>

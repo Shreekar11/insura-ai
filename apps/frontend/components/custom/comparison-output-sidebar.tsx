@@ -332,19 +332,19 @@ export function ComparisonOutputSidebar({
               {/* Data Display Table */}
               {!isLoading && !error && hasData && (
                 <TooltipProvider>
-                  <Table>
+                  <Table className="table-fixed">
                     <TableHeader className="border-t ">
                       <TableRow className="bg-zinc-50/50 dark:bg-zinc-900/50">
-                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[15%]">
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[15%] whitespace-normal break-words">
                           Item
                         </TableHead>
-                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%]">
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%] whitespace-normal break-words">
                           {doc1Name}
                         </TableHead>
-                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%]">
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[25%] whitespace-normal break-words">
                           {doc2Name}
                         </TableHead>
-                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[35%]">
+                        <TableHead className="px-6 py-3 text-xs font-semibold text-zinc-500 dark:text-zinc-400 w-[35%] whitespace-normal break-words">
                           Comparison
                         </TableHead>
                       </TableRow>
@@ -411,7 +411,7 @@ export function ComparisonOutputSidebar({
                             )}
                           >
                             <TableCell
-                              className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal relative pr-6 cursor-pointer"
+                              className="px-6 py-4 align-top text-xs font-medium text-zinc-900 dark:text-zinc-100 whitespace-normal break-words relative pr-6 cursor-pointer"
                               onClick={() => {
                                 if (cit1)
                                   handleDocHighlight(
@@ -439,7 +439,7 @@ export function ComparisonOutputSidebar({
                             </TableCell>
                             <TableCell
                               className={cn(
-                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
+                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal break-words relative group/cell",
                                 cit1 && "cursor-pointer hover:bg-orange-50/20",
                               )}
                               onClick={() =>
@@ -481,7 +481,7 @@ export function ComparisonOutputSidebar({
                             </TableCell>
                             <TableCell
                               className={cn(
-                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal relative group/cell",
+                                "px-6 py-4 align-top text-xs text-zinc-600 dark:text-zinc-400 leading-relaxed whitespace-normal break-words relative group/cell",
                                 cit2 && "cursor-pointer hover:bg-orange-50/20",
                               )}
                               onClick={() =>
@@ -521,7 +521,7 @@ export function ComparisonOutputSidebar({
                                 </span>
                               )}
                             </TableCell>
-                            <TableCell className="px-6 py-4 align-top text-xs leading-relaxed whitespace-normal min-w-[360px] w-[420px]">
+                            <TableCell className="px-6 py-4 align-top text-xs leading-relaxed whitespace-normal break-words w-[35%]">
                               <div className="flex flex-col gap-2">
                                 <MatchTypeBadge
                                   matchType={c.match_type || "no_match"}
