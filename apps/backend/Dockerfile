@@ -1,6 +1,6 @@
-FROM python:3.11-slim
+FROM python:3.11-slim AS builder
 
-# Install system dependencies
+# Install build dependencies
 RUN apt-get update && apt-get install -y --no-install-recommends \
     build-essential \
     libpq-dev \
@@ -14,11 +14,32 @@ ENV PATH="/root/.local/bin:$PATH"
 WORKDIR /app
 
 # Copy dependency files
-COPY pyproject.toml requirements.txt README.md uv.lock* ./
+COPY pyproject.toml requirements.txt README.md* uv.lock* ./
 
 # Install dependencies using uv
-RUN uv pip install --system -r requirements.txt
-RUN uv pip install --system -e .
+RUN uv pip install --system --no-cache-dir \
+    --extra-index-url https://download.pytorch.org/whl/cpu \
+    -r requirements.txt
+RUN uv pip install --system --no-cache-dir -e .
+
+# Clean up unnecessary files in site-packages to save space before copying
+RUN find /usr/local/lib/python3.11/site-packages -name "*.pyc" -delete \
+    && find /usr/local/lib/python3.11/site-packages -name "__pycache__" -type d -exec rm -rf {} +
+
+# Runtime
+FROM python:3.11-slim AS runtime
+
+# Install only runtime dependencies
+RUN apt-get update && apt-get install -y --no-install-recommends \
+    libpq5 \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+WORKDIR /app
+
+# Copy installed packages from builder
+COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
+COPY --from=builder /usr/local/bin /usr/local/bin
 
 # Copy application code
 COPY . .

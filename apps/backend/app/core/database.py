@@ -39,6 +39,8 @@ engine = create_async_engine(
     max_overflow=settings.database_max_overflow,
     echo=settings.database_echo,
     future=True,
+    # Disable prepared statement cache for PgBouncer compatibility
+    connect_args={"statement_cache_size": 0},
 )
 
 # Create async session factory

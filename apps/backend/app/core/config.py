@@ -170,7 +170,19 @@ class Neo4jSettings(BaseSettings):
     port: int = Field(default=7687, validation_alias="NEO4J_PORT")
     username: str = Field(default="neo4j", validation_alias="NEO4J_USERNAME")
     password: str = Field(default="password", validation_alias="NEO4J_PASSWORD")
-    database: str = Field(default="neo4j", validation_alias="NEO4J_DATABASE")
+    database: str = Field(default="", validation_alias="NEO4J_DATABASE")
+    use_local_neo4j: bool = Field(default=True, validation_alias="USE_LOCAL_NEO4J")
+
+    @property
+    def uri(self) -> str:
+        """Get the connection URI with the correct protocol."""
+        # If host already contains a scheme, use it as is
+        if "://" in self.host:
+            return self.host
+            
+        # Determine protocol based on environment/toggle
+        protocol = "neo4j" if self.use_local_neo4j else "neo4j+s"
+        return f"{protocol}://{self.host}:{self.port}"
 
     model_config = SettingsConfigDict(
         env_file=str(ENV_FILE) if ENV_FILE else None,

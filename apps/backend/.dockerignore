@@ -1,0 +1,37 @@
+# Git
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Docker
+Dockerfile
+.dockerignore
+
+# Environment variables
+.env
+.env.*
+!.env.example
+
+# Local development
+docs/
+tests/
+test-data/
+logs/
+static/
+scripts/
+Makefile
+
+# OS files
+.DS_Store

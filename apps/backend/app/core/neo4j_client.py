@@ -23,8 +23,7 @@ class Neo4jClientManager:
     async def get_driver(cls) -> AsyncDriver:
         """Get or create Neo4j driver."""
         if cls._driver is None:
-            # Use neo4j:// protocol for local development
-            uri = f"neo4j://{settings.neo4j.host}:{settings.neo4j.port}"
+            uri = settings.neo4j.uri
             cls._driver = AsyncGraphDatabase.driver(
                 uri,
                 auth=(settings.neo4j.username, settings.neo4j.password),
@@ -44,7 +43,10 @@ class Neo4jClientManager:
     async def get_session(cls, database: Optional[str] = None) -> AsyncSession:
         """Get Neo4j async session."""
         driver = await cls.get_driver()
-        return driver.session(database=database or settings.neo4j.database)
+        db = database or settings.neo4j.database
+        if not db or db == "neo4j":
+            return driver.session()
+        return driver.session(database=db)
 
     # All entity node labels that can appear in the graph
     ENTITY_LABELS = [
@@ -57,9 +59,7 @@ class Neo4jClientManager:
     @classmethod
     async def ensure_constraints(cls) -> None:
         """Ensure uniqueness constraints exist for entity IDs."""
-        driver = await cls.get_driver()
-
-        async with driver.session(database=settings.neo4j.database) as session:
+        async with await cls.get_session() as session:
             # Step 1: Drop legacy single-field constraints and potentially conflicting indexes
             try:
                 # Drop legacy constraints
@@ -118,9 +118,7 @@ class Neo4jClientManager:
     @classmethod
     async def ensure_indexes(cls) -> None:
         """Ensure composite and standalone indexes for efficient MATCH queries."""
-        driver = await cls.get_driver()
-
-        async with driver.session(database=settings.neo4j.database) as session:
+        async with await cls.get_session() as session:
             for label in cls.ENTITY_LABELS:
                 # Standalone index on id for fast lookups
                 idx_id = f"idx_{label.lower()}_id"

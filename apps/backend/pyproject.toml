@@ -1,5 +1,5 @@
 [project]
-name = "insura-ai-backend"
+name = "insura-ai"
 version = "0.1.0"
 description = "AI-powered insurance document processing system with OCR capabilities"
 authors = [
@@ -37,6 +37,8 @@ dependencies = [
     "rapidfuzz>=3.6.1",
     "docling>=2.0.0",
     "tiktoken>=0.5.0",
+    "weasyprint>=68.1",
+    "jinja2>=3.1.6",
 ]
 
 [project.optional-dependencies]
