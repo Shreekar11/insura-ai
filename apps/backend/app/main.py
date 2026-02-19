@@ -139,7 +139,7 @@ app.add_middleware(JWTAuthenticationMiddleware)
 # CORS middleware - added last to ensure it wraps all other middleware/responses
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["http://localhost:3000", "http://127.0.0.1:3000"],  # Specific origins
+    allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS"],
     allow_headers=["*"],

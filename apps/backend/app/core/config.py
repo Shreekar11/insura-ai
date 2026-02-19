@@ -219,6 +219,10 @@ class Settings(BaseSettings):
     environment: str = Field(default="development", validation_alias="ENVIRONMENT")
     debug: bool = Field(default=True, validation_alias="DEBUG")
     log_level: str = Field(default="INFO", validation_alias="LOG_LEVEL")
+    cors_origins: list[str] = Field(
+        default=["http://localhost:3000", "http://127.0.0.1:3000", "https://insura-ai-sepia.vercel.app"],
+        validation_alias="CORS_ORIGINS"
+    )
 
     # API Settings
     api_v1_prefix: str = "/api/v1"
