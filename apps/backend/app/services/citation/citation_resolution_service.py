@@ -16,7 +16,6 @@ from dataclasses import dataclass, field
 from typing import List, Optional
 from uuid import UUID
 
-from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -60,7 +59,7 @@ class CitationResolutionService:
         Falls back to full-page bounding boxes when no match is found.
     """
 
-    _shared_model: Optional[SentenceTransformer] = None
+    _shared_model = None
 
     def __init__(
         self,
@@ -72,8 +71,9 @@ class CitationResolutionService:
         self.vector_repo = VectorEmbeddingRepository(session)
 
     @classmethod
-    def _get_model(cls) -> SentenceTransformer:
+    def _get_model(cls):
         if cls._shared_model is None:
+            from sentence_transformers import SentenceTransformer
             LOGGER.info(f"Loading embedding model for citation resolution: {EMBEDDING_MODEL}")
             cls._shared_model = SentenceTransformer(EMBEDDING_MODEL)
         return cls._shared_model

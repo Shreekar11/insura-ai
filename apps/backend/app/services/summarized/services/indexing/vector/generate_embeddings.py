@@ -5,7 +5,6 @@ from uuid import UUID, uuid4
 from datetime import datetime, timezone
 from abc import ABC, abstractmethod
 
-from sentence_transformers import SentenceTransformer
 
 from app.services.base_service import BaseService
 from app.repositories.vector_embedding_repository import VectorEmbeddingRepository
@@ -134,9 +133,10 @@ class GenerateEmbeddingsService(BaseService):
         self._model = None  # Lazy load the model
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self):
         """Lazy loader for the SentenceTransformer model."""
         if self._model is None:
+            from sentence_transformers import SentenceTransformer
             LOGGER.info(f"Loading embedding model: {self.model_name}")
             self._model = SentenceTransformer(self.model_name)
         return self._model

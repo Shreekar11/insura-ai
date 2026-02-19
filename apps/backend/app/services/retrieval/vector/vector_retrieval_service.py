@@ -13,7 +13,6 @@ import asyncio
 from pathlib import Path
 from uuid import UUID
 
-from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -34,13 +33,14 @@ from app.utils.logging import get_logger
 LOGGER = get_logger(__name__)
 
 # Module-level singleton for the embedding model (expensive to load)
-_embedding_model: SentenceTransformer | None = None
+_embedding_model = None
 
 
-def _get_embedding_model() -> SentenceTransformer:
+def _get_embedding_model():
     """Get or lazily load the shared SentenceTransformer model."""
     global _embedding_model
     if _embedding_model is None:
+        from sentence_transformers import SentenceTransformer
         LOGGER.info("Loading embedding model: all-MiniLM-L6-v2")
         _embedding_model = SentenceTransformer("all-MiniLM-L6-v2")
     return _embedding_model

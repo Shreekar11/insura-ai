@@ -13,7 +13,6 @@ from typing import List, Optional, Dict, Any
 from uuid import UUID
 from datetime import datetime, timezone
 
-from sentence_transformers import SentenceTransformer
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -43,12 +42,13 @@ class ChunkEmbeddingService:
     def __init__(self, session: AsyncSession):
         self.session = session
         self.vector_repo = VectorEmbeddingRepository(session)
-        self._model: Optional[SentenceTransformer] = None
+        self._model = None
 
     @property
-    def model(self) -> SentenceTransformer:
+    def model(self):
         """Lazy loader for the SentenceTransformer model."""
         if self._model is None:
+            from sentence_transformers import SentenceTransformer
             LOGGER.info(f"Loading embedding model: {self.MODEL_NAME}")
             self._model = SentenceTransformer(self.MODEL_NAME)
         return self._model
