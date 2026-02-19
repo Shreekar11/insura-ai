@@ -1,0 +1,276 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>{{ proposal.insured_name }} - Insurance Proposal</title>
+    <style>
+      @page {
+        size: A4 landscape;
+        margin: 1.5cm;
+        @bottom-right {
+          content: "Page " counter(page) " of " counter(pages);
+          font-family: "Helvetica", sans-serif;
+          font-size: 8pt;
+          color: #666;
+        }
+      }
+
+      body {
+        font-family: "Helvetica", Arial, sans-serif;
+        color: #333;
+        line-height: 1.4;
+        margin: 0;
+        padding: 0;
+      }
+
+      h1,
+      h2,
+      h3 {
+        color: #003366;
+        margin-top: 0;
+      }
+
+      .section {
+        page-break-after: always;
+      }
+
+      .section:last-child {
+        page-break-after: avoid;
+      }
+
+      /* Cover Page */
+      .cover-page {
+        text-align: center;
+        padding-top: 5cm;
+      }
+
+      .header-logo {
+        max-width: 200px;
+        margin-bottom: 2cm;
+      }
+
+      .cover-title {
+        font-size: 32pt;
+        font-weight: bold;
+        color: #003366;
+        margin-bottom: 1cm;
+      }
+
+      .cover-subtitle {
+        font-size: 18pt;
+        color: #555;
+        margin-bottom: 3cm;
+      }
+
+      .cover-footer {
+        margin-top: 4cm;
+        font-size: 12pt;
+        border-top: 1px solid #ccc;
+        padding-top: 1cm;
+      }
+
+      /* Section Styling */
+      .section-title {
+        font-size: 18pt;
+        border-bottom: 2px solid #003366;
+        padding-bottom: 5px;
+        margin-bottom: 20px;
+        text-transform: uppercase;
+      }
+
+      .executive-summary {
+        font-size: 12pt;
+        line-height: 1.6;
+        color: #444;
+        text-align: justify;
+      }
+
+      /* Matrix Table */
+      table {
+        width: 100%;
+        border-collapse: collapse;
+        margin-bottom: 1cm;
+        font-size: 9pt;
+      }
+
+      th {
+        background-color: #003366;
+        color: white;
+        padding: 10px;
+        text-align: center;
+        border: 1px solid #ddd;
+      }
+
+      td {
+        padding: 8px;
+        border: 1px solid #ddd;
+        text-align: center;
+      }
+
+      .label-cell {
+        text-align: left;
+        font-weight: bold;
+        background-color: #f9f9f9;
+        width: 25%;
+      }
+
+      .positive-delta {
+        background-color: #e6fffa;
+        color: #2c7a7b;
+        font-weight: bold;
+      }
+
+      .negative-delta {
+        background-color: #fff5f5;
+        color: #c53030;
+        font-weight: bold;
+      }
+
+      .neutral-delta {
+        color: #718096;
+      }
+
+      /* Premium Table */
+      .premium-table th {
+        background-color: #2d3748;
+      }
+
+      /* Disclaimer */
+      .disclaimer-box {
+        background-color: #f8fafc;
+        border: 1px solid #e2e8f0;
+        padding: 15px;
+        font-size: 8.5pt;
+        color: #64748b;
+        margin-top: 20px;
+      }
+
+      .signature-line {
+        margin-top: 2cm;
+        border-top: 1px solid #333;
+        width: 250px;
+        padding-top: 5px;
+        font-weight: bold;
+      }
+    </style>
+  </head>
+  <body>
+    <!-- 1. Cover Page -->
+    <div class="section cover-page">
+      {% if proposal.broker_logo_path %}
+      <img
+        class="header-logo"
+        src="file://{{ proposal.broker_logo_path }}"
+        alt="Broker Logo"
+      />
+      {% endif %}
+      <div class="cover-title">INSURANCE PROPOSAL</div>
+      <div class="cover-subtitle">
+        {{ proposal.policy_type }}<br />
+        <strong>{{ proposal.insured_name }}</strong>
+      </div>
+      <div class="cover-footer">
+        Prepared by: {{ proposal.broker_name }}<br />
+        Date: {{ now.strftime('%B %d, %Y') }}
+      </div>
+    </div>
+
+    <!-- 2. Executive Summary -->
+    <div class="section">
+      <h2 class="section-title">Executive Summary</h2>
+      <div class="executive-summary">{{ proposal.executive_summary }}</div>
+    </div>
+
+    <!-- 3. Coverage Comparison Matrix -->
+    <div class="section">
+      <h2 class="section-title">Coverage Comparison Matrix</h2>
+      <table>
+        <thead>
+          <tr>
+            <th>Coverage / Provision</th>
+            <th>Expiring Policy</th>
+            {% for rid in renewal_ids %}
+            <th>Quote {{ loop.index }}</th>
+            {% endfor %}
+            <th>Insight</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for row in proposal.comparison_table %}
+          <tr>
+            <td class="label-cell">{{ row.category }}: {{ row.label }}</td>
+            <td>{{ row.expiring_value or "N/A" }}</td>
+            {% for rid in renewal_ids %}
+            <td>{{ row.renewal_values.get(rid, "N/A") }}</td>
+            {% endfor %}
+            <td
+              class="{% if row.delta_flag == 'POSITIVE' %}positive-delta{% elif row.delta_flag == 'NEGATIVE' %}negative-delta{% else %}neutral-delta{% endif %}"
+            >
+              {{ row.delta_flag }}
+            </td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+
+    <!-- 4. Premium Summary -->
+    {% if proposal.premium_summary %}
+    <div class="section">
+      <h2 class="section-title">Premium Summary</h2>
+      <table class="premium-table">
+        <thead>
+          <tr>
+            <th>Carrier</th>
+            <th>Total Premium</th>
+            <th>Terms</th>
+            <th>Binding Deadline</th>
+          </tr>
+        </thead>
+        <tbody>
+          {% for p in proposal.premium_summary %}
+          <tr>
+            <td style="text-align: left; font-weight: bold">{{ p.carrier }}</td>
+            <td>{{ p.total_premium }}</td>
+            <td>{{ p.terms }}</td>
+            <td>{{ p.binding_deadline }}</td>
+          </tr>
+          {% endfor %}
+        </tbody>
+      </table>
+    </div>
+    {% endif %}
+
+    <!-- 5. Disclaimers & Next Steps -->
+    <div class="section">
+      <h2 class="section-title">Next Steps & Disclaimers</h2>
+      <p>
+        To bind coverage, please sign below and return this document to your
+        broker by the binding deadline.
+      </p>
+
+      <div class="disclaimer-box">
+        <strong>Disclaimers:</strong><br />
+        {{ proposal.disclaimers or "This proposal is for informational purposes
+        only. Actual coverage is dictated by the policy terms and conditions
+        issued by the carrier. Please review all documents carefully." }}
+      </div>
+
+      <div
+        style="margin-top: 3cm; display: flex; justify-content: space-between"
+      >
+        <div>
+          <div class="signature-line">Client Signature</div>
+          <div style="font-size: 9pt; margin-top: 5px">Date</div>
+        </div>
+        <div>
+          <div class="signature-line">Broker Representative</div>
+          <div style="font-size: 9pt; margin-top: 5px">
+            {{ proposal.broker_name }}
+          </div>
+        </div>
+      </div>
+    </div>
+  </body>
+</html>

@@ -40,7 +40,12 @@ engine = create_async_engine(
     echo=settings.database_echo,
     future=True,
     # Disable prepared statement cache for PgBouncer compatibility
-    connect_args={"statement_cache_size": 0},
+    # Add timeout to prevent long hangs on connection
+    connect_args={
+        "statement_cache_size": 0,
+        "command_timeout": 20,
+        "timeout": 20,
+    },
 )
 
 # Create async session factory

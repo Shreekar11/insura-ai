@@ -13,7 +13,7 @@ from app.services.product.proposal_generation.assembly_service import ProposalAs
 from app.services.product.proposal_generation.pdf_service import PDFProposalService
 from app.services.product.proposal_generation.narrative_service import ProposalNarrativeService
 from app.repositories.proposal_repository import ProposalRepository
-from app.schemas.product.proposal import Proposal
+from app.schemas.product.proposal_generation import Proposal
 from app.core.config import settings
 
 # Mock or real storage service
@@ -29,20 +29,24 @@ LOGGER = get_logger(__name__)
 async def normalize_coverages_for_proposal_activity(
     workflow_id: str,
     expiring_doc_id: str,
-    renewal_doc_id: str,
+    renewal_doc_ids: List[str],
 ) -> Dict[str, Any]:
-    """Normalize coverage data across expiring and renewal documents."""
+    """Normalize coverage data across expiring and all renewal documents."""
     async with async_session_maker() as session:
         service = ProposalComparisonService(session) 
         expiring_raw = await service._fetch_and_normalize_data(
             UUID(expiring_doc_id), UUID(workflow_id), "coverages"
         )
-        renewal_raw = await service._fetch_and_normalize_data(
-            UUID(renewal_doc_id), UUID(workflow_id), "coverages"
-        )    
+        
+        renewals_normalized = {}
+        for rid in renewal_doc_ids:
+            renewals_normalized[rid] = await service._fetch_and_normalize_data(
+                UUID(rid), UUID(workflow_id), "coverages"
+            )
+            
         return {
             "expiring_normalized": expiring_raw,
-            "renewal_normalized": renewal_raw,
+            "renewals_normalized": renewals_normalized,
             "status": "completed"
         }
 
@@ -52,16 +56,8 @@ async def normalize_coverages_for_proposal_activity(
 async def detect_document_roles_activity(
     workflow_id: str,
     document_ids: List[str],
-) -> Dict[str, str]:
-    """Detect which document is expiring vs. renewal.
-    
-    Args:
-        workflow_id: Workflow ID
-        document_ids: List of document IDs
-        
-    Returns:
-        Dict with 'expiring' and 'renewal' document IDs
-    """
+) -> Dict[str, Any]:
+    """Detect which document is expiring vs. renewal(s)."""
     async with async_session_maker() as session:
         service = ProposalComparisonService(session)
         
@@ -75,7 +71,7 @@ async def detect_document_roles_activity(
         
         return {
             "expiring": str(roles["expiring"]),
-            "renewal": str(roles["renewal"]),
+            "renewals": [str(r) for r in roles["renewals"]],
         }
 
 
@@ -84,47 +80,49 @@ async def detect_document_roles_activity(
 async def compare_documents_for_proposal_activity(
     workflow_id: str,
     expiring_doc_id: str,
-    renewal_doc_id: str,
-) -> List[Dict[str, Any]]:
-    """Compare two documents for proposal generation and execute entity comparison."""
+    renewal_doc_ids: List[str],
+) -> Dict[str, List[Dict[str, Any]]]:
+    """Compare expiring document against multiple renewals."""
     async with async_session_maker() as session:
         service = ProposalComparisonService(session)
         output_repo = WorkflowOutputRepository(session)
         doc_repo = DocumentRepository(session)
         
-        # 1. Fetch document names for SSE events
         expiring_doc = await doc_repo.get_by_id(UUID(expiring_doc_id))
-        renewal_doc = await doc_repo.get_by_id(UUID(renewal_doc_id))
-        
         expiring_name = expiring_doc.document_name if expiring_doc else "Expiring Policy"
-        renewal_name = renewal_doc.document_name if renewal_doc else "Renewal Quote"
+        
+        all_changes = {}
+        
+        for renewal_doc_id in renewal_doc_ids:
+            renewal_doc = await doc_repo.get_by_id(UUID(renewal_doc_id))
+            renewal_name = renewal_doc.document_name if renewal_doc else "Renewal Quote"
 
-        # 2. Field-level comparison (for proposal assembly)
-        changes = await service.compare_for_proposal(
-            workflow_id=UUID(workflow_id),
-            expiring_doc_id=UUID(expiring_doc_id),
-            renewal_doc_id=UUID(renewal_doc_id),
-        )
-        
-        # 3. Entity-level comparison (for frontend display)
-        entity_comparison_result = await service.execute_entity_comparison(
-            workflow_id=UUID(workflow_id),
-            expiring_doc_id=UUID(expiring_doc_id),
-            renewal_doc_id=UUID(renewal_doc_id),
-            expiring_doc_name=expiring_name,
-            renewal_doc_name=renewal_name
-        )
-        
-        # 4. Store entity comparison in output metadata
-        await output_repo.update_entity_comparison(
-            workflow_id=UUID(workflow_id),
-            entity_comparison=entity_comparison_result.model_dump(mode="json"),
-        )
+            # 1. Field-level comparison
+            changes = await service.compare_for_proposal(
+                workflow_id=UUID(workflow_id),
+                expiring_doc_id=UUID(expiring_doc_id),
+                renewal_doc_id=UUID(renewal_doc_id),
+            )
+            
+            # 2. Entity-level comparison (for frontend display - usually only primary if multiple)
+            # For now we only keep the last one or we could aggregate differently
+            entity_comparison_result = await service.execute_entity_comparison(
+                workflow_id=UUID(workflow_id),
+                expiring_doc_id=UUID(expiring_doc_id),
+                renewal_doc_id=UUID(renewal_doc_id),
+                expiring_doc_name=expiring_name,
+                renewal_doc_name=renewal_name
+            )
+            
+            await output_repo.update_entity_comparison(
+                workflow_id=UUID(workflow_id),
+                entity_comparison=entity_comparison_result.model_dump(mode="json"),
+            )
+            
+            all_changes[renewal_doc_id] = [change.model_dump() for change in changes]
         
         await session.commit()
-        
-        # Convert to dicts for Temporal serialization
-        return [change.model_dump() for change in changes]
+        return all_changes
 
 
 @ActivityRegistry.register("proposal_generation", "assemble_proposal_activity")
@@ -152,20 +150,23 @@ async def assemble_proposal_activity(payload: Dict[str, Any]) -> Dict[str, Any]:
         document_ids = [UUID(d) if isinstance(d, str) else d for d in payload["document_ids"]]
         
         # 2. Get Changes (fetch if not provided)
-        changes_data = payload.get("changes")
+        # payload["changes"] is now expected to be Dict[str, List[Dict[str, Any]]]
+        all_changes_raw = payload.get("changes", {})
         from app.schemas.product.policy_comparison import ComparisonChange
-        changes = [ComparisonChange(**c) for c in changes_data] if changes_data else []
         
-        if not changes:
-            # If no changes provided, we should ideally fetch from StepSectionOutputRepository
-            # For now, we assume they are passed or handled by workflow
+        all_changes = {}
+        if isinstance(all_changes_raw, dict):
+            for doc_id, changes_list in all_changes_raw.items():
+                all_changes[doc_id] = [ComparisonChange(**c) for c in changes_list]
+        
+        if not all_changes:
             LOGGER.warning(f"No changes provided for proposal assembly: {workflow_id}")
 
         # 3. Assemble
         proposal = await assembly_service.assemble_proposal(
             workflow_id=workflow_id,
             document_ids=document_ids,
-            changes=changes
+            all_changes=all_changes
         )
         return proposal.model_dump()
 

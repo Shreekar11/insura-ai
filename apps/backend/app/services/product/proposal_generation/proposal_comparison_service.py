@@ -58,48 +58,36 @@ class ProposalComparisonService:
         self,
         workflow_id: UUID,
         document_ids: List[UUID],
-    ) -> Dict[str, UUID]:
-        """Detect which document is expiring vs. renewal.
-        
-        Detection logic:
-        1. Check `quote_type` field in Declarations (if available)
-        2. Compare `effective_date` - earlier date is expiring
+    ) -> Dict[str, Any]:
+        """Detect document roles (1 expiring, N renewals).
         
         Args:
-            workflow_id: Workflow ID for fetching extractions
-            document_ids: List of exactly 2 document IDs
+            workflow_id: Workflow ID
+            document_ids: List of document IDs
             
         Returns:
-            Dict with keys 'expiring' and 'renewal' mapping to document IDs
+            Dict with 'expiring' (UUID) and 'renewals' (List[UUID])
         """
-        if len(document_ids) != 2:
-            raise ValueError("Exactly 2 documents required for proposal comparison")
+        if not document_ids:
+            return {"expiring": None, "renewals": []}
 
         doc_metadata = []
-        
         for doc_id in document_ids:
-            # Fetch declarations section for this document
             declarations = await self.section_repo.get_by_document_and_section(
-                document_id=doc_id,
-                section_type="declarations"
+                document_id=doc_id, section_type="declarations"
             )
             
             effective_date = None
             quote_type = None
-            
             if declarations and declarations.display_payload:
                 payload = declarations.display_payload
-                
-                # Try to get quote_type
                 quote_type = payload.get("quote_type", "").lower()
-                
-                # Try to get effective_date
                 date_str = payload.get("effective_date")
                 if date_str:
                     try:
                         effective_date = datetime.strptime(str(date_str), "%Y-%m-%d")
                     except ValueError:
-                        LOGGER.warning(f"Could not parse date: {date_str}")
+                        pass
             
             doc_metadata.append({
                 "document_id": doc_id,
@@ -107,25 +95,34 @@ class ProposalComparisonService:
                 "quote_type": quote_type,
             })
 
-        # Detection logic
-        doc1, doc2 = doc_metadata
+        # Logic: 
+        # 1. Any doc with quote_type='expiring' is the one.
+        # 2. Otherwise, the oldest effective_date is expiring.
+        # 3. Everything else is a renewal.
         
-        # Priority 1: Check quote_type
-        if doc1["quote_type"] == "expiring" or doc2["quote_type"] == "renewal":
-            return {"expiring": doc1["document_id"], "renewal": doc2["document_id"]}
-        if doc2["quote_type"] == "expiring" or doc1["quote_type"] == "renewal":
-            return {"expiring": doc2["document_id"], "renewal": doc1["document_id"]}
+        expiring_doc = None
+        # Priority 1: quote_type
+        for doc in doc_metadata:
+            if doc["quote_type"] == "expiring":
+                expiring_doc = doc
+                break
         
-        # Priority 2: Compare effective dates
-        if doc1["effective_date"] and doc2["effective_date"]:
-            if doc1["effective_date"] < doc2["effective_date"]:
-                return {"expiring": doc1["document_id"], "renewal": doc2["document_id"]}
-            else:
-                return {"expiring": doc2["document_id"], "renewal": doc1["document_id"]}
+        # Priority 2: Oldest date
+        if not expiring_doc:
+            dated_docs = [d for d in doc_metadata if d["effective_date"]]
+            if dated_docs:
+                expiring_doc = min(dated_docs, key=lambda x: x["effective_date"])
         
-        # Default: First document is expiring
-        LOGGER.warning("Could not determine document roles, defaulting to order")
-        return {"expiring": doc1["document_id"], "renewal": doc2["document_id"]}
+        # Priority 3: First one
+        if not expiring_doc:
+            expiring_doc = doc_metadata[0]
+
+        renewals = [d["document_id"] for d in doc_metadata if d["document_id"] != expiring_doc["document_id"]]
+        
+        return {
+            "expiring": expiring_doc["document_id"],
+            "renewals": renewals,
+        }
 
     async def compare_for_proposal(
         self,

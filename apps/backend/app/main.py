@@ -63,18 +63,36 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
         else:
             LOGGER.info(f"Reload detected (PPID: {ppid}), skipping migrations...")
 
-        LOGGER.info("Initializing database...")
-        await init_database(
-            auto_migrate=should_initialize,
-            drop_existing=False 
-        )
-        LOGGER.info("Database initialized successfully")
+        LOGGER.info("Starting database initialization...")
+        import asyncio
+        try:
+            await asyncio.wait_for(
+                init_database(
+                    auto_migrate=should_initialize,
+                    drop_existing=False 
+                ),
+                timeout=settings.db_init_timeout
+            )
+            LOGGER.info("Database initialized successfully")
+        except asyncio.TimeoutError:
+            LOGGER.error(f"Database initialization timed out after {settings.db_init_timeout}s")
+        except Exception as e:
+            LOGGER.error(f"Database initialization failed: {e}", exc_info=True)
 
-        await init_neo4j(ensure_constraints=should_initialize)
-        LOGGER.info("Neo4j initialized successfully")
+        LOGGER.info("Starting Neo4j initialization...")
+        try:
+            await asyncio.wait_for(
+                init_neo4j(ensure_constraints=should_initialize),
+                timeout=20.0
+            )
+            LOGGER.info("Neo4j initialized successfully")
+        except asyncio.TimeoutError:
+            LOGGER.error("Neo4j initialization timed out after 20s")
+        except Exception as e:
+            LOGGER.error(f"Neo4j initialization failed: {e}", exc_info=True)
     except Exception as e:
         LOGGER.error(
-            "Failed to initialize database",
+            "Unexpected error during application startup",
             exc_info=True,
             extra={"error": str(e)}
         )

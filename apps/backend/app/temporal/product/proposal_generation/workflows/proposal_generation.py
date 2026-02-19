@@ -55,15 +55,15 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         self._status = "running"
         self._progress = 0.0
 
-        # Phase A: Pre-flight validation (require exactly 2 documents)
+        # Phase A: Pre-flight validation (Support up to 5 documents for matrix)
         self._current_step = "preflight_validation"
         self._progress = 0.05
         
-        if len(document_ids) != 2:
+        if len(document_ids) < 2:
             self._status = "failed"
             return {
                 "status": "FAILED",
-                "error": f"Proposal generation requires exactly 2 documents, got {len(document_ids)}",
+                "error": f"Proposal generation requires at least 2 documents, got {len(document_ids)}",
             }
 
         # Check document readiness
@@ -80,14 +80,14 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         # Process each document via mixin
         for idx, doc_readiness in enumerate(document_readiness):
             doc_id = doc_readiness["document_id"]
-            base_progress = 0.10 + (idx * 0.30)  # progress tracking
+            base_progress = 0.10 + (idx * 0.10)  # progress tracking
             
             # Check if any processing is needed
             if not all([doc_readiness.get("processed"), doc_readiness.get("extracted"), 
                        doc_readiness.get("enriched"), doc_readiness.get("indexed")]):
                 
                 self._current_step = f"processing_document_{doc_id}"
-                self._progress = base_progress + 0.10
+                self._progress = base_progress
                 
                 config = DocumentProcessingConfig(
                     workflow_id=workflow_id,
@@ -125,7 +125,7 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             "proposal_id": core_result.get("proposal_id"),
             "pdf_path": core_result.get("pdf_path"),
             "expiring_document_id": core_result.get("expiring_document_id"),
-            "renewal_document_id": core_result.get("renewal_document_id"),
+            "renewal_document_ids": core_result.get("renewal_document_ids"),
             "total_changes": core_result.get("total_changes", 0),
         }
 
@@ -138,10 +138,10 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         """Run the core proposal generation logic locally."""
         workflow.logger.info(f"Starting core proposal generation logic for workflow {workflow_id}")
 
-        # Step 1: Detect document roles (expiring vs. renewal)
+        # Step 1: Detect document roles (expiring vs. renewals)
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Identifying document roles (expiring vs. renewal)..."}],
+            args=[workflow_id, "workflow:progress", {"message": "Identifying document roles (expiring vs. renewals)..."}],
             start_to_close_timeout=timedelta(seconds=10),
         )
         roles = await workflow.execute_activity(
@@ -151,36 +151,36 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         )
         
         expiring_doc_id = roles["expiring"]
-        renewal_doc_id = roles["renewal"]
+        renewal_doc_ids = roles["renewals"]
         
         # Step 2: Normalize coverages
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Normalizing coverage data..."}],
+            args=[workflow_id, "workflow:progress", {"message": f"Normalizing coverage data for {len(renewal_doc_ids)} quotes..."}],
             start_to_close_timeout=timedelta(seconds=10),
         )
         await workflow.execute_activity(
             "normalize_coverages_for_proposal_activity",
-            args=[workflow_id, expiring_doc_id, renewal_doc_id],
+            args=[workflow_id, expiring_doc_id, renewal_doc_ids],
             start_to_close_timeout=timedelta(seconds=60),
         )
         
         # Step 3: Compare documents for proposal
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Comparing documents to identify key changes..."}],
+            args=[workflow_id, "workflow:progress", {"message": "Comparing documents to identify key changes across all quotes..."}],
             start_to_close_timeout=timedelta(seconds=10),
         )
-        changes = await workflow.execute_activity(
+        all_changes = await workflow.execute_activity(
             "compare_documents_for_proposal_activity",
-            args=[workflow_id, expiring_doc_id, renewal_doc_id],
-            start_to_close_timeout=timedelta(minutes=2),
+            args=[workflow_id, expiring_doc_id, renewal_doc_ids],
+            start_to_close_timeout=timedelta(minutes=3),
         )
         
         # Step 4: Assemble proposal
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Assembling final proposal..."}],
+            args=[workflow_id, "workflow:progress", {"message": "Assembling final proposal matrix and narratives..."}],
             start_to_close_timeout=timedelta(seconds=10),
         )
         proposal_data = await workflow.execute_activity(
@@ -188,7 +188,7 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             args=[{
                 "workflow_id": workflow_id,
                 "document_ids": document_ids,
-                "changes": changes
+                "changes": all_changes
             }],
             start_to_close_timeout=timedelta(seconds=120),
         )
@@ -205,7 +205,7 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             await workflow.execute_activity(
                 "emit_workflow_event",
                 args=[workflow_id, "workflow:warning", {
-                    "message": "Proposal quality check detected issues.",
+                    "message": "Proposal quality check detected potential issues.",
                     "details": validation["errors"]
                 }],
                 start_to_close_timeout=timedelta(seconds=10),
@@ -214,7 +214,7 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
         # Step 6: Generate PDF
         await workflow.execute_activity(
             "emit_workflow_event",
-            args=[workflow_id, "workflow:progress", {"message": "Generating proposal PDF..."}],
+            args=[workflow_id, "workflow:progress", {"message": "Generating proposal PDF (Landscape)..."}],
             start_to_close_timeout=timedelta(seconds=10),
         )
         pdf_path = await workflow.execute_activity(
@@ -223,7 +223,7 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             start_to_close_timeout=timedelta(minutes=3),
         )
         
-        # Step 5: Persist proposal to database
+        # Step 7: Persist proposal to database
         persist_result = await workflow.execute_activity(
             "persist_proposal_activity",
             args=[proposal_data, pdf_path],
@@ -241,11 +241,13 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
             start_to_close_timeout=timedelta(seconds=10),
         )
         
+        total_changes_count = sum(len(c) for c in all_changes.values())
+        
         return {
             "status": "COMPLETED",
             "proposal_id": persist_result.get("id"),
             "pdf_path": pdf_path,
             "expiring_document_id": expiring_doc_id,
-            "renewal_document_id": renewal_doc_id,
-            "total_changes": len(changes) if changes else 0,
+            "renewal_document_ids": renewal_doc_ids,
+            "total_changes": total_changes_count,
         }

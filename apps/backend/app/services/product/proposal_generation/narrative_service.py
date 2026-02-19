@@ -105,9 +105,12 @@ class ProposalNarrativeService:
         {summary_items}
         
         TASK:
-        Write a 2-paragraph executive summary. 
-        First paragraph: General state of the renewal vs expiring.
-        Second paragraph: Strategic recommendation based on the key findings.
+        Write a single, high-impact paragraph that summarizes the state of the renewal vs expiring and provides a strategic recommendation.
+        
+        Rules:
+        1. Be punchy and professional.
+        2. Highlight the most critical value (e.g. premium savings or coverage gap fix).
+        3. Max 5 sentences.
         
         Tone: Professional, persuasive, and advisory.
         """

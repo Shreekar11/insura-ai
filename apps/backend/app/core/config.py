@@ -141,12 +141,10 @@ class LLMSettings(BaseSettings):
         LOGGER.info(f"LLM Provider: {self.provider}")
         if self.provider == "gemini":
             LOGGER.info(f"Gemini API Key present: {bool(self.gemini_api_key)}")
-            LOGGER.info(f"Gemini API Key length: {len(self.gemini_api_key)}")
         elif self.provider == "openrouter":
             LOGGER.info(f"OpenRouter API Key present: {bool(self.openrouter_api_key)}")
-            LOGGER.info(f"OpenRouter API Key length: {len(self.openrouter_api_key)}")
         else:
-            LOGGER.error("Invalid LLM provider specified!")
+            LOGGER.warning(f"Using unsupported LLM provider: {self.provider}")
 
 class TemporalSettings(BaseSettings):
     """Temporal connection and workflow settings."""
@@ -230,6 +228,7 @@ class Settings(BaseSettings):
     # Timeout Settings
     ocr_timeout: int = 120
     http_timeout: int = 60
+    db_init_timeout: int = 30 # Seconds to wait for DB during startup
 
     # Rate Limiting
     max_retries: int = 3
@@ -373,10 +372,10 @@ settings = Settings()
 
 # Log initialization for debugging
 LOGGER.info(f"Settings initialized with environment: {settings.environment}")
-LOGGER.info(f"LLM Provider: {settings.llm_provider}")
+LOGGER.info(f"Database settings: local={settings.db.use_local_db}, pool={settings.db.pool_size}")
+LOGGER.info(f"Neo4j settings: local={settings.neo4j.use_local_neo4j}, host={settings.neo4j.host}")
+
 if settings.llm_provider == "gemini":
     LOGGER.info(f"Gemini API Key loaded: {bool(settings.gemini_api_key)}")
-    LOGGER.info(f"Gemini API Key length: {len(settings.gemini_api_key)}")
 else:
     LOGGER.info(f"OpenRouter API Key loaded: {bool(settings.openrouter_api_key)}")
-    LOGGER.info(f"OpenRouter API Key length: {len(settings.openrouter_api_key)}")
