@@ -55,12 +55,11 @@ engine = create_async_engine(
     echo=settings.database_echo,
     future=True,
     poolclass=NullPool,
-    # Disable prepared statement cache for PgBouncer compatibility
-    # Add timeout to prevent long hangs on connection
+    prepared_statement_cache_size=0,
     connect_args={
         "statement_cache_size": 0,
-        "command_timeout": 20,
-        "timeout": 20,
+        "command_timeout": 60,
+        "timeout": 60,
     },
 )
 

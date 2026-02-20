@@ -61,38 +61,34 @@ class DatabaseSettings(BaseSettings):
         if not raw_url:
             return ""
             
-        # Ensure the URL has the correct asyncpg prefix
-        if raw_url.startswith("postgres://") or raw_url.startswith("postgresql://"):
-            # Replace prefix with postgresql+asyncpg://
-            if "://" in raw_url:
-                _, rest = raw_url.split("://", 1)
+        # Ensure the URL has the correct asyncpg prefix and handle query params
+        if "://" in raw_url:
+            scheme, rest = raw_url.split("://", 1)
+            
+            # Use postgresql+asyncpg as the base scheme
+            base_scheme = "postgresql+asyncpg"
+            
+            # Parse query parameters to remove unsupported ones and add PgBouncer compat
+            if "?" in rest:
+                path, query = rest.split("?", 1)
+                params = parse_qs(query)
                 
-                # Parse query parameters to remove unsupported ones
-                if "?" in rest:
-                    path, query = rest.split("?", 1)
-                    params = parse_qs(query)
-                    
-                    # Handle sslmode conversion
-                    if "sslmode" in params:
-                        params["ssl"] = params.pop("sslmode")
-                    
-                    # Remove unsupported 'supa' parameter
-                    if "supa" in params:
-                        params.pop("supa")
+                # Handle sslmode conversion
+                if "sslmode" in params:
+                    params["ssl"] = params.pop("sslmode")
+                
+                # Remove unsupported 'supa' parameter
+                if "supa" in params:
+                    params.pop("supa")
 
-                    # Add PgBouncer compatibility parameter
-                    params["prepared_statement_cache_size"] = ["0"]
-                        
-                    # Reconstruct query string
-                    # Note: parse_qs returns lists, urlencode handles lists
-                    new_query = urlencode(params, doseq=True)
-                    rest = f"{path}?{new_query}"
+                # Add PgBouncer compatibility parameter
+                params["prepared_statement_cache_size"] = ["0"]
                     
-                final_url = f"postgresql+asyncpg://{rest}"
-                return final_url
+                # Reconstruct query string
+                new_query = urlencode(params, doseq=True)
+                return f"{base_scheme}://{path}?{new_query}"
             else:
-                final_url = f"postgresql+asyncpg://{rest}?prepared_statement_cache_size=0"
-                return final_url
+                return f"{base_scheme}://{rest}?prepared_statement_cache_size=0"
         
         return raw_url
 
