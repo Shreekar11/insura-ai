@@ -14,6 +14,8 @@ from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 
+from app.core.config import settings
+
 # Trigger discovery of all components
 from app.temporal.core.discovery import discover_all
 discover_all()
@@ -28,15 +30,36 @@ logger = get_logger(__name__)
 
 async def main():
     """Start the Temporal worker(s)."""
-    # Get Temporal host from environment
-    temporal_host = os.getenv("TEMPORAL_HOST", "localhost:7233")
+    # Log connection configuration
+    logger.info("=" * 60)
+    logger.info("Temporal Connection Configuration")
+    logger.info("-" * 60)
     
-    logger.info(f"Connecting to Temporal server at {temporal_host}")
+    # Log Effective Values (Source: Environment Variables, .env, or Defaults)
+    logger.info(f"Effective Host:      {settings.temporal_host}")
+    logger.info(f"Effective Port:      {settings.temporal_port}")
+    logger.info(f"Effective Namespace: {settings.temporal_namespace}")
+    logger.info(f"Effective Task Queue: {settings.temporal_task_queue}")
     
-    # Connect to Temporal server
+    logger.info("-" * 60)
+    
+    # Inform about environment variables
+    import os
+    env_vars = ["TEMPORAL_HOST", "TEMPORAL_PORT", "TEMPORAL_NAMESPACE", "TEMPORAL_TASK_QUEUE"]
+    for var in env_vars:
+        if os.getenv(var):
+            logger.info(f"System Environment Override found: {var}")
+        else:
+            logger.debug(f"No system environment override for {var}")
+            
+    logger.info("-" * 60)
+    logger.info(f"Connecting to Temporal server at {settings.temporal_host}:{settings.temporal_port}")
+    logger.info("=" * 60)
+    
+    # Connect to Temporal server using centralized settings
     client = await Client.connect(
-        target_host=temporal_host,
-        namespace="default",
+        target_host=f"{settings.temporal_host}:{settings.temporal_port}",
+        namespace=settings.temporal_namespace,
     )
     
     logger.info("Successfully connected to Temporal server")
@@ -79,7 +102,7 @@ async def main():
     logger.info("=" * 60)
     logger.info("Temporal Workers Initialized Successfully")
     logger.info("=" * 60)
-    logger.info(f"Connected to: {temporal_host}")
+    logger.info(f"Connected to: {settings.temporal_host}:{settings.temporal_port}")
     logger.info(f"Queues: {list(queues.keys())}")
     logger.info("=" * 60)
     logger.info("Workers are now polling for tasks...")

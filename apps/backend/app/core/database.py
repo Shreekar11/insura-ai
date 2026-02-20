@@ -5,6 +5,7 @@ core layer so it can be reused across the application.
 """
 
 from collections.abc import AsyncGenerator
+from contextlib import asynccontextmanager
 from sqlalchemy.orm import DeclarativeBase
 from sqlalchemy.ext.asyncio import AsyncSession, AsyncEngine, async_sessionmaker, create_async_engine
 from app.core.config import settings
@@ -18,6 +19,20 @@ class Base(DeclarativeBase):
     """Base class for all SQLAlchemy models."""
 
     pass
+
+@asynccontextmanager
+async def get_async_session_context() -> AsyncGenerator[AsyncSession, None]:
+    """Context manager for getting async database session.
+    
+    This is useful for background tasks and Temporal activities where
+    FastAPI dependency injection is not available.
+    """
+    async with async_session_maker() as session:
+        try:
+            yield session
+        finally:
+            await session.close()
+
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
     """FastAPI dependency for getting async database session.
