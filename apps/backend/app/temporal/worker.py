@@ -13,6 +13,8 @@ from typing import List
 from temporalio.client import Client
 from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
+from fastapi import FastAPI
+import uvicorn
 
 from app.core.config import settings
 
@@ -27,41 +29,34 @@ from app.utils.logging import get_logger
 
 logger = get_logger(__name__)
 
+# Create a minimal FastAPI app for health checks
+app = FastAPI(title="Temporal Worker Health Check")
 
-async def main():
-    """Start the Temporal worker(s)."""
-    # Log connection configuration
-    logger.info("=" * 60)
-    logger.info("Temporal Connection Configuration")
-    logger.info("-" * 60)
-    
-    # Log Effective Values (Source: Environment Variables, .env, or Defaults)
-    logger.info(f"Effective Host:      {settings.temporal_host}")
-    logger.info(f"Effective Port:      {settings.temporal_port}")
-    logger.info(f"Effective Namespace: {settings.temporal_namespace}")
-    logger.info(f"Effective Task Queue: {settings.temporal_task_queue}")
-    
-    logger.info("-" * 60)
-    
-    # Inform about environment variables
-    import os
-    env_vars = ["TEMPORAL_HOST", "TEMPORAL_PORT", "TEMPORAL_NAMESPACE", "TEMPORAL_TASK_QUEUE"]
-    for var in env_vars:
-        if os.getenv(var):
-            logger.info(f"System Environment Override found: {var}")
-        else:
-            logger.debug(f"No system environment override for {var}")
-            
-    logger.info("-" * 60)
-    logger.info(f"Connecting to Temporal server at {settings.temporal_host}:{settings.temporal_port}")
-    logger.info("=" * 60)
-    
+@app.get("/health")
+async def health():
+    return {"status": "ok", "service": "temporal-worker"}
+
+@app.get("/")
+async def root():
+    return {"message": "Temporal Worker is running", "health": "/health"}
+
+async def run_health_check_server():
+    """Run the health check server."""
+    port = int(os.getenv("PORT", 8000))
+    logger.info(f"Starting health check server on port {port}")
+    config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
+    server = uvicorn.Server(config)
+    await server.serve()
+
+
+async def run_workers():
+    """Connect to Temporal and run workers."""
     # Connect to Temporal server using centralized settings
     client = await Client.connect(
         target_host=f"{settings.temporal_host}:{settings.temporal_port}",
         namespace=settings.temporal_namespace,
     )
-    
+            
     logger.info("Successfully connected to Temporal server")
     
     # Get all registered workflows and activities
@@ -111,6 +106,15 @@ async def main():
     
     # Run all workers
     await asyncio.gather(*workers)
+
+
+async def main():
+    """Start the Temporal worker(s)."""
+    logger.info(f"Connecting to Temporal server at {settings.temporal_host}:{settings.temporal_port}")
+    
+    # Run health check server and workers concurrently
+    # The health check server binds to the port immediately, satisfying Render's requirements
+    await asyncio.gather(run_health_check_server(), run_workers())
 
 
 if __name__ == "__main__":

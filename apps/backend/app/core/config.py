@@ -79,6 +79,9 @@ class DatabaseSettings(BaseSettings):
                     # Remove unsupported 'supa' parameter
                     if "supa" in params:
                         params.pop("supa")
+
+                    # Add PgBouncer compatibility parameter
+                    params["prepared_statement_cache_size"] = ["0"]
                         
                     # Reconstruct query string
                     # Note: parse_qs returns lists, urlencode handles lists
@@ -86,6 +89,9 @@ class DatabaseSettings(BaseSettings):
                     rest = f"{path}?{new_query}"
                     
                 final_url = f"postgresql+asyncpg://{rest}"
+                return final_url
+            else:
+                final_url = f"postgresql+asyncpg://{rest}?prepared_statement_cache_size=0"
                 return final_url
         
         return raw_url

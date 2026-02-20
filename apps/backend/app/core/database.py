@@ -47,13 +47,14 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
+from sqlalchemy.pool import NullPool
+
 # Create async engine
 engine = create_async_engine(
     settings.database_url,
-    pool_size=settings.database_pool_size,
-    max_overflow=settings.database_max_overflow,
     echo=settings.database_echo,
     future=True,
+    poolclass=NullPool,
     # Disable prepared statement cache for PgBouncer compatibility
     # Add timeout to prevent long hangs on connection
     connect_args={
