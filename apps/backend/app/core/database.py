@@ -55,7 +55,7 @@ engine = create_async_engine(
     echo=settings.database_echo,
     future=True,
     poolclass=NullPool,
-    prepared_statement_cache_size=0,
+    # Quality of Life settings
     connect_args={
         "statement_cache_size": 0,
         "command_timeout": 60,

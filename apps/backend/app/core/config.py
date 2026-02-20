@@ -82,13 +82,13 @@ class DatabaseSettings(BaseSettings):
                     params.pop("supa")
 
                 # Add PgBouncer compatibility parameter
-                params["prepared_statement_cache_size"] = ["0"]
+                params["statement_cache_size"] = ["0"]
                     
                 # Reconstruct query string
                 new_query = urlencode(params, doseq=True)
                 return f"{base_scheme}://{path}?{new_query}"
             else:
-                return f"{base_scheme}://{rest}?prepared_statement_cache_size=0"
+                return f"{base_scheme}://{rest}?statement_cache_size=0"
         
         return raw_url
 
