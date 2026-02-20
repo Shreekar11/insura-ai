@@ -12,6 +12,8 @@ from app.api.v1.endpoints import health
 from app.api.v1.router import api_router
 from app.core.config import settings
 from app.utils.logging import get_logger
+import asyncio
+import httpx
 from app.core.database import init_database, close_database
 from app.core.neo4j_client import init_neo4j
 from app.api.v1.middleware.auth import JWTAuthenticationMiddleware
@@ -26,6 +28,23 @@ class RootResponse(BaseModel):
     version: str = Field(..., description="Running application version")
     docs: str = Field(..., description="Path to the interactive API docs")
     health: str = Field(..., description="Path to the health check endpoint")
+
+
+async def ping_health_endpoint():
+    """Background task to ping the health endpoint every minute."""
+    url = "https://insura-ai-backend.onrender.com/health"
+    await asyncio.sleep(60)  # Wait for initial startup
+    
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                LOGGER.info(f"Pinging health endpoint: {url}")
+                response = await client.get(url, timeout=10.0)
+                LOGGER.info(f"Health ping status: {response.status_code}")
+            except Exception as e:
+                LOGGER.error(f"Health ping failed: {e}")
+            
+            await asyncio.sleep(60)
 
 
 @asynccontextmanager
@@ -97,10 +116,20 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
             extra={"error": str(e)}
         )
 
+    # Start the keep-alive background task 
+    ping_task = asyncio.create_task(ping_health_endpoint())
+
     yield
 
     # Shutdown
     LOGGER.info("Shutting down application")
+    
+    # Cancel the keep-alive task
+    ping_task.cancel()
+    try:
+        await ping_task
+    except asyncio.CancelledError:
+        LOGGER.info("Keep-alive task cancelled")
     
     # Close database connection
     try:

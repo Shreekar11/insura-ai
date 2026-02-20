@@ -2,7 +2,7 @@
 
 from temporalio import workflow
 from datetime import timedelta
-from typing import Dict, Optional, List
+from typing import Dict, Optional, List, Any
 
 from app.temporal.shared.workflows.mixin import DocumentProcessingMixin, DocumentProcessingConfig
 from app.temporal.core.workflow_registry import WorkflowRegistry, WorkflowType
