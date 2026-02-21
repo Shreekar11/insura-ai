@@ -56,6 +56,7 @@ class WorkflowRepository(BaseRepository[Workflow]):
             temporal_workflow_id=temporal_workflow_id,
             status=status,
             user_id=user_id,
+            created_at=datetime.now(timezone.utc),
             updated_at=datetime.now(timezone.utc)
         )
 

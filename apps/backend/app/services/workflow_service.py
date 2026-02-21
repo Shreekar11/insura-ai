@@ -655,10 +655,12 @@ class WorkflowService(BaseService):
             # Map workflow key to workflow class
             from app.temporal.product.policy_comparison.workflows.policy_comparison import PolicyComparisonWorkflow
             from app.temporal.product.proposal_generation.workflows.proposal_generation import ProposalGenerationWorkflow
+            from app.temporal.product.quote_comparison.workflows.quote_comparison import QuoteComparisonWorkflow
             from app.temporal.shared.workflows.process_document import ProcessDocumentWorkflow
             workflow_class_map = {
                 "policy_comparison": PolicyComparisonWorkflow,
                 "proposal_generation": ProposalGenerationWorkflow,
+                "quote_comparison": QuoteComparisonWorkflow,
                 "document_extraction": ProcessDocumentWorkflow,
             }
             

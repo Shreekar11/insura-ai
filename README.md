@@ -68,6 +68,22 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 | **Secure Storage**       | JWT + RLS + signed URLs                | Strict tenant isolation and compliance  |
 | **Typesafe Boundaries**  | Pydantic + Generated TS                | Validated I/O at every layer            |
 
+## Deployment
+
+- **Vercel** - Deployment platform for frontend
+- **Render** - Deployment platform for primary backend and temporal worker
+- **AWS EC2** - Deployment platform for self-hosted Temporal cluster (Docker)
+- **Supabase** - Managed platform for PostgreSQL and Object Storage
+- **Neo4j AuraDB** - Managed platform for Neo4j Knowledge Graph
+
+## Deployment Links
+
+- **Frontend**: [Insura AI](https://insura-ai-sepia.vercel.app)
+- **Backend**: [Backend Server](https://insura-ai-backend.onrender.com)
+- **Temporal Worker**: [Temporal Worker](https://insura-ai-worker.onrender.com)
+- **Temporal Server**: [Temporal Server](http://[EC2_IP_ADDRESS]:7233)
+- **Temporal Web UI**: [Temporal Web UI](http://[EC2_IP_ADDRESS]:8080)
+
 ## Future Improvements
 
 - **Salesforce CRM Integration**: Bidirectional sync between Insura AI and Salesforce records.

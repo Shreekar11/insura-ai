@@ -118,6 +118,8 @@ services:
       - insura_db
       - neo4j
       - temporal
+    env_file:
+      - ./apps/backend/.env
     environment:
       - DATABASE_URL=postgresql+asyncpg://insura:insura@insura_db:5432/insura
       - NEO4J_HOST=neo4j
