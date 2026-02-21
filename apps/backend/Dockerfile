@@ -1,56 +1,21 @@
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim
 
-# Install build dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    build-essential \
-    libpq-dev \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
+WORKDIR /app
 
-# Install uv for fast dependency management
+# Install system deps if needed
+RUN apt-get update && apt-get install -y curl && rm -rf /var/lib/apt/lists/*
+
+# Install uv
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
-WORKDIR /app
+# Copy dependency files first
+COPY pyproject.toml uv.lock ./
 
-# Copy dependency files
-COPY pyproject.toml requirements.txt README.md* uv.lock* ./
+# Install dependencies
+RUN uv sync --no-dev --compile-bytecode
 
-# Install dependencies using uv
-RUN uv pip install --system --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
-RUN uv pip install --system --no-cache-dir -e .
-
-# Clean up unnecessary files in site-packages to save space before copying
-RUN find /usr/local/lib/python3.11/site-packages -name "*.pyc" -delete \
-    && find /usr/local/lib/python3.11/site-packages -name "__pycache__" -type d -exec rm -rf {} +
-
-# Runtime
-FROM python:3.11-slim AS runtime
-
-# Install only runtime dependencies
-RUN apt-get update && apt-get install -y --no-install-recommends \
-    libpq5 \
-    curl \
-    && rm -rf /var/lib/apt/lists/*
-
-WORKDIR /app
-
-# Copy installed packages from builder
-COPY --from=builder /usr/local/lib/python3.11/site-packages /usr/local/lib/python3.11/site-packages
-COPY --from=builder /usr/local/bin /usr/local/bin
-
-# Copy application code
+# Copy source
 COPY . .
 
-# Expose port
-EXPOSE 8000
-
-# Set environment variables
-ENV PYTHONUNBUFFERED=1
-ENV PORT=8000
-ENV HOST=0.0.0.0
-
-# Command to run the application
-CMD ["sh", "-c", "uvicorn app.main:app --host 0.0.0.0 --port ${PORT:-8000}"]
+CMD ["python", "app/temporal/worker.py"]
