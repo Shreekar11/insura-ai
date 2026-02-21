@@ -1,0 +1,51 @@
+# Version Control
+.git
+.gitignore
+
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.venv/
+venv/
+ENV/
+env/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+
+# Node/Frontend
+node_modules/
+.next/
+out/
+build/
+dist/
+
+# Logs and Documentation
+logs/
+docs/
+*.log
+
+# OS files
+.DS_Store
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+.env.*
+!.env.example
+
+# Terraform/Infra
+.terraform/
+*.tfstate*
+
+# Local development
+temp/
+test-data/
+scripts/
+Makefile
+package-lock.json
+pnpm-lock.yaml
+yarn.lock
