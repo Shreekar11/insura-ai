@@ -648,11 +648,6 @@ class HybridChunkingService:
                 if current_boundary and para_idx == 0:
                     role_val = current_boundary.semantic_role
                     role_str = role_val.value if hasattr(role_val, 'value') else role_val
-                    LOGGER.info(
-                        f"Matched boundary on page {page_num}: section={boundary_section.value}, "
-                        f"semantic_role={role_str}, coverage_effects={current_boundary.coverage_effects}, "
-                        f"exclusion_effects={current_boundary.exclusion_effects}"
-                    )
 
                 # CONTINUATION PAGE SUPPORT: If no boundary starts on this page but
                 # this page is covered by an existing boundary, inherit semantic context

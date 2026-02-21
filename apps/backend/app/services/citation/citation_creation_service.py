@@ -182,7 +182,7 @@ class CitationCreationService:
                         resolution_stats[citation.resolution_method] = (
                             resolution_stats.get(citation.resolution_method, 0) + 1
                         )
-                    LOGGER.info(
+                    LOGGER.debug(
                         f"[CITATION] Created citation for coverage: {coverage_name}",
                         extra={
                             "citation_id": str(citation.id),
@@ -225,7 +225,7 @@ class CitationCreationService:
                         resolution_stats[citation.resolution_method] = (
                             resolution_stats.get(citation.resolution_method, 0) + 1
                         )
-                    LOGGER.info(
+                    LOGGER.debug(
                         f"[CITATION] Created citation for exclusion: {exclusion_name}",
                         extra={
                             "citation_id": str(citation.id),
@@ -303,7 +303,7 @@ class CitationCreationService:
                 )
                 return None
 
-        LOGGER.info(
+        LOGGER.debug(
             f"[CITATION] Resolving citation for: {item_name}",
             extra={
                 "source_id": source_id,

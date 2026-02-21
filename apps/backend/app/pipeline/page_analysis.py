@@ -127,7 +127,7 @@ class PageAnalysisPipeline:
             all_top_texts = [" ".join(s.top_lines) for s in page_signals[:20]]
             if self.classifier._is_base_policy(all_top_texts):
                 doc_type = DocumentType.POLICY
-                LOGGER.info(f"Detected Base Policy mode for document {document_id}")
+                LOGGER.debug(f"Detected Base Policy mode for document {document_id}")
 
         self.detector.reset()
 
@@ -202,7 +202,7 @@ class PageAnalysisPipeline:
             document_id, classifications, workflow_name=workflow_name
         )
         
-        LOGGER.info(
+        LOGGER.debug(
             f"Built document profile for {document_id}",
             extra={
                 "document_type": profile.document_type.value,

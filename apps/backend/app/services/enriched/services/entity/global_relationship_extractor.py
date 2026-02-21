@@ -1430,7 +1430,7 @@ NO markdown backticks, NO explanations, JUST the JSON object.
         target_entity = self._find_entity(target_id, canonical_entities, chunks)
         
         if not source_entity or not target_entity:
-            LOGGER.warning(
+            LOGGER.debug(
                 f"Could not find entities for relationship",
                 extra={
                     "source_id": source_id,
@@ -1484,7 +1484,7 @@ NO markdown backticks, NO explanations, JUST the JSON object.
             rel_repo = EntityRelationshipRepository(self.session)
             await rel_repo.add_to_workflow_scope(workflow_id, relationship.id)
             
-        LOGGER.info(
+        LOGGER.debug(
             f"Created relationship: {source_entity.entity_type}({source_entity.canonical_key[:8]}) "
             f"--{rel_type}--> {target_entity.entity_type}({target_entity.canonical_key[:8]})"
         )

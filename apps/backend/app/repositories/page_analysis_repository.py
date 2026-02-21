@@ -179,7 +179,7 @@ class PageAnalysisRepository(BaseRepository[PageAnalysis]):
             self.session.add(manifest_record)
             await self.session.commit()
             
-            logger.info(
+            logger.debug(
                 f"Saved page manifest for document {manifest.document_id}",
                 extra={
                     "document_id": str(manifest.document_id),

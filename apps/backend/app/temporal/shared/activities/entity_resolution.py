@@ -49,13 +49,12 @@ async def aggregate_document_entities(workflow_id: str, document_id: str, rich_c
 
             # FIX VERIFICATION: Log aggregation results for monitoring
             LOGGER.info(
-                f"[FIX VERIFICATION] Entity aggregation completed - Monitor logs for [FIX 2] enrichment tags",
+                f"Entity aggregation completed",
                 extra={
                     "document_id": document_id,
                     "workflow_id": workflow_id,
                     "total_entities": result.get("total_entities"),
                     "unique_entities": result.get("unique_entities"),
-                    "note": "Check for [FIX 2] logs showing secondary lookup success and rich context merging"
                 }
             )
 
@@ -82,12 +81,11 @@ async def resolve_canonical_entities(workflow_id: str, document_id: str, aggrega
 
             # FIX VERIFICATION: Log resolution completion
             LOGGER.info(
-                f"[FIX VERIFICATION] Canonical entities resolved - Monitor logs for [FIX 3] and [FIX 4] tags",
+                f"Canonical entities resolved",
                 extra={
                     "document_id": document_id,
                     "workflow_id": workflow_id,
                     "canonical_entities_count": len(canonical_ids),
-                    "note": "Check for [FIX 3] logs showing enrichment fields merged, [FIX 4] logs showing readable mention_text"
                 }
             )
 

@@ -90,8 +90,8 @@ class EntityResolver:
 
         # FIX 3 VERIFICATION: Log when top-level enrichment fields are merged
         if merged_fields:
-            LOGGER.info(
-                f"[FIX 3] Top-level enrichment fields merged into additional_attributes",
+            LOGGER.debug(
+                f"Top-level enrichment fields merged into additional_attributes",
                 extra={
                     "entity_type": entity_type,
                     "normalized_value": normalized_value,
@@ -138,8 +138,8 @@ class EntityResolver:
 
         # FIX 4 VERIFICATION: Log when readable_name differs from normalized_value (Evidence improvement)
         if readable_name != normalized_value and entity_type in ["Coverage", "Exclusion"]:
-            LOGGER.info(
-                f"[FIX 4] Human-readable mention_text derived for Evidence quote",
+            LOGGER.debug(
+                f"Human-readable mention_text derived for Evidence quote",
                 extra={
                     "entity_type": entity_type,
                     "normalized_value": normalized_value,
@@ -310,7 +310,7 @@ class EntityResolver:
         self.session.add(canonical_entity)
         await self.session.flush()
         
-        LOGGER.info(
+        LOGGER.debug(
             "Created new canonical entity",
             extra={
                 "entity_id": str(canonical_entity.id),

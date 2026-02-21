@@ -53,7 +53,7 @@ class OCRExtractionOutputSchema(BaseModel):
     document_id: str = Field(..., description="Document UUID as string")
     page_count: int = Field(..., ge=0, description="Number of pages processed")
     pages_processed: List[int] = Field(..., description="List of processed page numbers")
-    markdown_pages: List[Tuple[str, int, Optional[Dict[str, Any]]]] = Field(..., description="List of processed page markdown")
+    markdown_pages: Optional[List[Tuple[str, int, Optional[Dict[str, Any]]]]] = Field(None, description="List of processed page markdown")
     selective: bool = Field(..., description="Whether selective processing was used")
     has_section_metadata: bool = Field(..., description="Whether section metadata was stored")
     section_distribution: Optional[Dict[str, int]] = Field(None, description="Section distribution")

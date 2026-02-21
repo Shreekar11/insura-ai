@@ -227,7 +227,7 @@ class DocumentProfileBuilder:
             semantic_capabilities=capabilities
         )
         
-        LOGGER.info(
+        LOGGER.debug(
             f"Built document profile for {document_id}",
             extra={
                 "document_type": document_type.value,

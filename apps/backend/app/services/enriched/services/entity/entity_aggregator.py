@@ -390,8 +390,8 @@ class EntityAggregator:
                         name_based_id = self._generate_entity_id("Coverage", cov_name)
                         rich_item = coverage_map.get(name_based_id)
                         if rich_item:
-                            LOGGER.info(
-                                f"[FIX 2] Coverage enrichment: Secondary name-based lookup succeeded",
+                            LOGGER.debug(
+                                f"Coverage enrichment: Secondary name-based lookup succeeded",
                                 extra={
                                     "entity_id": entity_id,
                                     "coverage_name": cov_name,
@@ -416,8 +416,8 @@ class EntityAggregator:
                         name_based_id = self._generate_entity_id("Exclusion", excl_name)
                         rich_item = exclusion_map.get(name_based_id)
                         if rich_item:
-                            LOGGER.info(
-                                f"[FIX 2] Exclusion enrichment: Secondary name-based lookup succeeded",
+                            LOGGER.debug(
+                                f"Exclusion enrichment: Secondary name-based lookup succeeded",
                                 extra={
                                     "entity_id": entity_id,
                                     "exclusion_name": excl_name,
@@ -459,8 +459,8 @@ class EntityAggregator:
 
                 # FIX 2 VERIFICATION: Log when rich context data is merged
                 if description or source_text:
-                    LOGGER.info(
-                        f"[FIX 2] Entity enriched with rich context data",
+                    LOGGER.debug(
+                        f"Entity enriched with rich context data",
                         extra={
                             "entity_id": entity_id,
                             "entity_type": entity_type,

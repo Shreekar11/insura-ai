@@ -153,7 +153,6 @@ class DocumentProcessingMixin:
                 "document_id": ocr_data.get('document_id'),
                 "page_count": ocr_data.get('page_count', 0),
                 "pages_processed": ocr_data.get('pages_processed', []),
-                "markdown_pages": ocr_data.get('markdown_pages', []),
                 "selective": False,
                 "has_section_metadata": False,
                 "section_distribution": None,
@@ -161,12 +160,11 @@ class DocumentProcessingMixin:
             OCRExtractionOutputSchema,
             "DocumentProcessingMixin.ocr"
         )
-        markdown_pages = ocr_output["markdown_pages"]
 
         # Page Analysis
         page_signals = await workflow.execute_activity(
-            "extract_page_signals_from_markdown",
-            args=[document_id, markdown_pages],
+            "extract_page_signals",
+            args=[document_id],
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 maximum_attempts=3,

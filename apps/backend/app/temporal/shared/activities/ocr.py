@@ -90,7 +90,6 @@ async def extract_ocr(
                 extra={
                     "document_id": document_id,
                     "pages_processed": pages_processed,
-                    "markdown_pages": markdown_pages,
                 }
             )
         
@@ -98,7 +97,6 @@ async def extract_ocr(
             "document_id": document_id,
             "page_count": len(pages),
             "pages_processed": pages_processed,
-            "markdown_pages": markdown_pages,
         }
         
     except Exception as e:

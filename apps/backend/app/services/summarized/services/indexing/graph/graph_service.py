@@ -338,8 +338,8 @@ class GraphService(BaseService):
 
         # FIX 1 VERIFICATION: Log when coverage_name/exclusion_name is used for display_name
         if entity_type == "Coverage" and attrs.get("coverage_name"):
-            LOGGER.info(
-                f"[FIX 1] Coverage display_name resolved from coverage_name",
+            LOGGER.debug(
+                f"Coverage display_name resolved from coverage_name",
                 extra={
                     "canonical_key": entity.canonical_key,
                     "coverage_name": attrs.get("coverage_name"),
@@ -348,8 +348,8 @@ class GraphService(BaseService):
                 }
             )
         elif entity_type == "Exclusion" and attrs.get("exclusion_name"):
-            LOGGER.info(
-                f"[FIX 1] Exclusion display_name resolved from exclusion_name",
+            LOGGER.debug(
+                f"Exclusion display_name resolved from exclusion_name",
                 extra={
                     "canonical_key": entity.canonical_key,
                     "exclusion_name": attrs.get("exclusion_name"),
@@ -406,8 +406,8 @@ class GraphService(BaseService):
             })
 
             # FIX 1 VERIFICATION: Log Coverage node properties including description
-            LOGGER.info(
-                f"[FIX 1] Coverage node properties mapped",
+            LOGGER.debug(
+                f"Coverage node properties mapped",
                 extra={
                     "canonical_key": entity.canonical_key,
                     "node_name": coverage_name_prop,

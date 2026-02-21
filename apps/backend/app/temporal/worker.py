@@ -15,6 +15,7 @@ from temporalio.worker import Worker
 from temporalio.worker.workflow_sandbox import SandboxedWorkflowRunner, SandboxRestrictions
 from fastapi import FastAPI
 import uvicorn
+import httpx
 
 from app.core.config import settings
 
@@ -40,9 +41,25 @@ async def health():
 async def root():
     return {"message": "Temporal Worker is running", "health": "/health"}
 
+async def ping_health_endpoint():
+    """Background task to ping the health endpoint every minute."""
+    url = "https://insura-ai-worker.onrender.com/health"
+    await asyncio.sleep(60)  # Wait for initial startup
+    
+    async with httpx.AsyncClient() as client:
+        while True:
+            try:
+                logger.info(f"Pinging health endpoint: {url}")
+                response = await client.get(url, timeout=10.0)
+                logger.info(f"Health ping status: {response.status_code}")
+            except Exception as e:
+                logger.error(f"Health ping failed: {e}")
+            
+            await asyncio.sleep(60)
+
 async def run_health_check_server():
     """Run the health check server."""
-    port = int(os.getenv("PORT", 8000))
+    port = int(os.getenv("PORT", 8001))
     logger.info(f"Starting health check server on port {port}")
     config = uvicorn.Config(app, host="0.0.0.0", port=port, log_level="info")
     server = uvicorn.Server(config)
@@ -112,9 +129,13 @@ async def main():
     """Start the Temporal worker(s)."""
     logger.info(f"Connecting to Temporal server at {settings.temporal_host}:{settings.temporal_port}")
     
-    # Run health check server and workers concurrently
+    # Run health check server, workers, and keep-alive ping concurrently
     # The health check server binds to the port immediately, satisfying Render's requirements
-    await asyncio.gather(run_health_check_server(), run_workers())
+    await asyncio.gather(
+        run_health_check_server(), 
+        run_workers(),
+        ping_health_endpoint()
+    )
 
 
 if __name__ == "__main__":
