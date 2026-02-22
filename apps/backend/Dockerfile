@@ -12,7 +12,7 @@ RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
 # Copy dependency files
-COPY apps/backend/pyproject.toml apps/backend/uv.lock* apps/backend/README.md ./
+COPY pyproject.toml uv.lock* README.md ./
 
 # Install dependencies (torch resolves from CPU-only index via pyproject.toml)
 RUN uv sync --no-dev --compile-bytecode
@@ -27,7 +27,7 @@ COPY --from=builder /app/.venv /app/.venv
 ENV PATH="/app/.venv/bin:$PATH"
 
 # Copy application code
-COPY apps/backend/ ./
+COPY . .
 
 # Clean up any remaining cache or unnecessary files
 RUN find . -type d -name "__pycache__" -exec rm -rf {} +
