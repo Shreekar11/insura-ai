@@ -32,4 +32,4 @@ COPY apps/backend/ ./
 # Clean up any remaining cache or unnecessary files
 RUN find . -type d -name "__pycache__" -exec rm -rf {} +
 
-CMD ["python", "app/temporal/worker.py"]
+CMD ["python", "-m", "app.temporal.worker"]
