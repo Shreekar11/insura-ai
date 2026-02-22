@@ -16,7 +16,8 @@ COPY apps/backend/pyproject.toml apps/backend/uv.lock* apps/backend/README.md ./
 
 # Force CPU-only versions for heavy libraries to save space
 # We use --index-url for torch to get the cpu version specifically
-RUN uv pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
+RUN uv venv && \
+    uv pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
     uv sync --no-dev --compile-bytecode
 
 # Stage 2: Runner
