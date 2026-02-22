@@ -14,11 +14,8 @@ ENV PATH="/root/.local/bin:$PATH"
 # Copy dependency files
 COPY apps/backend/pyproject.toml apps/backend/uv.lock* apps/backend/README.md ./
 
-# Force CPU-only versions for heavy libraries to save space
-# We use --index-url for torch to get the cpu version specifically
-RUN uv venv && \
-    uv pip install --no-cache-dir torch torchvision --index-url https://download.pytorch.org/whl/cpu && \
-    uv sync --no-dev --compile-bytecode
+# Install dependencies (torch resolves from CPU-only index via pyproject.toml)
+RUN uv sync --no-dev --compile-bytecode
 
 # Stage 2: Runner
 FROM python:3.12-slim AS runner
