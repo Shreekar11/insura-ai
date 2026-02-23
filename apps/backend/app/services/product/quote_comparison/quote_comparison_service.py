@@ -61,7 +61,7 @@ class QuoteComparisonService:
         Returns:
             QuoteComparisonResult with complete comparison data
         """
-        from app.repositories.page_analysis_repository import PageAnalysisRepository
+        from app.pipeline.page_analysis import PageAnalysisPipeline
         from app.models.page_analysis_models import DocumentType
 
         # 1. Identify roles
@@ -69,10 +69,10 @@ class QuoteComparisonService:
         acord_doc = None
         proposal_doc = None
         
-        page_analysis_repo = PageAnalysisRepository(self.session)
+        page_analysis_pipeline = PageAnalysisPipeline(self.session)
         
         for doc_id in document_ids:
-            profile = await page_analysis_repo.get_document_profile(doc_id)
+            profile = await page_analysis_pipeline.get_document_profile(doc_id)
             if not profile:
                 # If no profile, try to infer or skip
                 continue

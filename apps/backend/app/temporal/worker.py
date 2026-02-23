@@ -67,12 +67,27 @@ async def run_health_check_server():
 
 
 async def run_workers():
-    """Connect to Temporal and run workers."""
-    # Connect to Temporal server using centralized settings
-    client = await Client.connect(
-        target_host=f"{settings.temporal_host}:{settings.temporal_port}",
-        namespace=settings.temporal_namespace,
-    )
+    """Connect to Temporal and run workers with retries."""
+    max_retries = 5
+    retry_delay = 5
+    client = None
+
+    for attempt in range(max_retries):
+        try:
+            logger.info(f"Connecting to Temporal server at {settings.temporal_host}:{settings.temporal_port} (Attempt {attempt + 1}/{max_retries})")
+            # Connect to Temporal server using centralized settings
+            client = await Client.connect(
+                target_host=f"{settings.temporal_host}:{settings.temporal_port}",
+                namespace=settings.temporal_namespace,
+            )
+            break
+        except Exception as e:
+            if attempt < max_retries - 1:
+                logger.warning(f"Connection attempt {attempt + 1} failed: {e}. Retrying in {retry_delay}s...")
+                await asyncio.sleep(retry_delay)
+            else:
+                logger.error(f"Failed to connect to Temporal server after {max_retries} attempts: {e}")
+                raise
             
     logger.info("Successfully connected to Temporal server")
     

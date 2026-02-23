@@ -11,19 +11,27 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
 RUN curl -LsSf https://astral.sh/uv/install.sh | sh
 ENV PATH="/root/.local/bin:$PATH"
 
+# Build mode: 'production' or 'development'
+ARG BUILD_MODE=production
+
 WORKDIR /app
 
 # Copy dependency files
 COPY pyproject.toml requirements.txt README.md* uv.lock* ./
 
-# Install dependencies using uv
-RUN uv pip install --system --no-cache-dir \
-    --extra-index-url https://download.pytorch.org/whl/cpu \
-    -r requirements.txt
-RUN uv pip install --system --no-cache-dir -e .
-
-# Clean up unnecessary files in site-packages to save space before copying
-RUN find /usr/local/lib/python3.11/site-packages -name "*.pyc" -delete \
+# Install dependencies using uv in a single layer to save space
+RUN if [ "$BUILD_MODE" = "production" ] ; then \
+        echo "Building for PRODUCTION..." && \
+        uv pip install --system --no-cache-dir --index-strategy unsafe-best-match \
+            torch torchvision --index-url https://download.pytorch.org/whl/cpu ; \
+    else \
+        echo "Building for DEVELOPMENT..." && \
+        uv pip install --system --no-cache-dir --index-strategy unsafe-best-match \
+            torch torchvision ; \
+    fi \
+    && uv pip install --system --no-cache-dir --index-strategy unsafe-best-match -r requirements.txt \
+    && uv pip install --system --no-cache-dir --index-strategy unsafe-best-match -e . \
+    && find /usr/local/lib/python3.11/site-packages -name "*.pyc" -delete \
     && find /usr/local/lib/python3.11/site-packages -name "__pycache__" -type d -exec rm -rf {} +
 
 # Runtime
@@ -33,6 +41,11 @@ FROM python:3.11-slim AS runtime
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libpq5 \
     curl \
+    libgl1 \
+    libglib2.0-0 \
+    libsm6 \
+    libxext6 \
+    tesseract-ocr \
     && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /app

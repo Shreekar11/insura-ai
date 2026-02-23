@@ -181,6 +181,32 @@ class PageAnalysisPipeline:
 
         return classifications
 
+    async def get_document_profile(
+        self, 
+        document_id: UUID,
+        workflow_name: Optional[str] = None
+    ) -> Optional[DocumentProfile]:
+        """Retrieve document profile for a document.
+        
+        Args:
+            document_id: Document UUID
+            workflow_name: Optional workflow name context
+            
+        Returns:
+            DocumentProfile if found, None otherwise
+        """
+        classifications = await self.repository.get_classifications(document_id)
+        if not classifications:
+            LOGGER.debug(f"No classifications found for document {document_id}")
+            return None
+            
+        profile = await self.build_document_profile(
+            document_id=document_id,
+            classifications=classifications,
+            workflow_name=workflow_name
+        )
+        return profile
+
     async def build_document_profile(
         self, 
         document_id: UUID, 

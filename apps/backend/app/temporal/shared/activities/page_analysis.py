@@ -185,20 +185,13 @@ async def get_document_profile_activity(document_id: str) -> Dict:
     """Retrieve document profile from database."""
     try:
         async with async_session_maker() as session:
-            from app.repositories.page_analysis_repository import PageAnalysisRepository
             from app.pipeline.page_analysis import PageAnalysisPipeline
             
-            repo = PageAnalysisRepository(session)
             pipeline = PageAnalysisPipeline(session)
+            document_profile = await pipeline.get_document_profile(UUID(document_id))
             
-            classifications = await repo.get_classifications(UUID(document_id))
-            if not classifications:
-                raise ValueError(f"No classifications found for document {document_id}")
-            
-            document_profile = await pipeline.build_document_profile(
-                document_id=UUID(document_id),
-                classifications=classifications
-            )
+            if not document_profile:
+                raise ValueError(f"No document profile found for document {document_id}")
             
             profile_dict = document_profile.model_dump()
             profile_dict['document_id'] = str(profile_dict['document_id'])
