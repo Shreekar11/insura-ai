@@ -71,18 +71,18 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 ## Deployment
 
 - **Vercel** - Deployment platform for frontend
-- **Render** - Deployment platform for primary backend and temporal worker
-- **AWS EC2** - Deployment platform for self-hosted Temporal cluster (Docker)
-- **Supabase** - Managed platform for PostgreSQL and Object Storage
+- **Render** - Deployment platform for primary backend
+- **AWS EC2** - Deployment platform for self-hosted Temporal cluster (Docker) and Temporal Worker
+- **Supabase** - Managed platform for PostgreSQL + pgvector and Object Storage
 - **Neo4j AuraDB** - Managed platform for Neo4j Knowledge Graph
 
 ## Deployment Links
 
-- **Frontend**: [Insura AI](https://insura-ai-sepia.vercel.app)
+- **Frontend**: [Frontend Website](https://insura-ai-sepia.vercel.app)
 - **Backend**: [Backend Server](https://insura-ai-backend.onrender.com)
-- **Temporal Worker**: [Temporal Worker](https://insura-ai-worker.onrender.com)
-- **Temporal Server**: [Temporal Server](http://[EC2_IP_ADDRESS]:7233)
-- **Temporal Web UI**: [Temporal Web UI](http://[EC2_IP_ADDRESS]:8080)
+- **Temporal Worker**: Temporal Worker - http://[EC2_IP_ADDRESS]:8001
+- **Temporal Server**: Temporal Server - http://[EC2_IP_ADDRESS]:7233
+- **Temporal Web UI**: Temporal Web UI - http://[EC2_IP_ADDRESS]:8080
 
 ## Future Improvements
 
@@ -110,11 +110,11 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
    ```
 
 2. Set up environment variables:
-   Create a `.env` file in the root based on `.env.example`.
+   Create a `.env` file in each of the `backend` and `frontend` directories based on the `.env.example` files.
 
 ### Run via Docker
 
-The easiest way to get started is using Docker Compose, which spins up the entire stack (Frontend, Backend, Temporal, Postgres, Neo4j).
+The easiest way to get started is using Docker Compose, which spins up the entire stack (Frontend, Backend, Temporal, Worker, Postgres and Neo4j).
 
 ```bash
 docker-compose up --build
@@ -129,18 +129,18 @@ docker-compose up --build
    pnpm dev
    ```
 
-2. **Frontend**:
+2. **Temporal Worker**:
+   ```bash
+   cd apps/backend
+   uv run app/temporal/worker.py
+   ```
+
+3. **Frontend**:
 
    ```bash
    cd apps/frontend
    pnpm install
    pnpm dev
-   ```
-
-3. **Temporal Worker**:
-   ```bash
-   cd apps/backend
-   uv run app/temporal/worker.py
    ```
 
 ## Contact

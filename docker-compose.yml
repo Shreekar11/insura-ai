@@ -113,6 +113,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile
+      args:
+        - BUILD_MODE=development
+
     container_name: insura_backend
     depends_on:
       - insura_db
@@ -139,6 +142,9 @@ services:
     build:
       context: ./apps/backend
       dockerfile: Dockerfile.worker
+      args:
+        - BUILD_MODE=development
+
     container_name: insura_worker
     depends_on:
       - insura_db
@@ -168,7 +174,14 @@ services:
       dockerfile: apps/frontend/Dockerfile
       args:
         - NEXT_PUBLIC_API_URL=http://localhost:8000
+        - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+        - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     container_name: insura_frontend
+    env_file:
+      - ./apps/frontend/.env
+    environment:
+      - NEXT_PUBLIC_SUPABASE_URL=${NEXT_PUBLIC_SUPABASE_URL}
+      - NEXT_PUBLIC_SUPABASE_ANON_KEY=${NEXT_PUBLIC_SUPABASE_ANON_KEY}
     depends_on:
       - backend
     ports:
