@@ -6,7 +6,8 @@ from app.schemas.product.policy_comparison import ComparisonChange
 from app.schemas.product.proposal_generation import (
     Proposal, 
     ProposalSection, 
-    ProposalComparisonRow
+    ProposalComparisonRow,
+    PremiumSummaryRow
 )
 from app.services.product.proposal_generation.narrative_service import ProposalNarrativeService
 from app.utils.logging import get_logger

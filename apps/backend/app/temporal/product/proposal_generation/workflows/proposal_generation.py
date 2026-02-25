@@ -96,7 +96,8 @@ class ProposalGenerationWorkflow(DocumentProcessingMixin):
                     skip_processed=doc_readiness.get("processed", False),
                     skip_extraction=doc_readiness.get("extracted", False),
                     skip_enrichment=doc_readiness.get("enriched", False),
-                    skip_indexing=doc_readiness.get("indexed", False)
+                    skip_indexing=doc_readiness.get("indexed", False),
+                    document_name=next((doc.get("document_name") for doc in documents if doc.get("document_id") == doc_id), None)
                 )
                 
                 await self.process_document(doc_id, config)

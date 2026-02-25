@@ -66,8 +66,10 @@ class GraphService(BaseService):
             wf_uuid = uuid.UUID(workflow_id) if isinstance(workflow_id, str) else workflow_id
             doc_uuid = uuid.UUID(document_id) if document_id and isinstance(document_id, str) else document_id
 
-            # Step 0: Clean up stale graph data from previous runs
-            await self._cleanup_workflow_graph(wf_uuid)
+            # Step 0: Clean up stale graph data — only when rebuilding entire workflow
+            # When document_id is provided, MERGE handles idempotent upserts safely
+            if not doc_uuid:
+                await self._cleanup_workflow_graph(wf_uuid)
 
             # Step 1: Fetch entities
             if doc_uuid:
@@ -92,7 +94,7 @@ class GraphService(BaseService):
 
             # Batch create entity nodes grouped by type for performance
             entity_count = await self._create_entity_nodes_batch(
-                list(entity_provenance_map.values()), wf_uuid
+                list(entity_provenance_map.values()), wf_uuid, doc_uuid
             )
             stats["entities_created"] = entity_count
 
@@ -167,6 +169,7 @@ class GraphService(BaseService):
         self,
         entity: Any,
         workflow_id: uuid.UUID,
+        doc_uuid: Optional[uuid.UUID] = None,
         source_chunk_id: Optional[str] = None,
         source_section: Optional[str] = None
     ) -> None:
@@ -179,6 +182,8 @@ class GraphService(BaseService):
         properties = self._map_entity_properties(entity)
         properties["id"] = entity.canonical_key
         properties["workflow_id"] = str(workflow_id)
+        if doc_uuid:
+            properties["document_id"] = str(doc_uuid)
 
         if source_chunk_id:
             properties["source_chunk_id"] = source_chunk_id
@@ -234,7 +239,8 @@ class GraphService(BaseService):
     async def _create_entity_nodes_batch(
         self,
         entities_with_prov: list[tuple],
-        workflow_id: uuid.UUID
+        workflow_id: uuid.UUID,
+        doc_uuid: Optional[uuid.UUID] = None
     ) -> int:
         """Batch create entity nodes grouped by type for optimal performance.
 
@@ -268,6 +274,8 @@ class GraphService(BaseService):
                     properties = self._map_entity_properties(entity)
                     properties["id"] = entity.canonical_key
                     properties["workflow_id"] = str(workflow_id)
+                    if doc_uuid:
+                        properties["document_id"] = str(doc_uuid)
 
                     if source_chunk_id:
                         properties["source_chunk_id"] = source_chunk_id
@@ -308,7 +316,7 @@ class GraphService(BaseService):
                 # Fallback to individual creation if batch fails
                 for entity, source_chunk_id, source_section in entity_group:
                     try:
-                        await self._create_entity_node(entity, workflow_id, source_chunk_id, source_section)
+                        await self._create_entity_node(entity, workflow_id, doc_uuid, source_chunk_id, source_section)
                         total_created += 1
                     except Exception as e2:
                         LOGGER.error(f"Failed to create entity node: {e2}", extra={"entity_id": str(entity.id)})

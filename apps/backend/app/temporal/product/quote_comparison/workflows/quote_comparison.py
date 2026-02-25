@@ -90,7 +90,8 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
                     skip_processed=doc_readiness["processed"],
                     skip_extraction=doc_readiness["extracted"],
                     skip_enrichment=doc_readiness["enriched"],
-                    skip_indexing=doc_readiness["indexed"]
+                    skip_indexing=doc_readiness["indexed"],
+                    document_name=next((doc.get("document_name") for doc in documents if doc.get("document_id") == doc_id), None)
                 )
                 
                 await self.process_document(doc_id, config)
@@ -129,7 +130,7 @@ class QuoteComparisonWorkflow(DocumentProcessingMixin):
         self._current_step = "entity_comparison"
         self._progress = 0.98
         await workflow.execute_activity(
-            "entity_comparison_activity",
+            "quote_entity_comparison_activity",
             args=[workflow_id, document_ids, metadata.get("document_names", ["Quote 1", "Quote 2"])],
             start_to_close_timeout=timedelta(minutes=2),
         )

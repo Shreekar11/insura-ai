@@ -3,12 +3,13 @@ from datetime import timedelta
 from typing import List, Dict, Any
 from uuid import UUID
 from temporalio import activity
+from app.temporal.core.activity_registry import ActivityRegistry
 
 from app.core.database import get_async_session_context
 from app.services.workflow_service import WorkflowService
 from app.services.product.policy_comparison.policy_comparison_service import PolicyComparisonService
 from app.repositories.workflow_output_repository import WorkflowOutputRepository
-from app.services.sse_manager import SSEManager
+from app.repositories.workflow_repository import WorkflowRepository
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
@@ -76,8 +77,9 @@ async def _get_extracted_data_for_comparison(
         "effective_exclusions": exclusions,
     }
 
+@ActivityRegistry.register("quote_comparison", "quote_entity_comparison_activity")
 @activity.defn
-async def entity_comparison_activity(
+async def quote_entity_comparison_activity(
     workflow_id: str,
     document_ids: List[str],
     document_names: List[str]
@@ -98,23 +100,27 @@ async def entity_comparison_activity(
     """
     LOGGER.info(f"Starting entity comparison for workflow: {workflow_id}")
     
-    # Emit start event
-    sse_manager = SSEManager()
-    await sse_manager.emit_status_update(
-        workflow_id=UUID(workflow_id),
-        status="processing",
-        message="Running entity-level comparison...",
-        step="entity_comparison",
-        progress=0.9
-    )
 
     try:
         async with get_async_session_context() as session:
             # Initialize services and repos
             workflow_service = WorkflowService(session)
+            wf_repo = WorkflowRepository(session)
             
             comparison_service = PolicyComparisonService(session)
             output_repo = WorkflowOutputRepository(session)
+
+            # Emit start event
+            await wf_repo.emit_run_event(
+                workflow_id=UUID(workflow_id),
+                event_type="workflow:progress",
+                payload={
+                    "stage_name": "entity_comparison",
+                    "status": "processing",
+                    "message": "Running entity-level comparison...",
+                    "progress": 0.9
+                }
+            )
             
             # Fetch data using the helper
             doc1_data = await _get_extracted_data_for_comparison(
@@ -155,12 +161,15 @@ async def entity_comparison_activity(
             )
 
             # Emit completion event
-            await sse_manager.emit_status_update(
+            await wf_repo.emit_run_event(
                 workflow_id=UUID(workflow_id),
-                status="processing",
-                message="Entity comparison completed",
-                step="entity_comparison",
-                progress=0.95
+                event_type="workflow:progress",
+                payload={
+                    "stage_name": "entity_comparison",
+                    "status": "completed",
+                    "message": "Entity comparison completed",
+                    "progress": 0.95
+                }
             )
 
             return {

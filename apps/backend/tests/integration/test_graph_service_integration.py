@@ -727,9 +727,19 @@ class TestGraphServiceIntegration:
     ):
         """Test run() with document-scoped fetching."""
         # Mock repository methods for document scope
-        graph_service.entity_repo.get_by_document = AsyncMock(return_value=mock_entities[:2])
+        graph_service.entity_repo.get_with_provenance_by_document = AsyncMock(
+            return_value=[(e, None, None) for e in mock_entities[:2]]
+        )
         graph_service.rel_repo.get_by_document = AsyncMock(return_value=mock_relationships[:1])
         graph_service.emb_repo.get_by_document = AsyncMock(return_value=[])
+        graph_service.evidence_repo.get_evidence_with_mentions_by_workflow = AsyncMock(return_value=[])
+        graph_service.entity_repo.get_canonical_keys_by_ids = AsyncMock(return_value={})
+        
+        # Mock cleanup method to track calls
+        graph_service._cleanup_workflow_graph = AsyncMock()
+        graph_service._create_entity_nodes_batch = AsyncMock(return_value=2)
+        graph_service._create_relationships_batch = AsyncMock(return_value=1)
+        graph_service._create_embeddings_batch = AsyncMock(return_value=0)
         
         # Mock entity lookups
         entity_map = {e.id: e for e in mock_entities}
@@ -745,8 +755,41 @@ class TestGraphServiceIntegration:
         assert stats["errors"] == 0
         
         # Verify correct repository methods were called
-        graph_service.entity_repo.get_by_document.assert_called_once()
+        graph_service.entity_repo.get_with_provenance_by_document.assert_called_once()
         graph_service.rel_repo.get_by_document.assert_called_once()
+        
+        # VERIFY FIX: Cleanup should NOT be called for document-scoped runs
+        graph_service._cleanup_workflow_graph.assert_not_called()
+        
+    async def test_run_without_document_scope_triggers_cleanup(
+        self,
+        graph_service,
+        workflow_id,
+        mock_entities,
+        mock_relationships
+    ):
+        """Test that run() without document scope triggers full cleanup."""
+        # Mock repository methods
+        graph_service.entity_repo.get_with_provenance_by_workflow = AsyncMock(
+            return_value=[(e, None, None) for e in mock_entities]
+        )
+        graph_service.rel_repo.get_by_workflow = AsyncMock(return_value=mock_relationships)
+        graph_service.emb_repo.get_by_workflow = AsyncMock(return_value=[])
+        graph_service.evidence_repo.get_evidence_with_mentions_by_workflow = AsyncMock(return_value=[])
+        graph_service.entity_repo.get_canonical_keys_by_ids = AsyncMock(return_value={})
+        
+        # Mock cleanup method
+        graph_service._cleanup_workflow_graph = AsyncMock()
+        graph_service._create_entity_nodes_batch = AsyncMock(return_value=len(mock_entities))
+        graph_service._create_relationships_batch = AsyncMock(return_value=len(mock_relationships))
+        graph_service._create_embeddings_batch = AsyncMock(return_value=0)
+        
+        await graph_service.run(str(workflow_id))
+        
+        # VERIFY: Cleanup SHOULD be called for workflow-scoped runs
+        graph_service._cleanup_workflow_graph.assert_called_once_with(
+            uuid.UUID(str(workflow_id)) if isinstance(workflow_id, str) else workflow_id
+        )
     
     async def test_error_handling_for_missing_entities(
         self,

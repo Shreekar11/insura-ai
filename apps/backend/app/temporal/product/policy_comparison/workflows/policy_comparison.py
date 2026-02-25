@@ -125,7 +125,7 @@ class PolicyComparisonWorkflow(DocumentProcessingMixin):
         self._current_step = "entity_comparison"
         self._progress = 0.98
         await workflow.execute_activity(
-            "entity_comparison_activity",
+            "policy_entity_comparison_activity",
             args=[workflow_id, document_ids, doc_names],
             start_to_close_timeout=timedelta(seconds=120),
         )

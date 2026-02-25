@@ -201,8 +201,8 @@ class ProposalComparisonService:
 
     async def _get_extracted_data_for_comparison(self, document_id: UUID, workflow_id: UUID) -> Dict[str, Any]:
         """Helper to fetch and format extracted data for entity comparison."""
-        entities = await self.entity_repo.get_by_document(document_id, workflow_id=workflow_id)
-        sections = await self.section_repo.get_by_document(document_id)
+        entities = await self.entity_repo.get_by_document_and_workflow(document_id, workflow_id=workflow_id)
+        sections = await self.section_repo.get_by_document_and_workflow(document_id, workflow_id=workflow_id)
         
         coverages = []
         exclusions = []

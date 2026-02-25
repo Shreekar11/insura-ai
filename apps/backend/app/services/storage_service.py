@@ -77,7 +77,10 @@ class StorageService:
             LOGGER.error(f"Error uploading file to Supabase: {str(e)}", exc_info=True)
             raise AppError(f"Storage upload error: {str(e)}", original_error=e)
         finally:
-            await file.seek(0)  # Reset file pointer for future use
+            if hasattr(file, "seek") and callable(file.seek):
+                seek_res = file.seek(0)
+                if asyncio.iscoroutine(seek_res):
+                    await seek_res
 
     async def get_signed_url(
         self, 

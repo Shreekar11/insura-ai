@@ -517,8 +517,8 @@ class QuoteComparisonService:
         if result.comparison_summary.overall_confidence < Decimal("0.7"):
             status = "NEEDS_REVIEW"
         
-        # Create WorkflowOutput
-        output = WorkflowOutput(
+        # Persist result
+        await self.output_repo.create_output(
             workflow_id=workflow_id,
             workflow_definition_id=workflow_definition_id,
             workflow_name=WORKFLOW_NAME,
@@ -530,8 +530,6 @@ class QuoteComparisonService:
                 "warnings": [g.description for g in result.coverage_gaps if g.severity == "high"],
             }
         )
-        
-        await self.output_repo.create(output)
         await self.session.commit()
         
         return {

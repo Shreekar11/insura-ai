@@ -9,6 +9,8 @@ from app.temporal.product.quote_comparison.activities.quote_comparison_activitie
     generate_comparison_matrix_activity,
     persist_quote_comparison_result_activity,
 )
+from .entity_comparison_activity import quote_entity_comparison_activity
+from .generate_quote_insights_activity import generate_quote_insights_activity
 
 __all__ = [
     "quote_phase_a_preflight_activity",
@@ -18,4 +20,6 @@ __all__ = [
     "quality_evaluation_activity",
     "generate_comparison_matrix_activity",
     "persist_quote_comparison_result_activity",
+    "quote_entity_comparison_activity",
+    "generate_quote_insights_activity",
 ]

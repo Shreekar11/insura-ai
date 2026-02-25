@@ -4,22 +4,24 @@ import os
 from uuid import UUID
 from typing import Dict, Any, List
 from temporalio import activity
+from app.temporal.core.activity_registry import ActivityRegistry
 
 from app.core.database import async_session_maker
 from app.services.product.proposal_generation.proposal_comparison_service import ProposalComparisonService
 from app.utils.logging import get_logger
 
 from app.services.product.proposal_generation.assembly_service import ProposalAssemblyService
-from app.services.product.proposal_generation.pdf_service import PDFProposalService
+
 from app.services.product.proposal_generation.narrative_service import ProposalNarrativeService
 from app.repositories.proposal_repository import ProposalRepository
+from app.repositories.workflow_output_repository import WorkflowOutputRepository
+from app.repositories.document_repository import DocumentRepository
 from app.schemas.product.proposal_generation import Proposal
 from app.core.config import settings
 
 # Mock or real storage service
-from app.services.shared.storage_service import StorageService
+from app.services.storage_service import StorageService
 
-from app.services.product.proposal_generation.canonical_mapping_service import CanonicalMappingService
 
 LOGGER = get_logger(__name__)
 
@@ -176,13 +178,14 @@ async def assemble_proposal_activity(payload: Dict[str, Any]) -> Dict[str, Any]:
 async def generate_pdf_activity(proposal_data: Dict[str, Any]) -> str:
     """Generate PDF and upload to storage."""
     proposal = Proposal(**proposal_data)
+    from app.services.product.proposal_generation.pdf_service import PDFProposalService
     pdf_service = PDFProposalService()
     
     pdf_buffer = pdf_service.generate_pdf(proposal)
     
     # Upload to storage
     storage_service = StorageService()
-    bucket = "proposals"
+    bucket = "docs"
     path = f"{proposal.proposal_id}.pdf"
     
     await storage_service.upload_file(
@@ -209,7 +212,7 @@ async def persist_proposal_activity(proposal_data: Dict[str, Any], pdf_path: str
             insured_name=proposal.insured_name,
             carrier_name=proposal.carrier_name,
             policy_type=proposal.policy_type,
-            proposal_json=proposal.model_dump(),
+            proposal_json=proposal.model_dump(mode="json"),
             executive_summary=proposal.executive_summary,
             pdf_path=pdf_path
         )

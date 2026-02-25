@@ -19,6 +19,7 @@ import httpx
 
 from app.core.config import settings
 
+
 # Trigger discovery of all components
 from app.temporal.core.discovery import discover_all
 discover_all()
@@ -41,21 +42,6 @@ async def health():
 async def root():
     return {"message": "Temporal Worker is running", "health": "/health"}
 
-async def ping_health_endpoint():
-    """Background task to ping the health endpoint every minute."""
-    url = "https://insura-ai-worker.onrender.com/health"
-    await asyncio.sleep(60)  # Wait for initial startup
-    
-    async with httpx.AsyncClient() as client:
-        while True:
-            try:
-                logger.info(f"Pinging health endpoint: {url}")
-                response = await client.get(url, timeout=10.0)
-                logger.info(f"Health ping status: {response.status_code}")
-            except Exception as e:
-                logger.error(f"Health ping failed: {e}")
-            
-            await asyncio.sleep(60)
 
 async def run_health_check_server():
     """Run the health check server."""
@@ -148,8 +134,7 @@ async def main():
     # The health check server binds to the port immediately, satisfying Render's requirements
     await asyncio.gather(
         run_health_check_server(), 
-        run_workers(),
-        ping_health_endpoint()
+        run_workers()
     )
 
 

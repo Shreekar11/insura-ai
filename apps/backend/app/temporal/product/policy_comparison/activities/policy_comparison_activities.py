@@ -112,9 +112,9 @@ async def phase_b_preflight_activity(workflow_id: str, document_ids: list[str]) 
         LOGGER.error(f"Phase B pre-flight failed for workflow {workflow_id}: {e}", exc_info=True)
         raise
 
-@ActivityRegistry.register("policy_comparison", "entity_comparison_activity")
+@ActivityRegistry.register("policy_comparison", "policy_entity_comparison_activity")
 @activity.defn
-async def entity_comparison_activity(
+async def policy_entity_comparison_activity(
     workflow_id: str,
     document_ids: list[str],
     document_names: list[str],

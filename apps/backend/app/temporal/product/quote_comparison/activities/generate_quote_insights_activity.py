@@ -1,11 +1,13 @@
 from typing import Any
 from temporalio import activity
+from app.temporal.core.activity_registry import ActivityRegistry
 from app.services.product.quote_comparison.reasoning_service import QuoteComparisonReasoningService
 from app.schemas.product.quote_comparison import QuoteComparisonResult
 from app.utils.logging import get_logger
 
 LOGGER = get_logger(__name__)
 
+@ActivityRegistry.register("quote_comparison", "generate_quote_insights_activity")
 @activity.defn
 async def generate_quote_insights_activity(
     comparison_result: dict
