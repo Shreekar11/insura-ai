@@ -1,12 +1,12 @@
 services:
   # Database - PostgreSQL with pgvector
-  insura_db:
+  insura:
     image: pgvector/pgvector:pg17
-    container_name: insura_db
+    container_name: insura
     environment:
       POSTGRES_USER: insura
       POSTGRES_PASSWORD: insura
-      POSTGRES_DB: insura_temp
+      POSTGRES_DB: insura_db
     ports:
       - "5432:5432"
     volumes:
@@ -118,13 +118,13 @@ services:
 
     container_name: insura_backend
     depends_on:
-      - insura_db
+      - insura
       - neo4j
       - temporal
     env_file:
       - ./apps/backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://insura:insura@insura_db:5432/insura
+      - DATABASE_URL=postgresql+asyncpg://insura:insura@insura:5432/insura_db
       - NEO4J_HOST=neo4j
       - NEO4J_PORT=7687
       - NEO4J_USERNAME=neo4j
@@ -147,13 +147,13 @@ services:
 
     container_name: insura_worker
     depends_on:
-      - insura_db
+      - insura
       - neo4j
       - temporal
     env_file:
       - ./apps/backend/.env
     environment:
-      - DATABASE_URL=postgresql+asyncpg://insura:insura@insura_db:5432/insura
+      - DATABASE_URL=postgresql+asyncpg://insura:insura@insura:5432/insura_db
       - NEO4J_HOST=neo4j
       - NEO4J_PORT=7687
       - NEO4J_USERNAME=neo4j

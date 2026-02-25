@@ -98,7 +98,7 @@ export default function Home() {
                     variant="ghost"
                     className="text-[#2B2C36] rounded-sm hover:text-[#2B2C36] hover:bg-gray-100"
                   >
-                    Log in
+                    Sign in
                   </Button>
                 </Link>
                 <Link href="/sign-up">
@@ -129,7 +129,7 @@ export default function Home() {
                         variant="outline"
                         className="text-[#2B2C36] rounded-sm hover:text-[#2B2C36] hover:bg-gray-100"
                       >
-                        Log in
+                        Sign in
                       </Button>
                     </Link>
                     <Link href="/sign-up">

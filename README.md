@@ -2,11 +2,15 @@
 
 ![Landing Page](apps/frontend/public/assets/readme-landing.png)
 
-> Durable AI-powered insurance document analysis workspace with GraphRAG retrieval.
+> Durable AI-powered insurance document analysis workspace.
 
 ## Solution
 
 Insura AI helps automate end-to-end insurance workflows such as Policy Comparison, Quote Comparison, and Proposal Generation. Upload insurance documents, get structured extraction data with full source traceability (citations), and interact with an AI assistant powered by a knowledge base specific to your workflow. Designed with a robust, staged durable pipeline orchestrated by Temporal, it ensures reliable execution and resumability on failure.
+
+## Demo Video
+
+[Watch Insura Demo 🚀](https://www.loom.com/share/1bde33ce22e5469ab4e11f02345a49ac)
 
 ## Features
 
@@ -16,7 +20,7 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 - **Hybrid GraphRAG Retrieval**: Combines Vector embeddings (pgvector) and Knowledge Graphs (Neo4j) for high-accuracy semantic and relational queries.
 - **Secure Document Storage**: Supabase Storage with Row-Level Security (RLS) and signed URLs.
 - **Real-Time Streaming**: Live workflow progress updates delivered via Server-Sent Events (SSE).
-- **Type Safety & Consistency**: OpenAPI-first bidirectional schemas generating Pydantic models and TypeScript clients.
+- **Type Safety & Consistency**: API Contracts with OpenAPI-first bidirectional schemas generating Pydantic models and TypeScript clients.
 
 ## System Architecture
 
@@ -54,7 +58,7 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 | ------------------------- | ---------------------------------------------- | ------------------------------------------------ | ------------------------------ |
 | **LLM Truncation**        | Long policies exceed context windows           | Hybrid chunking + batch processing               | All document types processable |
 | **Resource Constraints**  | Parallel stages exhaust CPU on low-tier infra  | Sequential stage processing                      | Stable worker availability     |
-| **Citation Paraphrasing** | LLM rephrasing breaks direct text matches      | Tiered resolution: text → semantic → placeholder | ~95% citation coverage         |
+| **Citation Paraphrasing** | LLM rephrasing breaks direct text matches      | Tiered resolution: text → semantic → placeholder | Maximum citation coverage         |
 | **Relationship Loss**     | Entities in different batches cannot be linked | Strategic overlap + synthesis pass               | Improved graph completeness    |
 
 ## Best Practices & Conventions
@@ -80,9 +84,9 @@ Insura AI helps automate end-to-end insurance workflows such as Policy Compariso
 
 - **Frontend**: [Frontend Website](https://insura-ai-sepia.vercel.app)
 - **Backend**: [Backend Server](https://insura-ai-backend.onrender.com)
-- **Temporal Worker**: Temporal Worker - http://[EC2_IP_ADDRESS]:8001
-- **Temporal Server**: Temporal Server - http://[EC2_IP_ADDRESS]:7233
-- **Temporal Web UI**: Temporal Web UI - http://[EC2_IP_ADDRESS]:8080
+- **Temporal Worker**: http://[EC2_IP_ADDRESS]:8001
+- **Temporal Server**: http://[EC2_IP_ADDRESS]:7233
+- **Temporal Web UI**: http://[EC2_IP_ADDRESS]:8080
 
 ## Future Improvements
 

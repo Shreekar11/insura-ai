@@ -100,7 +100,7 @@ export function ProposalOutputSidebar({
       {/* Header */}
       <div className="flex items-center justify-between p-4 border-b">
         <div className="flex items-center gap-2">
-          <div className="p-2 bg-indigo-100 dark:bg-indigo-900/30 text-indigo-600 rounded">
+          <div className="p-2 bg-zinc-100 dark:bg-zinc-900/30 rounded">
             <ClipboardList className="size-5" />
           </div>
           <div>
@@ -140,34 +140,6 @@ export function ProposalOutputSidebar({
             </div>
           ) : data ? (
             <>
-              {/* Quality Score Section */}
-              <section className="space-y-4">
-                <div className="flex items-center justify-between">
-                  <div className="flex items-center gap-2">
-                    <ShieldCheck className="size-4 text-indigo-600" />
-                    <h3 className="text-sm font-semibold">Quality Index</h3>
-                  </div>
-                  <Badge
-                    variant="outline"
-                    className="font-mono text-indigo-600 border-indigo-200"
-                  >
-                    {Math.round((data.quality_score ?? 0) * 100)}%
-                  </Badge>
-                </div>
-                <div className="space-y-2">
-                  <Progress
-                    value={(data.quality_score ?? 0) * 100}
-                    className="h-2"
-                  />
-                  <p className="text-[11px] text-muted-foreground leading-relaxed">
-                    This score reflects data consistency, citation density, and
-                    missing value analysis.
-                  </p>
-                </div>
-              </section>
-
-              <Separator />
-
               {/* Executive Summary */}
               <section className="space-y-3">
                 <h3 className="text-sm font-semibold flex items-center gap-2">

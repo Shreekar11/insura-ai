@@ -25,8 +25,10 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useActiveWorkflow } from "@/contexts/active-workflow-context";
+import { useRouter } from "next/navigation";
 
 export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
+  const router = useRouter();
   const pathname = usePathname();
   const { data: workflowDefinitions, isLoading } = useWorkflowDefinitions();
 
@@ -44,12 +46,15 @@ export function AppSidebar({ ...props }: React.ComponentProps<typeof Sidebar>) {
         <div className="flex items-start justify-between">
           <SidebarMenuButton
             size="lg"
-            className="hover:bg-transparent rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+            onClick={() => router.push("/")}
+            className="hover:bg-white/80 hover:cursor-pointer rounded data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
           >
             <div className="bg-[#0232D4]/90 rounded text-sidebar-primary-foreground flex aspect-square size-8 items-center justify-center">
               <Sparkle className="size-4" />
             </div>
-            <div className="grid flex-1 text-left text-sm leading-tight">
+            <div
+              className="grid flex-1 text-left text-sm leading-tight"
+            >
               <span className="truncate font-medium">InsuraAI</span>
               <span className="truncate text-xs text-gray-600">
                 AI-insurance workspace

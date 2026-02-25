@@ -299,7 +299,7 @@ export function WorkflowTimeline({
                                 <Button
                                   variant="outline"
                                   size="sm"
-                                  className="h-7 rounded text-xs border-indigo-200 text-indigo-700 hover:bg-indigo-50"
+                                  className="h-7 rounded text-xs"
                                   onClick={(e) => {
                                     e.stopPropagation();
                                     if (step.workflowId) {
