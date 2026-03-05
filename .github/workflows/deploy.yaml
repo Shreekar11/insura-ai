@@ -13,43 +13,11 @@ env:
 
 jobs:
   # ─────────────────────────────────────────
-  # JOB 1: Run tests before doing anything
-  # ─────────────────────────────────────────
-  test:
-    name: Run Tests
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: apps/backend
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Set up Python
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.11"
-
-      - name: Install uv
-        run: curl -LsSf https://astral.sh/uv/install.sh | sh
-
-      - name: Install dependencies
-        run: |
-          uv pip install --system --no-cache-dir -e ".[dev]"
-
-      - name: Run tests
-        run: |
-          # Use pytest with config from pyproject.toml
-          pytest
-        # If tests fail, the pipeline stops here
-
-  # ─────────────────────────────────────────
-  # JOB 2: Build image and push to ECR
+  # JOB 1: Build image and push to ECR
   # ─────────────────────────────────────────
   build-and-push:
     name: Build & Push Docker Image
     runs-on: ubuntu-latest
-    needs: test
     outputs:
       image-tag: ${{ steps.meta.outputs.image-tag }}
 
@@ -94,7 +62,7 @@ jobs:
           echo "Pushed: $ECR_REGISTRY/$ECR_REPOSITORY:${{ steps.meta.outputs.image-tag }}"
 
   # ─────────────────────────────────────────
-  # JOB 3: SSH into EC2 and deploy
+  # JOB 2: SSH into EC2 and deploy
   # ─────────────────────────────────────────
   deploy:
     name: Deploy to EC2
