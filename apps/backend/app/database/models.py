@@ -571,6 +571,9 @@ class SectionExtraction(Base):
     prompt_version: Mapped[str | None] = mapped_column(
         String, nullable=True, comment="Prompt template version used"
     )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, unique=True, comment="Deterministic key for idempotent extraction"
+    )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"
     )
@@ -674,6 +677,9 @@ class EntityRelationship(Base):
     )
     confidence: Mapped[Decimal | None] = mapped_column(
         Numeric, nullable=True, comment="Extraction confidence"
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(
+        String, nullable=True, index=True, unique=True, comment="Deterministic key for idempotent relationship extraction"
     )
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), server_default="NOW()"

@@ -16,6 +16,15 @@ config = context.config
 
 # Set database URL from app settings (convert asyncpg to psycopg2 for Alembic)
 database_url = settings.database_url.replace("postgresql+asyncpg://", "postgresql://")
+# Remove asyncpg-specific query parameters like statement_cache_size
+if "?" in database_url:
+    base_url, query_params = database_url.split("?", 1)
+    from urllib.parse import parse_qs, urlencode
+    params = parse_qs(query_params)
+    params.pop("statement_cache_size", None)
+    new_query = urlencode(params, doseq=True)
+    database_url = f"{base_url}?{new_query}" if new_query else base_url
+
 config.set_main_option("sqlalchemy.url", database_url)
 
 # Interpret the config file for Python logging.
