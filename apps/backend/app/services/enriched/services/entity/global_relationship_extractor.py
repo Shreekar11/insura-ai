@@ -123,23 +123,29 @@ class RelationshipExtractorGlobal:
             "Initialized RelationshipExtractorGlobal",
             extra={"model": model}
         )
+
+    @staticmethod
+    def get_idempotency_key(document_id: UUID, workflow_id: UUID) -> str:
+        """Generate a deterministic idempotency key for relationship extraction."""
+        return f"rel_ext_{document_id}_{workflow_id}"
     
     async def extract_relationships(
         self,
         document_id: UUID,
         workflow_id: Optional[UUID] = None
     ) -> List[EntityRelationship]:
-        """Extract relationships for a document using global context.
-        
-        Args:
-            document_id: Document ID
-            workflow_id: ID of the workflow
-            
-        Returns:
-            List of created EntityRelationship records
-        """
+        """Extract relationships (legacy path - compute + persist)."""
+        rel_data = await self.extract_relationships_compute(document_id, workflow_id)
+        return await self.persist_relationships(document_id, rel_data, workflow_id)
+
+    async def extract_relationships_compute(
+        self,
+        document_id: UUID,
+        workflow_id: Optional[UUID] = None
+    ) -> List[Dict[str, Any]]:
+        """Extract relationships using global context (COMPUTE ONLY)."""
         LOGGER.info(
-            f"Starting global relationship extraction",
+            f"Starting global relationship extraction (compute)",
             extra={"document_id": str(document_id)}
         )
         
@@ -156,15 +162,6 @@ class RelationshipExtractorGlobal:
         # Check if canonical entities are sparse (< 3 entities)
         is_sparse = len(canonical_entities) < 3
         
-        if is_sparse:
-            LOGGER.warning(
-                f"Sparse canonical entities ({len(canonical_entities)}), will use chunk-level candidates",
-                extra={
-                    "document_id": str(document_id),
-                    "canonical_count": len(canonical_entities)
-                }
-            )
-        
         # Fetch document and chunks
         document = await self._fetch_document(document_id)
         chunks = await self._fetch_document_chunks(document_id)
@@ -176,26 +173,16 @@ class RelationshipExtractorGlobal:
             )
             return []
         
-        # Fetch all table data (SOV items, Loss Run claims, and DocumentTables)
+        # Fetch all table data
         table_repo = TableRepository(self.session)
         sov_items = await table_repo.get_sov_items(document_id)
         loss_run_claims = await table_repo.get_loss_run_claims(document_id)
         document_tables = await table_repo.get_document_tables(document_id)
         
-        LOGGER.info(
-            f"Fetched table data for relationship extraction",
-            extra={
-                "document_id": str(document_id),
-                "sov_items_count": len(sov_items),
-                "loss_run_claims_count": len(loss_run_claims),
-                "document_tables_count": len(document_tables)
-            }
-        )
-        
         # Group chunks by section type
         section_chunks = self._group_chunks_by_section(chunks)
         
-        # Build global context (includes chunk candidates if sparse, and all table data)
+        # Build global context
         context = await self._build_global_context(
             document=document,
             document_id=document_id,
@@ -210,40 +197,57 @@ class RelationshipExtractorGlobal:
         
         # Call LLM for relationship extraction
         try:
-            relationships_data = await self._call_llm_api(context)
-            
-            # Create EntityRelationship records
-            relationships = []
-            for rel_data in relationships_data:
-                relationship = await self._create_relationship(
-                    document_id=document_id,
-                    relationship_data=rel_data,
-                    canonical_entities=canonical_entities,
-                    chunks=chunks if is_sparse else None,
-                    workflow_id=workflow_id
-                )
-                if relationship:
-                    relationships.append(relationship)
-            
-            await self.session.flush()
-            
-            LOGGER.info(
-                f"Global relationship extraction completed",
-                extra={
-                    "document_id": str(document_id),
-                    "relationships_extracted": len(relationships)
-                }
-            )
-            
-            return relationships
-            
+            return await self._call_llm_api(context)
         except Exception as e:
             LOGGER.error(
-                f"Global relationship extraction failed: {e}",
+                f"Global relationship extraction compute failed: {e}",
                 exc_info=True,
                 extra={"document_id": str(document_id)}
             )
             return []
+
+    async def persist_relationships(
+        self,
+        document_id: UUID,
+        relationships_data: List[Dict[str, Any]],
+        workflow_id: Optional[UUID] = None
+    ) -> List[EntityRelationship]:
+        """Persist extracted relationships to the database."""
+        if not relationships_data:
+            return []
+
+        # Gather canonical entities for matching
+        canonical_entities = await self._fetch_canonical_entities(document_id)
+        
+        # Check if we need chunks for matching (if relationships tagged as sparse/chunk-level)
+        is_sparse = any(rel.get("attributes", {}).get("source") == "chunk_level" for rel in relationships_data)
+        chunks = None
+        if is_sparse:
+            chunks = await self._fetch_document_chunks(document_id)
+
+        relationships = []
+        for rel_data in relationships_data:
+            relationship = await self._create_relationship(
+                document_id=document_id,
+                relationship_data=rel_data,
+                canonical_entities=canonical_entities,
+                chunks=chunks,
+                workflow_id=workflow_id
+            )
+            if relationship:
+                relationships.append(relationship)
+        
+        await self.session.flush()
+        
+        LOGGER.info(
+            f"Persisted {len(relationships)} relationships",
+            extra={
+                "document_id": str(document_id),
+                "relationships_persisted": len(relationships)
+            }
+        )
+        
+        return relationships
     
     async def _fetch_canonical_entities(
         self,
@@ -1464,7 +1468,8 @@ NO markdown backticks, NO explanations, JUST the JSON object.
             target_entity_id=target_entity.id,
             relationship_type=rel_type,
             confidence=relationship_data.get("confidence", 0.8),
-            attributes=attributes
+            attributes=attributes,
+            idempotency_key=f"{document_id}_{workflow_id}_{source_entity.id}_{target_entity.id}_{rel_type}"
         )
         
         # If rel_id is provided, try to use it (must be valid UUID or we let it be)

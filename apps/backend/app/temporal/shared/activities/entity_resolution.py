@@ -98,12 +98,57 @@ async def resolve_canonical_entities(workflow_id: str, document_id: str, aggrega
 @ActivityRegistry.register("shared", "extract_relationships")
 @activity.defn
 async def extract_relationships(workflow_id: str, document_id: str) -> List[Dict]:
-    """Extract relationships between canonical entities (Pass 2)."""
+    """Extract relationships between canonical entities (Legacy)."""
+    # Simply call compute and then persist for backward compatibility
+    rel_data = await extract_relationships_compute(workflow_id, document_id)
+    return await persist_relationships(workflow_id, document_id, rel_data)
+
+
+@ActivityRegistry.register("shared", "extract_relationships_compute")
+@activity.defn
+async def extract_relationships_compute(workflow_id: str, document_id: str) -> List[Dict]:
+    """Extract relationships (COMPUTE ONLY) with idempotency check."""
+    from app.repositories.entity_repository import EntityRelationshipRepository
+    try:
+        async with async_session_maker() as session:
+            # 1. Idempotency Check (Read-Before-Write)
+            # RelationshipExtractorGlobal.get_idempotency_key(document_id, workflow_id)
+            # But wait, RelationshipExtractorGlobal returns a LIST. 
+            # We check if any relationship already exists for this workflow/document.
+            rel_repo = EntityRelationshipRepository(session)
+            existing = await rel_repo.get_by_workflow(UUID(workflow_id))
+            if existing:
+                LOGGER.info(f"Relationships already exist for workflow {workflow_id}, skipping compute")
+                return [{
+                    "id": str(rel.id),
+                    "source_entity_id": str(rel.source_entity_id) if rel.source_entity_id else None,
+                    "target_entity_id": str(rel.target_entity_id) if rel.target_entity_id else None,
+                    "relationship_type": rel.relationship_type,
+                    "attributes": rel.attributes,
+                    "confidence": float(rel.confidence) if rel.confidence else None,
+                } for rel in existing]
+
+            pipeline = EntityResolutionPipeline(session)
+            relationship_data = await pipeline.extract_relationships_compute(
+                document_id=UUID(document_id),
+                workflow_id=UUID(workflow_id),
+            )
+            return relationship_data
+    except Exception as e:
+        activity.logger.error(f"Relationship extraction compute failed for {document_id}: {e}")
+        raise
+
+
+@ActivityRegistry.register("shared", "persist_relationships")
+@activity.defn
+async def persist_relationships(workflow_id: str, document_id: str, relationships_data: List[Dict]) -> List[Dict]:
+    """Persist relationships (PERSIST ONLY)."""
     try:
         async with async_session_maker() as session:
             pipeline = EntityResolutionPipeline(session)
-            relationship_records = await pipeline.extract_relationships(
+            relationship_records = await pipeline.persist_relationships(
                 document_id=UUID(document_id),
+                relationships=relationships_data,
                 workflow_id=UUID(workflow_id),
             )
             await session.commit()
@@ -120,7 +165,7 @@ async def extract_relationships(workflow_id: str, document_id: str) -> List[Dict
                 })
             return relationships
     except Exception as e:
-        activity.logger.error(f"Relationship extraction failed for {document_id}: {e}")
+        activity.logger.error(f"Relationship persistence failed for {document_id}: {e}")
         raise
 
 

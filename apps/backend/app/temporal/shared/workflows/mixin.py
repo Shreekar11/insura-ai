@@ -296,9 +296,20 @@ class DocumentProcessingMixin:
         )
 
         extraction_result = await workflow.execute_activity(
-            "extract_section_fields",
+            "extract_section_fields_compute",
             args=[workflow_id, document_id, target_sections, target_entities],
             start_to_close_timeout=timedelta(minutes=30),
+            retry_policy=RetryPolicy(
+                initial_interval=timedelta(seconds=5),
+                maximum_attempts=3,
+            ),
+        )
+
+        # Persist results
+        await workflow.execute_activity(
+            "persist_extraction_results",
+            args=[workflow_id, document_id, extraction_result],
+            start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),
                 maximum_attempts=3,
@@ -401,10 +412,24 @@ class DocumentProcessingMixin:
                 start_to_close_timeout=timedelta(minutes=3),
             )
             
-            relationships = await workflow.execute_activity(
-                "extract_relationships",
+            relationships_data = await workflow.execute_activity(
+                "extract_relationships_compute",
                 args=[workflow_id, document_id],
                 start_to_close_timeout=timedelta(minutes=10),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=3,
+                ),
+            )
+            
+            relationships = await workflow.execute_activity(
+                "persist_relationships",
+                args=[workflow_id, document_id, relationships_data],
+               start_to_close_timeout=timedelta(minutes=5),
+               retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=3,
+                ),
             )
             
             output = validate_workflow_output(

@@ -54,6 +54,14 @@ class EntityResolutionPipeline:
         return canonical_ids
 
     async def extract_relationships(self, document_id: UUID, workflow_id: UUID) -> List[Any]:
-        """Extract relationships between canonical entities."""
+        """Extract relationships between canonical entities (Legacy)."""
         return await self.relationship_extractor.extract_relationships(document_id, workflow_id)
+
+    async def extract_relationships_compute(self, document_id: UUID, workflow_id: UUID) -> List[Dict[str, Any]]:
+        """Extract relationships (COMPUTE ONLY)."""
+        return await self.relationship_extractor.extract_relationships_compute(document_id, workflow_id)
+
+    async def persist_relationships(self, document_id: UUID, relationships: List[Dict[str, Any]], workflow_id: UUID) -> List[Any]:
+        """Persist relationships (PERSIST ONLY)."""
+        return await self.relationship_extractor.persist_relationships(document_id, relationships, workflow_id)
 
