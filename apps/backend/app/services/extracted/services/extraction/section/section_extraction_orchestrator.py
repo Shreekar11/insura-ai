@@ -84,6 +84,19 @@ class SectionExtractionResult:
             "extraction_id": str(self.extraction_id) if self.extraction_id else None,
         }
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "SectionExtractionResult":
+        """Reconstruct from dictionary."""
+        return cls(
+            section_type=SectionType(data["section_type"]),
+            extracted_data=data["extracted_data"],
+            entities=data["entities"],
+            confidence=data["confidence"],
+            token_count=data["token_count"],
+            processing_time_ms=data["processing_time_ms"],
+            extraction_id=UUID(data["extraction_id"]) if data.get("extraction_id") else None,
+        )
+
 
 @dataclass
 class DocumentExtractionResult:
@@ -130,6 +143,20 @@ class DocumentExtractionResult:
             "effective_exclusions": self.effective_exclusions,
             "synthesis_metadata": self.synthesis_metadata,
         }
+
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "DocumentExtractionResult":
+        """Reconstruct from dictionary."""
+        return cls(
+            document_id=UUID(data["document_id"]) if data.get("document_id") else None,
+            section_results=[SectionExtractionResult.from_dict(sr) for sr in data["section_results"]],
+            all_entities=data["all_entities"],
+            total_tokens=data["total_tokens"],
+            total_processing_time_ms=data["total_processing_time_ms"],
+            effective_coverages=data["effective_coverages"],
+            effective_exclusions=data["effective_exclusions"],
+            synthesis_metadata=data["synthesis_metadata"],
+        )
 
 
 # Batching thresholds for section extraction
@@ -264,6 +291,11 @@ class SectionExtractionOrchestrator:
         LOGGER.debug(
             f"Registered {len(extractor_registry)} section extractors with factory"
         )
+
+    @staticmethod
+    def get_idempotency_key(workflow_id: UUID, document_id: UUID, section_type: str) -> str:
+        """Generate deterministic idempotency key for extraction."""
+        return f"{workflow_id}:{document_id}:{section_type}"
     
     def _get_section_aliases(self, section_type: SectionType) -> List[str]:
         """Get common aliases for a section type."""
@@ -436,9 +468,9 @@ class SectionExtractionOrchestrator:
                 result.effective_exclusions = []
                 result.synthesis_metadata = {"error": str(e)}
 
-        # Persist extraction results
+        # Persist extraction results (OLD WAY - for backward compatibility)
         if workflow_id and document_id:
-            await self._persist_step_outputs(result, workflow_id)
+            await self.persist_document_extraction_result(result, workflow_id)
 
         LOGGER.info(
             "Section extraction completed",
@@ -451,6 +483,107 @@ class SectionExtractionOrchestrator:
         )
 
         return result
+
+    async def extract_section_compute(
+        self,
+        super_chunk: SectionSuperChunk,
+        document_id: UUID,
+        workflow_id: UUID,
+    ) -> SectionExtractionResult:
+        """Perform LLM extraction for a section WITHOUT persisting.
+        
+        Args:
+            super_chunk: Section super-chunk
+            document_id: Document ID
+            workflow_id: Workflow ID
+            
+        Returns:
+            SectionExtractionResult
+        """
+        # Determine if batching is needed
+        if (super_chunk.total_tokens > BATCH_TOKEN_THRESHOLD or 
+            len(super_chunk.chunks) > BATCH_CHUNK_THRESHOLD):
+            return await self._extract_section_batched_compute(super_chunk, document_id, workflow_id)
+        
+        return await self._extract_section_single_compute(super_chunk, document_id, workflow_id)
+
+    async def persist_document_extraction_result(
+        self,
+        result: DocumentExtractionResult,
+        workflow_id: UUID,
+    ):
+        """Persist all results in a DocumentExtractionResult.
+        
+        Args:
+            result: Complete result
+            workflow_id: Workflow ID
+        """
+        # 1. Persist each section extraction
+        for section_res in result.section_results:
+            if not section_res.extracted_data and section_res.confidence == 0.0:
+                 continue
+            
+            # Re-generate source_chunks if not present (needed if persisting from external data)
+            # This is a bit tricky since SectionExtractionResult doesn't store full source chunks
+            # but usually it's called right after extraction where we have them.
+            
+            # If extraction_id is already set, it means it was already persisted
+            # but we might still need to persist step outputs
+            pass
+
+        # 2. Persist step outputs
+        await self._persist_step_outputs(result, workflow_id)
+        await self.session.commit()
+
+    async def persist_section_extraction(
+        self,
+        section_result: SectionExtractionResult,
+        document_id: UUID,
+        workflow_id: UUID,
+        source_chunks: Optional[Dict[str, Any]] = None,
+    ) -> UUID:
+        """Persist a single section extraction result.
+        
+        Args:
+            section_result: Result to persist
+            document_id: Document ID
+            workflow_id: Workflow ID
+            source_chunks: Source chunk metadata
+            
+        Returns:
+            UUID of created extraction record
+        """
+        idempotency_key = self.get_idempotency_key(workflow_id, document_id, section_result.section_type.value)
+        
+        # Build page_range dict
+        page_range_dict = None
+        # Try to infer from section_result if we can, but usually we pass it in
+        
+        # Include entities in extracted_fields
+        extracted_fields_with_entities = {
+            **section_result.extracted_data,
+            "entities": section_result.entities
+        }
+        
+        confidence_dict = {"overall": section_result.confidence}
+
+        extraction = await self.section_extraction_repo.create_section_extraction(
+            document_id=document_id,
+            workflow_id=workflow_id,
+            section_type=section_result.section_type.value,
+            extracted_fields=extracted_fields_with_entities,
+            page_range=None, # Filled by repo or passed in
+            confidence=confidence_dict,
+            source_chunks=source_chunks,
+            model_version=self.model,
+            prompt_version="v1_split",
+        )
+        
+        # Set idempotency key explicitly
+        extraction.idempotency_key = idempotency_key
+        await self.session.flush()
+        
+        return extraction.id
     
     async def _persist_step_outputs(
         self,
@@ -557,7 +690,54 @@ class SectionExtractionOrchestrator:
         document_id: UUID,
         workflow_id: UUID,
     ) -> SectionExtractionResult:
-        """Extract data from a single section super-chunk using factory pattern.
+        """Extract data and PERSIST (legacy path)."""
+        result = await self._extract_section_single_compute(super_chunk, document_id, workflow_id)
+        
+        if document_id and workflow_id:
+            # Re-build source_chunks
+            all_stable_ids = [c.metadata.stable_chunk_id for c in super_chunk.chunks if c.metadata.stable_chunk_id]
+            source_chunks = {
+                "chunk_ids": [],
+                "stable_chunk_ids": all_stable_ids,
+                "page_range": super_chunk.page_range,
+            }
+            extraction_id = await self.persist_section_extraction(
+                result, document_id, workflow_id, source_chunks
+            )
+            result.extraction_id = extraction_id
+            
+        return result
+
+    async def _extract_section_batched(
+        self,
+        super_chunk: SectionSuperChunk,
+        document_id: UUID,
+        workflow_id: UUID,
+    ) -> SectionExtractionResult:
+        """Extract data (batched) and PERSIST (legacy path)."""
+        result = await self._extract_section_batched_compute(super_chunk, document_id, workflow_id)
+        
+        if document_id and workflow_id:
+            all_stable_ids = [c.metadata.stable_chunk_id for c in super_chunk.chunks if c.metadata.stable_chunk_id]
+            source_chunks = {
+                "chunk_ids": [],
+                "stable_chunk_ids": all_stable_ids,
+                "page_range": super_chunk.page_range,
+            }
+            extraction_id = await self.persist_section_extraction(
+                result, document_id, workflow_id, source_chunks
+            )
+            result.extraction_id = extraction_id
+            
+        return result
+
+    async def _extract_section_single_compute(
+        self,
+        super_chunk: SectionSuperChunk,
+        document_id: UUID,
+        workflow_id: UUID,
+    ) -> SectionExtractionResult:
+        """Extract data from a single section super-chunk WITHOUT persisting.
         
         Args:
             super_chunk: Section super-chunk to extract
@@ -570,124 +750,60 @@ class SectionExtractionOrchestrator:
         start_time = time.time()
         
         # Determine if we should use a projection extractor based on semantic role
-        # Check first chunk's metadata for semantic role if available
         extractor_key = super_chunk.section_type.value
 
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
 
-            # Normalize semantic role to string for reliable comparison
+            # Normalize semantic role
             semantic_role_str = (
                 metadata.semantic_role.value
                 if hasattr(metadata.semantic_role, 'value')
                 else str(metadata.semantic_role) if metadata.semantic_role else None
             )
 
-            # Check if this is an endorsement-based chunk (either by original_section_type or section_type)
             is_endorsement_source = (
                 metadata.original_section_type == SectionType.ENDORSEMENTS or
                 metadata.section_type == SectionType.ENDORSEMENTS
             )
 
-            # Determine routing based on semantic role and effects
-            # Priority: semantic_role > coverage_effects/exclusion_effects
-
-            # Check for Endorsement Coverage Projection
             is_coverage_modifier = (
                 semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
                 (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
             )
 
-            # Check for Endorsement Exclusion Projection
             is_exclusion_modifier = (
                 semantic_role_str in (SemanticRole.EXCLUSION_MODIFIER.value, "exclusion_modifier") or
                 (metadata.exclusion_effects and any(e for e in metadata.exclusion_effects))
             )
 
-            # Handle "both" semantic role - prioritize coverage projection but log both
             is_both_modifier = semantic_role_str in (SemanticRole.BOTH.value, "both")
 
             if is_endorsement_source:
                 if is_both_modifier:
-                    # For "both" role, use provision extractor for comprehensive extraction
                     extractor_key = "endorsement_provision"
-                    LOGGER.info(
-                        f"Routing to EndorsementProvisionExtractor for BOTH modifier "
-                        f"on pages {super_chunk.page_range}"
-                    )
                 elif is_coverage_modifier:
-                    # Use projection extractor based on role regardless of effective_type
                     extractor_key = "endorsement_coverage_projection"
-                    LOGGER.info(
-                        f"Routing to EndorsementCoverageProjectionExtractor for section on pages {super_chunk.page_range}, "
-                        f"semantic_role={semantic_role_str}, coverage_effects={metadata.coverage_effects}"
-                    )
                 elif is_exclusion_modifier:
-                    # Use projection extractor based on role regardless of effective_type
                     extractor_key = "endorsement_exclusion_projection"
-                    LOGGER.info(
-                        f"Routing to EndorsementExclusionProjectionExtractor for section on pages {super_chunk.page_range}, "
-                        f"semantic_role={semantic_role_str}, exclusion_effects={metadata.exclusion_effects}"
-                    )
-                else:
-                    # Endorsement without semantic projection - use standard endorsement extractor
-                    LOGGER.info(
-                        f"Using standard EndorsementsExtractor for pages {super_chunk.page_range}, "
-                        f"semantic_role={semantic_role_str}, effective_type={metadata.effective_section_type}"
-                    )
         
         # Get section-specific extractor from factory
-        extractor = self.factory.get_extractor(extractor_key)
-        
-        # Fallback to default extractor if not found
-        if not extractor:
-            LOGGER.warning(
-                f"No extractor found for section type {super_chunk.section_type.value}, using default",
-                extra={"section_type": super_chunk.section_type.value}
-            )
-            extractor = self.factory.get_extractor("default")
-            if not extractor:
-                # Create default extractor directly if not registered
-                extractor = DefaultSectionExtractor(
-                    session=self.session,
-                    provider=self.provider,
-                    gemini_api_key=self.factory.gemini_api_key,
-                    gemini_model=self.factory.gemini_model,
-                    openrouter_api_key=self.factory.openrouter_api_key,
-                    openrouter_model=self.factory.openrouter_model,
-                    openrouter_api_url=self.factory.openrouter_api_url,
-                )
-        
-        # Combine chunk texts
-        section_text = super_chunk.get_contextualized_text()
-        
-        LOGGER.debug(
-            f"Extracting section: {super_chunk.section_type.value} using {extractor.__class__.__name__}",
-            extra={
-                "document_id": str(document_id) if document_id else None,
-                "chunk_count": len(super_chunk.chunks),
-                "total_tokens": super_chunk.total_tokens,
-                "extractor_class": extractor.__class__.__name__,
-            }
-        )
+        extractor = self.factory.get_extractor(extractor_key) or self.factory.get_extractor("default")
         
         try:
             # Use helper to run extraction call
             parsed = await self._run_extraction_call(extractor, super_chunk)
             
             if parsed is None:
-                LOGGER.warning(f"Failed to parse extraction response for {super_chunk.section_type}")
                 parsed = {}
             
-            # Extract fields using extractor's method
+            # Extract fields
             if hasattr(extractor, 'extract_fields'):
                 extracted_data = extractor.extract_fields(parsed)
             else:
-                # Fallback to old method
                 extracted_data = self._extract_section_data(parsed, super_chunk.section_type)
 
-            # Inject page_numbers into extracted items for citation support
-            # This ensures each coverage/exclusion has page info for source mapping
+            # Inject page_numbers
             if super_chunk.page_range:
                 extracted_data = self._inject_page_numbers(
                     extracted_data,
@@ -695,8 +811,7 @@ class SectionExtractionOrchestrator:
                     super_chunk.section_type.value
                 )
 
-            # Tag projection type for downstream synthesis routing
-            # This preserves which projection extractor produced the data
+            # Tag projection type
             if extractor_key == "endorsement_coverage_projection":
                 extracted_data["_projection_type"] = "coverage"
             elif extractor_key == "endorsement_exclusion_projection":
@@ -704,78 +819,7 @@ class SectionExtractionOrchestrator:
 
             entities = parsed.get("entities", [])
             confidence = float(parsed.get("confidence", 0.0))
-            
             processing_time = int((time.time() - start_time) * 1000)
-            
-            extraction_id = None
-            
-            # Persist section extraction to database
-            if document_id and workflow_id:
-                try:
-                    # Build source_chunks reference from super_chunk
-                    source_chunks = {
-                        "chunk_ids": [],
-                        "stable_chunk_ids": [],
-                        "page_range": super_chunk.page_range,
-                    }
-                    
-                    # Extract chunk IDs from super_chunk chunks
-                    for chunk in super_chunk.chunks:
-                        if chunk.metadata.stable_chunk_id:
-                            source_chunks["stable_chunk_ids"].append(chunk.metadata.stable_chunk_id)
-                    
-                    # Build page_range dict
-                    page_range_dict = None
-                    if super_chunk.page_range:
-                        page_range_dict = {
-                            "start": min(super_chunk.page_range),
-                            "end": max(super_chunk.page_range),
-                        }
-                    
-                    # Build confidence dict
-                    confidence_dict = None
-                    if confidence > 0:
-                        confidence_dict = {
-                            "overall": confidence,
-                            "section_type": super_chunk.section_type.value,
-                        }
-                    
-                    # Include entities in extracted_fields so they can be retrieved later
-                    extracted_fields_with_entities = {
-                        **extracted_data,
-                        "entities": entities  # Store entities for entity aggregation
-                    }
-                    
-                    extraction = await self.section_extraction_repo.create_section_extraction(
-                        document_id=document_id,
-                        workflow_id=workflow_id,
-                        section_type=super_chunk.section_type.value,
-                        extracted_fields=extracted_fields_with_entities,
-                        page_range=page_range_dict,
-                        confidence=confidence_dict,
-                        source_chunks=source_chunks if source_chunks["stable_chunk_ids"] else None,
-                        model_version=self.model,
-                        prompt_version="v1",
-                    )
-                    extraction_id = extraction.id
-                    
-                    LOGGER.debug(
-                        "Persisted section extraction",
-                        extra={
-                            "workflow_id": str(workflow_id),
-                            "document_id": str(document_id),
-                            "section_type": super_chunk.section_type.value,
-                        }
-                    )
-                except Exception as e:
-                    LOGGER.warning(
-                        f"Failed to persist section extraction: {e}",
-                        exc_info=True,
-                        extra={
-                            "document_id": str(document_id),
-                            "section_type": super_chunk.section_type.value,
-                        }
-                    )
             
             return SectionExtractionResult(
                 section_type=super_chunk.section_type,
@@ -784,18 +828,11 @@ class SectionExtractionOrchestrator:
                 confidence=confidence,
                 token_count=super_chunk.total_tokens,
                 processing_time_ms=processing_time,
-                extraction_id=extraction_id,
+                extraction_id=None,
             )
             
         except Exception as e:
-            LOGGER.error(
-                f"Section extraction failed: {e}",
-                exc_info=True,
-                extra={
-                    "section_type": super_chunk.section_type.value,
-                    "extractor_class": extractor.__class__.__name__,
-                }
-            )
+            LOGGER.error(f"Section extraction compute failed: {e}", exc_info=True)
             raise
 
     def _inject_page_numbers(
@@ -981,47 +1018,38 @@ class SectionExtractionOrchestrator:
 
         return groups
 
-    async def _extract_section_batched(
+    async def _extract_section_batched_compute(
         self,
         super_chunk: SectionSuperChunk,
         document_id: UUID,
         workflow_id: UUID,
     ) -> SectionExtractionResult:
-        """Extract data from a section in multiple batches.
-
-        For endorsement sections, chunks are first grouped by endorsement to ensure
-        multi-page endorsements are processed together for accurate extraction.
-
+        """Extract data from a section in multiple batches WITHOUT persisting.
+        
         Args:
-            super_chunk: Large section super-chunk to extract
+            super_chunk: Large section super-chunk
             document_id: Document ID
             workflow_id: Workflow ID
-
+            
         Returns:
             SectionExtractionResult (aggregated)
         """
         start_time = time.time()
 
-        # Determine extractor to use (same logic as single extraction)
+        # Determine extractor to use
         extractor_key = super_chunk.section_type.value
         is_endorsement_projection = False
         if super_chunk.chunks:
             metadata = super_chunk.chunks[0].metadata
-
-            # Normalize semantic role to string for reliable comparison
             semantic_role_str = (
                 metadata.semantic_role.value
                 if hasattr(metadata.semantic_role, 'value')
                 else str(metadata.semantic_role) if metadata.semantic_role else None
             )
-
-            # Check if this is an endorsement-based chunk
             is_endorsement_source = (
                 metadata.original_section_type == SectionType.ENDORSEMENTS or
                 metadata.section_type == SectionType.ENDORSEMENTS
             )
-
-            # Determine routing based on semantic role and effects
             is_coverage_modifier = (
                 semantic_role_str in (SemanticRole.COVERAGE_MODIFIER.value, "coverage_modifier") or
                 (metadata.coverage_effects and any(e for e in metadata.coverage_effects))
@@ -1036,10 +1064,9 @@ class SectionExtractionOrchestrator:
                 if is_both_modifier:
                     if metadata.effective_section_type == SectionType.EXCLUSIONS:
                         extractor_key = "endorsement_exclusion_projection"
-                        is_endorsement_projection = True
                     else:
                         extractor_key = "endorsement_coverage_projection"
-                        is_endorsement_projection = True
+                    is_endorsement_projection = True
                 elif is_coverage_modifier and metadata.effective_section_type == SectionType.COVERAGES:
                     extractor_key = "endorsement_coverage_projection"
                     is_endorsement_projection = True
@@ -1047,70 +1074,42 @@ class SectionExtractionOrchestrator:
                     extractor_key = "endorsement_exclusion_projection"
                     is_endorsement_projection = True
 
-            LOGGER.info(
-                f"Batched extraction routing: extractor_key={extractor_key}, "
-                f"is_endorsement_projection={is_endorsement_projection}, "
-                f"semantic_role={semantic_role_str}, pages={super_chunk.page_range}"
-            )
-
         extractor = self.factory.get_extractor(extractor_key) or self.factory.get_extractor("default")
 
-        # For endorsement projections, group by endorsement first to keep multi-page endorsements together
+        # Grouping logic
         if is_endorsement_projection or super_chunk.section_type == SectionType.ENDORSEMENTS:
             endorsement_groups = self._group_chunks_by_endorsement(super_chunk.chunks)
-
-            # Create batches from endorsement groups, keeping each endorsement together
             chunk_batches = []
             current_batch = []
             current_tokens = 0
-
             for endo_group in endorsement_groups:
                 group_tokens = sum(c.metadata.token_count for c in endo_group)
-
-                # If adding this endorsement exceeds threshold, finalize current batch first
                 if current_batch and (current_tokens + group_tokens > BATCH_TOKEN_THRESHOLD or
                                     len(current_batch) + len(endo_group) > BATCH_CHUNK_THRESHOLD):
                     chunk_batches.append(current_batch)
                     current_batch = []
                     current_tokens = 0
-
-                # Add entire endorsement group together (never split a single endorsement)
                 current_batch.extend(endo_group)
                 current_tokens += group_tokens
-
             if current_batch:
                 chunk_batches.append(current_batch)
-
-            LOGGER.info(
-                f"Created {len(chunk_batches)} batches from {len(endorsement_groups)} endorsement groups "
-                f"for section {super_chunk.section_type.value}"
-            )
         else:
-            # Standard batching for non-endorsement sections
             chunk_batches = []
             current_batch = []
             current_tokens = 0
-
             for chunk in super_chunk.chunks:
                 if current_batch and (current_tokens + chunk.metadata.token_count > BATCH_TOKEN_THRESHOLD or
                                     len(current_batch) >= BATCH_CHUNK_THRESHOLD):
                     chunk_batches.append(current_batch)
                     current_batch = []
                     current_tokens = 0
-
                 current_batch.append(chunk)
                 current_tokens += chunk.metadata.token_count
-
             if current_batch:
                 chunk_batches.append(current_batch)
-            
-        LOGGER.info(f"Split section {super_chunk.section_type.value} into {len(chunk_batches)} batches")
 
         parsed_results = []
         total_input_tokens = 0
-        failed_batches = []
-        successful_batches = 0
-
         for i, batch in enumerate(chunk_batches):
             batch_super_chunk = SectionSuperChunk(
                 section_type=super_chunk.section_type,
@@ -1118,73 +1117,28 @@ class SectionExtractionOrchestrator:
                 chunks=batch,
                 document_id=document_id,
             )
-
-            # Get page range for this batch for logging
-            batch_pages = []
-            for chunk in batch:
-                if chunk.metadata.page_range:
-                    batch_pages.extend(chunk.metadata.page_range)
-                else:
-                    batch_pages.append(chunk.metadata.page_number)
-            batch_page_range = f"{min(batch_pages)}-{max(batch_pages)}" if batch_pages else "unknown"
-
             try:
-                LOGGER.debug(
-                    f"Processing batch {i+1}/{len(chunk_batches)} for {super_chunk.section_type.value} "
-                    f"(pages {batch_page_range}, {batch_super_chunk.total_tokens} tokens)"
-                )
                 parsed = await self._run_extraction_call(extractor, batch_super_chunk)
                 if parsed:
                     parsed_results.append(parsed)
-                    successful_batches += 1
-
-                    # Log extraction summary for this batch
-                    if is_endorsement_projection:
-                        mods_count = len(parsed.get("modifications", []))
-                        endo_num = parsed.get("endorsement_number", "unknown")
-                        LOGGER.debug(
-                            f"Batch {i+1} extracted {mods_count} modifications from endorsement {endo_num}"
-                        )
-                else:
-                    LOGGER.warning(
-                        f"Batch {i+1} returned empty result for {super_chunk.section_type.value}"
-                    )
-                    failed_batches.append({"batch": i+1, "pages": batch_page_range, "reason": "empty_result"})
-
                 total_input_tokens += batch_super_chunk.total_tokens
-
             except Exception as e:
-                LOGGER.error(
-                    f"Batch {i+1} failed for {super_chunk.section_type.value} (pages {batch_page_range}): {e}",
-                    exc_info=True
-                )
-                failed_batches.append({"batch": i+1, "pages": batch_page_range, "reason": str(e)})
+                LOGGER.error(f"Batch {i+1} failed: {e}")
 
-        # Log summary
-        if failed_batches:
-            LOGGER.warning(
-                f"Section {super_chunk.section_type.value}: {successful_batches}/{len(chunk_batches)} batches succeeded, "
-                f"{len(failed_batches)} failed",
-                extra={"failed_batches": failed_batches}
-            )
-        
         if not parsed_results:
             return SectionExtractionResult(section_type=super_chunk.section_type)
 
-        # Aggregate results - pass is_endorsement_projection flag for proper handling
         aggregated_parsed = self._aggregate_batch_results(
             parsed_results,
             super_chunk.section_type,
             is_endorsement_projection=is_endorsement_projection
         )
         
-        # Extract fields using extractor
         if hasattr(extractor, 'extract_fields'):
             extracted_data = extractor.extract_fields(aggregated_parsed)
         else:
             extracted_data = self._extract_section_data(aggregated_parsed, super_chunk.section_type)
 
-        # Inject page numbers into extracted items for citation support (batched extraction path)
         if super_chunk.page_range:
             extracted_data = self._inject_page_numbers(
                 extracted_data,
@@ -1192,8 +1146,6 @@ class SectionExtractionOrchestrator:
                 super_chunk.section_type.value
             )
 
-        # Tag projection type for downstream synthesis routing (batched path)
-        # This preserves which projection extractor produced the data
         if extractor_key == "endorsement_coverage_projection":
             extracted_data["_projection_type"] = "coverage"
         elif extractor_key == "endorsement_exclusion_projection":
@@ -1201,45 +1153,8 @@ class SectionExtractionOrchestrator:
 
         entities = aggregated_parsed.get("entities", [])
         confidence = float(aggregated_parsed.get("confidence", 0.0))
-        
         processing_time = int((time.time() - start_time) * 1000)
         
-        # Persist (similar to single extraction logic)
-        extraction_id = None
-        if document_id and workflow_id:
-            # Aggregate stable chunk IDs from all chunks
-            all_stable_ids = [c.metadata.stable_chunk_id for c in super_chunk.chunks if c.metadata.stable_chunk_id]
-            
-            source_chunks = {
-                "chunk_ids": [],
-                "stable_chunk_ids": all_stable_ids,
-                "page_range": super_chunk.page_range,
-            }
-            
-            page_range_dict = None
-            if super_chunk.page_range:
-                page_range_dict = {"start": min(super_chunk.page_range), "end": max(super_chunk.page_range)}
-            
-            confidence_dict = {"overall": confidence, "section_type": super_chunk.section_type.value} if confidence > 0 else None
-            
-            extracted_fields_with_entities = {**extracted_data, "entities": entities}
-            
-            try:
-                extraction = await self.section_extraction_repo.create_section_extraction(
-                    document_id=document_id,
-                    workflow_id=workflow_id,
-                    section_type=super_chunk.section_type.value,
-                    extracted_fields=extracted_fields_with_entities,
-                    page_range=page_range_dict,
-                    confidence=confidence_dict,
-                    source_chunks=source_chunks if all_stable_ids else None,
-                    model_version=self.model,
-                    prompt_version="v1_batched",
-                )
-                extraction_id = extraction.id
-            except Exception as e:
-                LOGGER.warning(f"Failed to persist batched section extraction: {e}")
-
         return SectionExtractionResult(
             section_type=super_chunk.section_type,
             extracted_data=extracted_data,
@@ -1247,7 +1162,7 @@ class SectionExtractionOrchestrator:
             confidence=confidence,
             token_count=total_input_tokens,
             processing_time_ms=processing_time,
-            extraction_id=extraction_id,
+            extraction_id=None,
         )
 
     def _aggregate_batch_results(

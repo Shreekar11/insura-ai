@@ -1,0 +1,47 @@
+services:
+
+  postgres:
+    image: postgres:13
+    container_name: temporal-postgres
+    environment:
+      POSTGRES_USER: temporal
+      POSTGRES_PASSWORD: temporal
+    command: >
+      postgres
+      -c max_connections=50
+      -c shared_buffers=128MB
+      -c work_mem=4MB
+      -c effective_cache_size=512MB
+    volumes:
+      - postgres-data:/var/lib/postgresql/data
+    restart: always
+
+  temporal:
+    image: temporalio/auto-setup:latest
+    container_name: temporal-server
+    depends_on:
+      - postgres
+    environment:
+      - DB=postgresql
+      - DB_PORT=5432
+      - POSTGRES_USER=temporal
+      - POSTGRES_PWD=temporal
+      - POSTGRES_SEEDS=postgres
+      - NUM_HISTORY_SHARDS=1
+    ports:
+      - "7233:7233"
+    restart: always
+
+  temporal-ui:
+    image: temporalio/ui:latest
+    container_name: temporal-ui
+    depends_on:
+      - temporal
+    environment:
+      - TEMPORAL_ADDRESS=temporal:7233
+    ports:
+      - "8080:8080"
+    restart: always
+
+volumes:
+  postgres-data:

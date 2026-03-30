@@ -169,3 +169,18 @@ class SectionExtractionRepository(BaseRepository[SectionExtraction]):
         """
         return await super().get_by_id(extraction_id)
 
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Optional[SectionExtraction]:
+        """Get section extraction by idempotency key.
+        
+        Args:
+            idempotency_key: Deterministic key
+            
+        Returns:
+            SectionExtraction or None
+        """
+        stmt = select(SectionExtraction).where(
+            SectionExtraction.idempotency_key == idempotency_key
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
+

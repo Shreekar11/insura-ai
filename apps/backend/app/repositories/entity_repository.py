@@ -128,3 +128,18 @@ class EntityRelationshipRepository(BaseRepository[EntityRelationship]):
         ).on_conflict_do_nothing()
         await self.session.execute(stmt)
         await self.session.flush()
+
+    async def get_by_idempotency_key(self, idempotency_key: str) -> Optional[EntityRelationship]:
+        """Get relationship by idempotency key.
+        
+        Args:
+            idempotency_key: Deterministic key
+            
+        Returns:
+            EntityRelationship or None
+        """
+        stmt = select(EntityRelationship).where(
+            EntityRelationship.idempotency_key == idempotency_key
+        )
+        result = await self.session.execute(stmt)
+        return result.scalar_one_or_none()
