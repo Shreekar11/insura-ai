@@ -139,6 +139,28 @@ export class DefaultService {
         });
     }
     /**
+     * Cancel workflow
+     * @param workflowId
+     * @returns ApiResponse Workflow canceled
+     * @throws ApiError
+     */
+    public static cancelWorkflow(
+        workflowId: string,
+    ): CancelablePromise<ApiResponse> {
+        return __request(OpenAPI, {
+            method: 'POST',
+            url: '/api/v1/workflows/{workflow_id}/cancel',
+            path: {
+                'workflow_id': workflowId,
+            },
+            errors: {
+                401: `Unauthorized`,
+                404: `Workflow not found`,
+                500: `Internal server error`,
+            },
+        });
+    }
+    /**
      * Get all workflows for a workflow definition
      * @param workflowDefinitionId
      * @param limit

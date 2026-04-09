@@ -323,6 +323,34 @@ async def update_workflow(
     )
 
 
+@router.post(
+    "/{workflow_id}/cancel",
+    response_model=ApiResponse,
+    summary="Cancel workflow",
+    operation_id="cancel_workflow",
+)
+async def cancel_workflow(
+    request: Request,
+    workflow_id: UUID,
+    current_user: Annotated[CurrentUser, Depends(get_current_user)] = None,
+    user_service: Annotated[UserService, Depends(get_user_service)] = None,
+    workflow_service: Annotated[WorkflowService, Depends(get_workflow_service)] = None,
+) -> ApiResponse:
+    """Request cancellation of a running workflow."""
+    user = await user_service.get_or_create_user_from_jwt(current_user)
+    
+    result = await workflow_service.execute_cancel_workflow(
+        workflow_id=workflow_id,
+        user_id=user.id
+    )
+    
+    return create_api_response(
+        data=result,
+        message=result["message"],
+        request=request
+    )
+
+
 @router.get(
     "/{workflow_id}/status",
     response_model=ApiResponse,

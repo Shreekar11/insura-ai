@@ -12,6 +12,7 @@ import {
   IconDotsVertical,
   IconClock,
   IconFileText,
+  IconCircleOff,
 } from "@tabler/icons-react";
 import { format } from "date-fns";
 import {
@@ -23,6 +24,9 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { Button } from "@/components/ui/button";
+import { DefaultService } from "@/schema/generated/workflows";
+import { toast } from "sonner";
+import { useRouter } from "next/navigation";
 
 export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
   {
@@ -83,6 +87,11 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
           label: "Draft",
           icon: <IconFileText className="size-3.5" />,
           color: "text-gray-500 bg-gray-500/10 border-gray-500/20",
+        },
+        cancelled: {
+          label: "Cancelled",
+          icon: <IconCircleOff className="size-3.5" />,
+          color: "text-slate-500 bg-slate-500/10 border-slate-500/20",
         },
       };
 
@@ -158,6 +167,7 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
     cell: ({ row }) => {
       const [showDetails, setShowDetails] = React.useState(false);
       const workflow = row.original;
+      const router = useRouter();
 
       return (
         <>
@@ -188,10 +198,17 @@ export const workflowColumns: ColumnDef<WorkflowListItem>[] = [
               </DropdownMenuItem>
               <DropdownMenuSeparator />
               <DropdownMenuItem
-                className="!text-red-600"
-                onClick={(e) => {
+                className="!text-red-600 focus:!text-red-600"
+                onClick={async (e) => {
                   e.stopPropagation();
-                  // Cancel logic would go here
+                  try {
+                    await DefaultService.cancelWorkflow(workflow.id!);
+                    toast.success("Workflow cancellation requested");
+                    router.refresh();
+                  } catch (error) {
+                    console.error("Failed to cancel workflow:", error);
+                    toast.error("Failed to cancel workflow");
+                  }
                 }}
               >
                 Cancel Workflow

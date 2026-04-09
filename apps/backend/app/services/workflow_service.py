@@ -88,6 +88,11 @@ class WorkflowService(BaseService):
                 kwargs.get("workflow_id"),
                 kwargs.get("workflow_name")
             )
+        elif action == "cancel_workflow":
+            return await self._cancel_workflow_logic(
+                kwargs.get("workflow_id"),
+                kwargs.get("user_id")
+            )
         else:
             raise ValidationError(f"Unknown action: {action}")
 
@@ -216,6 +221,26 @@ class WorkflowService(BaseService):
             user_id=user_id
         )
 
+    async def execute_cancel_workflow(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Dict[str, Any]:
+        """Execute workflow cancellation.
+
+        Args:
+            workflow_id: Workflow ID
+            user_id: User ID
+
+        Returns:
+            Dict containing result
+        """
+        return await self.execute(
+            action="cancel_workflow",
+            workflow_id=workflow_id,
+            user_id=user_id
+        )
+
     def validate(self, *args, **kwargs):
         """Validate service inputs based on the action being performed.
         
@@ -252,6 +277,11 @@ class WorkflowService(BaseService):
                 raise ValidationError("workflow_id is required")
             if not kwargs.get("workflow_name"):
                 raise ValidationError("workflow_name is required")
+        elif action == "cancel_workflow":
+            if not kwargs.get("workflow_id"):
+                raise ValidationError("workflow_id is required")
+            if not kwargs.get("user_id"):
+                raise ValidationError("user_id is required")
 
     def _validate_start_extraction(
         self, 
@@ -1251,3 +1281,58 @@ class WorkflowService(BaseService):
             metadata=metadata,
             workflow_id=workflow_id
         )
+
+    async def _cancel_workflow_logic(
+        self,
+        workflow_id: UUID,
+        user_id: UUID
+    ) -> Dict[str, Any]:
+        """Core logic for cancelling a workflow.
+
+        Args:
+            workflow_id: UUID of the workflow to cancel
+            user_id: UUID of the user requesting cancellation
+
+        Returns:
+            Dict containing cancellation result
+        """
+        try:
+            # 1. Fetch workflow from database
+            wf_run = await self.wf_repo.get_by_id(workflow_id)
+            if not wf_run:
+                raise ValidationError(f"Workflow {workflow_id} not found")
+            
+            if wf_run.user_id != user_id:
+                raise ValidationError("Unauthorized to cancel this workflow")
+
+            temporal_id = wf_run.temporal_workflow_id
+            if not temporal_id:
+                # If no temporal ID, just update DB status if it was pending/draft
+                self.logger.info(f"No Temporal ID for workflow {workflow_id}, updating status only.")
+            else:
+                # 2. Request cancellation from Temporal
+                self.logger.info(f"Requesting cancellation for Temporal workflow: {temporal_id}")
+                temporal_client = await get_temporal_client()
+                handle = temporal_client.get_workflow_handle(temporal_id)
+                
+                try:
+                    await handle.cancel()
+                except Exception as temporal_err:
+                    self.logger.warning(f"Failed to cancel Temporal workflow {temporal_id}: {temporal_err}")
+                    # We continue to update DB status as the user intent is clear
+
+            # 3. Update database status
+            # Mapping cancellation to 'cancelled' status
+            await self.wf_repo.update_status(workflow_id, "cancelled")
+            await self.session.commit()
+
+            return {
+                "workflow_id": str(workflow_id),
+                "status": "cancelled",
+                "message": "Workflow cancellation requested successfully."
+            }
+
+        except Exception as e:
+            self.logger.error(f"Failed to cancel workflow {workflow_id}: {e}", exc_info=True)
+            await self.session.rollback()
+            raise AppError(f"Failed to cancel workflow: {e}", original_error=e)
