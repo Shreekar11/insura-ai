@@ -87,8 +87,8 @@ async def extract_section_fields_compute(
                 return {"section_results": [], "all_entities": [], "metadata": {"filtered": True}}
 
             # 3. Perform compute-only extraction
-            # extraction_orchestrator.extract_section_compute performs idempotency checks internally
-            extraction_result = await extraction_orchestrator.extract_section_compute(
+            # extraction_orchestrator.extract_all_sections_compute performs idempotency checks internally
+            extraction_result = await extraction_orchestrator.extract_all_sections_compute(
                 super_chunks=super_chunks,
                 workflow_id=UUID(workflow_id),
                 document_id=UUID(document_id),
@@ -120,9 +120,8 @@ async def persist_extraction_results(
             extraction_orchestrator = SectionExtractionOrchestrator(session=session)
             
             await extraction_orchestrator.persist_document_extraction_result(
-                document_id=UUID(document_id),
-                workflow_id=UUID(workflow_id),
-                extraction_result=extraction_result
+                result=extraction_result,
+                workflow_id=UUID(workflow_id)
             )
             
             await session.commit()

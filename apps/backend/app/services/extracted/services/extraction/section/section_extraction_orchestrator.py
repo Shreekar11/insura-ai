@@ -345,7 +345,34 @@ class SectionExtractionOrchestrator:
         workflow_id: UUID,
         document_id: UUID,
     ) -> DocumentExtractionResult:
-        """Extract data from all section super-chunks.
+        """Extract data from all section super-chunks and PERSIST.
+        
+        Processes sections sequentially in priority order.
+        
+        Args:
+            super_chunks: List of section super-chunks
+            workflow_id: Workflow ID
+            document_id: Document ID
+            
+        Returns:
+            DocumentExtractionResult with all section extractions
+        """
+        # 1. Perform compute
+        result = await self.extract_all_sections_compute(super_chunks, workflow_id, document_id)
+        
+        # 2. Persist
+        if workflow_id and document_id:
+            await self.persist_document_extraction_result(result, workflow_id)
+            
+        return result
+
+    async def extract_all_sections_compute(
+        self,
+        super_chunks: List[SectionSuperChunk],
+        workflow_id: UUID,
+        document_id: UUID,
+    ) -> DocumentExtractionResult:
+        """Extract data from all section super-chunks WITHOUT persisting.
         
         Processes sections sequentially in priority order.
         
@@ -364,7 +391,7 @@ class SectionExtractionOrchestrator:
         llm_sections = [sc for sc in super_chunks if sc.requires_llm]
         
         LOGGER.info(
-            "Starting section extraction",
+            "Starting section extraction compute",
             extra={
                 "workflow_id": str(workflow_id),
                 "document_id": str(document_id),
@@ -388,14 +415,15 @@ class SectionExtractionOrchestrator:
                 continue
 
             try:
-                result = await self._extract_section(super_chunk, document_id, workflow_id)
+                # Use compute-only version
+                result = await self.extract_section_compute(super_chunk, document_id, workflow_id)
                 section_results.append(result)
                 all_entities.extend(result.entities)
                 total_tokens += result.token_count
                 total_time_ms += result.processing_time_ms
                 
                 LOGGER.debug(
-                    f"Extracted section: {super_chunk.section_type.value}",
+                    f"Extracted section (compute): {super_chunk.section_type.value}",
                     extra={
                         "document_id": str(document_id) if document_id else None,
                         "entities_found": len(result.entities),
@@ -438,8 +466,6 @@ class SectionExtractionOrchestrator:
                 }
 
                 # Create synthesized section results for coverages and exclusions
-                # This enables coverage-centric output where endorsements
-                # are projected into coverage and exclusion sections
                 synthesized_sections = self._create_synthesized_section_results(
                     effective_coverages=result.effective_coverages,
                     effective_exclusions=result.effective_exclusions,
@@ -459,28 +485,11 @@ class SectionExtractionOrchestrator:
                         "confidence": synthesis_result.get("overall_confidence", 0.0),
                     }
                 )
-
-                # Citation creation is deferred to the indexing stage (after chunk
-                # embeddings are generated) so Tier 2 semantic search has data.
             except Exception as e:
                 LOGGER.warning(f"Synthesis failed, continuing without: {e}")
                 result.effective_coverages = []
                 result.effective_exclusions = []
                 result.synthesis_metadata = {"error": str(e)}
-
-        # Persist extraction results (OLD WAY - for backward compatibility)
-        if workflow_id and document_id:
-            await self.persist_document_extraction_result(result, workflow_id)
-
-        LOGGER.info(
-            "Section extraction completed",
-            extra={
-                "document_id": str(document_id) if document_id else None,
-                "sections_extracted": len(section_results),
-                "total_entities": len(all_entities),
-                "total_tokens": total_tokens,
-            }
-        )
 
         return result
 
@@ -518,18 +527,21 @@ class SectionExtractionOrchestrator:
             result: Complete result
             workflow_id: Workflow ID
         """
-        # 1. Persist each section extraction
+        # 1. Persist each section extraction if not already persisted
         for section_res in result.section_results:
             if not section_res.extracted_data and section_res.confidence == 0.0:
                  continue
             
-            # Re-generate source_chunks if not present (needed if persisting from external data)
-            # This is a bit tricky since SectionExtractionResult doesn't store full source chunks
-            # but usually it's called right after extraction where we have them.
-            
-            # If extraction_id is already set, it means it was already persisted
-            # but we might still need to persist step outputs
-            pass
+            # If extraction_id is None, we need to persist it now
+            if section_res.extraction_id is None:
+                # Note: We don't have full source_chunks here if they weren't passed 
+                # but we can pass None and let the repo handle it or the extraction object ignore it
+                extraction_id = await self.persist_section_extraction(
+                    section_result=section_res,
+                    document_id=result.document_id,
+                    workflow_id=workflow_id,
+                )
+                section_res.extraction_id = extraction_id
 
         # 2. Persist step outputs
         await self._persist_step_outputs(result, workflow_id)
